@@ -12,6 +12,7 @@ import { AuditSection } from '../components/audit-section';
 import { ClusterSection, DRAIN_POLL_MS } from '../components/cluster-section';
 import { ConfigSection } from '../components/config-section';
 import { HealthSection } from '../components/health-section';
+import { MetricsCard } from '../components/metrics-card';
 import { ObjectivesSection } from '../components/objectives-section';
 import { useAudit, useConfigDoc, useGatewaySettings, useOrgSettings, useRuntime } from '../store';
 
@@ -444,5 +445,27 @@ describe('Cluster view', () => {
     signInAs(['health:read']);
     render(<ClusterSection running={null} />);
     expect(screen.queryByRole('table', { name: 'Nodes' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Metrics on Status', () => {
+  it('shows the scrape address and links to the endpoint tile in Notifications', async () => {
+    signInAs(['config:read']);
+    useOrgSettings.setState({ observability: emptySlot() });
+    server.use(
+      http.get('*/admin/v1/settings/observability', () =>
+        HttpResponse.json({
+          spec: { metrics: { path: '/prom', auth: 'none', tenant_labels: ['team'] } },
+          metadata: meta,
+        }),
+      ),
+    );
+    render(<MetricsCard />);
+    expect(await screen.findByText(`${window.location.origin}/prom`)).toBeInTheDocument();
+    expect(screen.getByText(/anyone who can reach the admin listener/)).toBeInTheDocument();
+    expect(screen.getByText('Team')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Change in Notifications' }).getAttribute('href')).toContain(
+      'settings=notifications',
+    );
   });
 });

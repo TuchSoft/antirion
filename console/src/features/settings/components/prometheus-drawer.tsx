@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { useSettingsHref } from '@/components/layout/url-sync';
 import { Button } from '@/components/ui/button';
 import { Field, Input, MultiSelect, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
@@ -65,6 +66,7 @@ export function PrometheusDrawer({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const edited = useEdited(form);
   const disabled = !canWrite;
+  const statusHref = useSettingsHref('status');
   const set = <K extends keyof PrometheusValues>(k: K, v: PrometheusValues[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (errors[k]) setErrors(({ [k]: _, ...rest }) => rest);
@@ -168,6 +170,13 @@ export function PrometheusDrawer({ onClose }: { onClose: () => void }) {
             onChange={(v) => set('tenantLabels', v as TenantLabel[])}
           />
         </Field>
+        <p className="text-caption text-muted">
+          The scrape address and what the series carry also show on{' '}
+          <a href={statusHref} className="text-accent hover:underline">
+            Status
+          </a>
+          .
+        </p>
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>

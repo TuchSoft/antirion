@@ -9,6 +9,7 @@ import { AuditSection } from './audit-section';
 import { ConfigSection } from './config-section';
 import { HealthSection } from './health-section';
 import { NodeSection } from './node-section';
+import { MetricsCard } from './metrics-card';
 import { ObjectivesSection } from './objectives-section';
 import { AdminMcpCard } from './admin-mcp-card';
 import { DangerSection } from './danger-section';
@@ -151,13 +152,15 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
         permission: 'health:read',
         label: 'Status',
         icon: 'heart',
-        description: 'How the gateway, its nodes, its deployments and its objectives are doing right now.',
+        description:
+          'How the gateway, its nodes, its deployments and its objectives are doing right now, and where its metrics are.',
         wide: true,
         aliases: ['health'],
         render: () => (
           <>
             <HealthSection />
             <ObjectivesSection />
+            <MetricsCard />
           </>
         ),
       },
