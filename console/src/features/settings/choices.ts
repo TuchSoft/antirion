@@ -30,3 +30,16 @@ export function rangeError(text: string, min: number, max?: number): string | un
     ? `Enter a whole number of at least ${min}`
     : `Enter a number from ${min} to ${max}`;
 }
+
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** `b` merged into `a`, objects member by member (b wins elsewhere); neither is changed. */
+export function deepMerge(a: Obj, b: Obj): Obj {
+  const out: Obj = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    const old = out[k];
+    out[k] = isObj(old) && isObj(v) ? deepMerge(old, v) : v;
+  }
+  return out;
+}

@@ -13,7 +13,9 @@ import { scopeOrganization, useScope } from '@/stores/scope';
 import { notify } from '@/stores/ui';
 
 import { settingsApi, type UserResource } from '../api';
-import { detailErrors, DURATION_RE, same } from '../form-errors';
+import { deepMerge, durationOptions, rangeError } from '../choices';
+import { FALLBACKS } from '../fallbacks';
+import { detailErrors, DURATION_RE, mergePatch, same } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Card, SaveBar } from './parts';
 
@@ -32,7 +34,38 @@ interface PolicyValues {
   trustedMaxAge: string;
   idle: string;
   absolute: string;
+  trustedIdle: string;
+  lockFailures: string;
+  lockWindow: string;
+  lockDuration: string;
+  throttleFailures: string;
+  throttleWindow: string;
+  inviteTtl: string;
 }
+
+/** The members added to the sign-in policy, written only when they change. */
+function extrasSpec(v: PolicyValues): Record<string, unknown> {
+  return {
+    admin: {
+      local: {
+        lockout: {
+          max_failures: Number(v.lockFailures),
+          window: v.lockWindow,
+          duration: v.lockDuration,
+        },
+      },
+      login_throttle: { max_failures: Number(v.throttleFailures), window: v.throttleWindow },
+      invitations: { ttl: v.inviteTtl },
+      session: { trusted_device: { idle_timeout: v.trustedIdle } },
+    },
+  };
+}
+
+const LOCK_WINDOWS = ['5m', '15m', '30m', '1h'];
+const LOCK_DURATIONS = ['5m', '15m', '30m', '1h', '24h'];
+const THROTTLE_WINDOWS = ['30s', '1m', '5m', '15m'];
+const INVITE_TTLS = ['1d', '3d', '7d', '14d', '30d'];
+const TRUSTED_IDLE = ['1d', '3d', '7d', '14d', '30d'];
 
 const MAX_AGES = [
   { value: 'none', label: 'Never' },
@@ -64,6 +97,13 @@ const PATHS: Record<string, keyof PolicyValues> = {
   'auth.admin.session.trusted_device': 'trustedMaxAge',
   'auth.admin.session.idle_timeout': 'idle',
   'auth.admin.session.absolute_timeout': 'absolute',
+  'auth.admin.session.trusted_device.idle_timeout': 'trustedIdle',
+  'auth.admin.local.lockout.max_failures': 'lockFailures',
+  'auth.admin.local.lockout.window': 'lockWindow',
+  'auth.admin.local.lockout.duration': 'lockDuration',
+  'auth.admin.login_throttle.max_failures': 'throttleFailures',
+  'auth.admin.login_throttle.window': 'throttleWindow',
+  'auth.admin.invitations.ttl': 'inviteTtl',
 };
 
 function check(v: PolicyValues): FieldErrors {
@@ -73,6 +113,10 @@ function check(v: PolicyValues): FieldErrors {
   const history = Number(v.history);
   if (!/^\d+$/.test(v.history) || history > 24) e.history = 'Enter a number from 0 to 24';
   if (v.factors.length === 0) e.factors = 'Keep at least one verification method';
+  const lock = rangeError(v.lockFailures, 1, 1000);
+  if (lock) e.lockFailures = lock;
+  const throttle = rangeError(v.throttleFailures, 1);
+  if (throttle) e.throttleFailures = throttle;
   if (!DURATION_RE.test(v.idle.trim())) e.idle = 'Enter a duration such as 30m or 1h';
   if (!DURATION_RE.test(v.absolute.trim())) e.absolute = 'Enter a duration such as 12h or 7d';
   const bad = v.domains.find((d) => !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d));
@@ -161,7 +205,7 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
     try {
       const authChanged = !same({ ...values, orgLocal: null }, { ...initial, orgLocal: null });
       if (authChanged) {
-        await saveAuth({
+        const base = {
           admin: {
             local: {
               enabled: values.local,
@@ -180,7 +224,9 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
               trusted_device: { enabled: values.trusted, max_age: values.trustedMaxAge },
             },
           },
-        });
+        };
+        // The added members are written only once changed, so their defaults stay defaults.
+        await saveAuth(deepMerge(base, mergePatch(extrasSpec(initial), extrasSpec(values))));
       }
       if (values.orgLocal !== initial.orgLocal) await saveOrg(org, { local_login: values.orgLocal });
       notify('success', 'Sign-in settings saved');
@@ -314,6 +360,63 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
         />
       </fieldset>
 
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-2 text-ui font-semibold text-fg">Failed sign-ins</legend>
+        <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
+          <Field
+            label="Lock an account after"
+            error={errors.lockFailures}
+            hint="Wrong passwords in a row, 1 to 1,000."
+          >
+            <NumberInput
+              value={values.lockFailures}
+              min={1}
+              max={1000}
+              disabled={disabled}
+              onChange={(v) => set('lockFailures', v)}
+            />
+          </Field>
+          <Field label="Within" error={errors.lockWindow}>
+            <Select
+              value={values.lockWindow}
+              disabled={disabled}
+              onChange={(v) => set('lockWindow', v)}
+              options={durationOptions(LOCK_WINDOWS, values.lockWindow)}
+            />
+          </Field>
+          <Field label="Locked for" error={errors.lockDuration}>
+            <Select
+              value={values.lockDuration}
+              disabled={disabled}
+              onChange={(v) => set('lockDuration', v)}
+              options={durationOptions(LOCK_DURATIONS, values.lockDuration)}
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
+          <Field
+            label="Slow down an address after"
+            error={errors.throttleFailures}
+            hint="Failed sign-ins and admin tokens from one address."
+          >
+            <NumberInput
+              value={values.throttleFailures}
+              min={1}
+              disabled={disabled}
+              onChange={(v) => set('throttleFailures', v)}
+            />
+          </Field>
+          <Field label="Within" error={errors.throttleWindow}>
+            <Select
+              value={values.throttleWindow}
+              disabled={disabled}
+              onChange={(v) => set('throttleWindow', v)}
+              options={durationOptions(THROTTLE_WINDOWS, values.throttleWindow)}
+            />
+          </Field>
+        </div>
+      </fieldset>
+
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-ui font-semibold text-fg">Single sign-on required</legend>
         <Field
@@ -386,7 +489,32 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
               options={withCurrent(TRUST_AGES, values.trustedMaxAge)}
             />
           </Field>
+          <Field label="Or unused for" error={errors.trustedIdle} className="w-44">
+            <Select
+              value={values.trustedIdle}
+              disabled={disabled || !values.trusted}
+              onChange={(v) => set('trustedIdle', v)}
+              options={durationOptions(TRUSTED_IDLE, values.trustedIdle)}
+            />
+          </Field>
         </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1 text-ui font-semibold text-fg">Invitations</legend>
+        <Field
+          label="Invitation links last"
+          error={errors.inviteTtl}
+          hint="A link not used by then must be sent again."
+          className="w-56 max-sm:w-full"
+        >
+          <Select
+            value={values.inviteTtl}
+            disabled={disabled}
+            onChange={(v) => set('inviteTtl', v)}
+            options={durationOptions(INVITE_TTLS, values.inviteTtl)}
+          />
+        </Field>
       </fieldset>
       <SaveBar dirty={dirty} busy={busy} canEdit={canEdit} onDiscard={() => setValues(initial)} />
     </form>
@@ -441,6 +569,13 @@ export function SignInSection() {
       trustedMaxAge: admin.session?.trusted_device?.max_age ?? '30d',
       idle: admin.session?.idle_timeout ?? '1h',
       absolute: admin.session?.absolute_timeout ?? '12h',
+      trustedIdle: admin.session?.trusted_device?.idle_timeout ?? FALLBACKS.trusted_device_idle,
+      lockFailures: String(local?.lockout?.max_failures ?? FALLBACKS.lockout.max_failures),
+      lockWindow: local?.lockout?.window ?? FALLBACKS.lockout.window,
+      lockDuration: local?.lockout?.duration ?? FALLBACKS.lockout.duration,
+      throttleFailures: String(admin.login_throttle?.max_failures ?? FALLBACKS.login_throttle.max_failures),
+      throttleWindow: admin.login_throttle?.window ?? FALLBACKS.login_throttle.window,
+      inviteTtl: admin.invitations?.ttl ?? FALLBACKS.invitations.ttl,
     };
   }, [admin, organization.data, org]);
   return (
