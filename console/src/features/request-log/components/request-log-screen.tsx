@@ -42,6 +42,7 @@ import {
   useLogData,
   useLogQuery,
   useLogUrlSync,
+  useLogViewLink,
   useRetention,
 } from '../hooks';
 import { useLogs } from '../store';
@@ -251,6 +252,7 @@ function NoRequests() {
  */
 export function RequestLogScreen() {
   useLogUrlSync();
+  useLogViewLink();
   const query = useLogQuery();
   useLogData(query);
   const retention = useRetention();

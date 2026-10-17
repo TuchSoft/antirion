@@ -3,7 +3,37 @@ import type { components } from '@/lib/api/schema';
 import type { LogList, LogRecord, LogView } from '@/lib/api/types';
 import { parseDuration } from '@/lib/format';
 
-import { filtersToQuery, type LogFilters, type LogSort, type SortOrder } from './types';
+import {
+  filtersToQuery,
+  metadataQuery,
+  statusCodeOf,
+  type LogFilters,
+  type LogSort,
+  type SortOrder,
+} from './types';
+
+/** The dimensions the rail counts with usage analytics. */
+export const FACET_DIMENSIONS = [
+  'provider',
+  'team',
+  'model',
+  'status_class',
+  'environment',
+  'deployment',
+  'end_user',
+  'guardrail',
+  'guardrail_verdict',
+  'guardrail_category',
+] as const;
+export type FacetDimension = (typeof FACET_DIMENSIONS)[number];
+
+/** A field of the log record, as `GET /logs/schema` describes it. */
+export interface LogField {
+  name: string;
+  /** The JSON types the field takes, `null` left out. */
+  types: string[];
+  description: string | null;
+}
 
 /** A facet's value and its count; `requested` marks a name asked for that no Model has. */
 export interface FacetValue {
@@ -50,6 +80,13 @@ function tailParams(q: LogQuery): URLSearchParams {
   for (const v of f.project) params.append('project', v);
   for (const v of f.key) params.append('key', v);
   for (const v of f.requestId) params.append('request_id', v);
+  for (const v of f.deployment) params.append('deployment', v);
+  for (const v of f.endUser) params.append('end_user', v);
+  for (const v of f.sessionId) params.append('session_id', v);
+  for (const v of f.code) params.append('code', v);
+  for (const v of f.statusCode) if (statusCodeOf(v) !== null) params.append('status_code', v.trim());
+  for (const v of f.responsePath) params.append('response_path', v);
+  for (const [k, v] of Object.entries(metadataQuery(f.metadata))) params.append(k, v);
   if (q.tag) params.append('tag', q.tag);
   params.set('from', q.from);
   return params;
@@ -130,10 +167,7 @@ export const logsApi = {
       p99: rows[0]?.latency_ms?.p99 ?? null,
     };
   },
-  facets: async (
-    q: LogQuery,
-    dimension: 'provider' | 'team' | 'model' | 'status_class' | 'environment',
-  ): Promise<FacetValue[]> => {
+  facets: async (q: LogQuery, dimension: FacetDimension): Promise<FacetValue[]> => {
     // A group's counts leave out its own filter, so its other values keep their counts once one is picked.
     const own: Partial<LogFilters> = {
       provider: { provider: [] },
@@ -141,6 +175,11 @@ export const logsApi = {
       model: { model: [], requestedModel: [] },
       status_class: { statusClass: [] },
       environment: { environment: [] },
+      deployment: { deployment: [] },
+      end_user: { endUser: [] },
+      guardrail: { guardrail: [] },
+      guardrail_verdict: { guardrailVerdict: [] },
+      guardrail_category: { guardrailCategory: [] },
     }[dimension];
     const others = { ...q, filters: { ...q.filters, ...own } };
     // Models are grouped with the name asked for too: a request for a name no Model has (no `model`)
@@ -183,12 +222,39 @@ export const logsApi = {
         buckets: 24,
       },
     }),
-  /** How long the store keeps records, from the observability settings (default 30 days). */
-  retention: async (): Promise<number | null> => {
+  /**
+   * How long the store keeps records and their content, from the observability settings (30 and 7
+   * days by default).
+   */
+  retention: async (): Promise<{ records: number | null; content: number | null }> => {
     const r = await api.get('/settings/observability');
-    const spec = r.spec as { request_logs?: { sinks?: { store?: { retention?: string } } } };
-    return parseDuration(spec.request_logs?.sinks?.store?.retention ?? '30d');
+    const store = (
+      r.spec as { request_logs?: { sinks?: { store?: { retention?: string; content_retention?: string } } } }
+    ).request_logs?.sinks?.store;
+    return {
+      records: parseDuration(store?.retention ?? '30d'),
+      content: parseDuration(store?.content_retention ?? '7d'),
+    };
   },
+  /** The record's fields, from its JSON Schema: the top-level properties in schema order. */
+  schema: async (): Promise<LogField[]> => {
+    const r = await api.get('/logs/schema');
+    const properties = (r as { properties?: Record<string, unknown> }).properties ?? {};
+    return Object.entries(properties).map(([name, raw]) => {
+      const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const type = p.type;
+      const types = (Array.isArray(type) ? type : typeof type === 'string' ? [type] : []).filter(
+        (t): t is string => typeof t === 'string' && t !== 'null',
+      );
+      if (types.length === 0 && 'const' in p) types.push(typeof p.const);
+      return {
+        name,
+        types,
+        description: typeof p.description === 'string' && p.description ? p.description : null,
+      };
+    });
+  },
+  view: (id: string): Promise<LogView> => api.get('/logs/views/{view_id}', { path: { view_id: id } }),
   /** The live tail's address: new records as server-sent events. */
   tailUrl: (q: LogQuery): string => `${API_BASE}/logs:tail?${tailParams(q).toString()}`,
   /** The export URL; the browser downloads it with the session cookie. */
@@ -197,7 +263,7 @@ export const logsApi = {
     for (const [k, v] of Object.entries(scoped(q))) {
       // A parameter the list refused would fail the export too; those filters apply in the page only.
       if (unsupported.has(k)) continue;
-      if (Array.isArray(v)) for (const x of v) params.append(k, x);
+      if (Array.isArray(v)) for (const x of v as unknown[]) params.append(k, String(x));
       else params.append(k, String(v));
     }
     if (!(q.sort === 'started_at' && q.order === 'desc')) {

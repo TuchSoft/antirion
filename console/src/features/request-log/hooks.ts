@@ -9,12 +9,16 @@ import { formatDuration } from '@/lib/format';
 import { usePolling } from '@/lib/hooks';
 import { decodeFilters, encodeFilters } from '@/lib/url-filters';
 import { usePreferences } from '@/stores/preferences';
+import { notify } from '@/stores/ui';
 import { scopeOrganization, useScope } from '@/stores/scope';
 import { useQueryWindow, useTimeRange } from '@/stores/time-range';
 
 import { type LogQuery, logsApi } from './api';
+import { resolveColumns } from './columns';
 import { useLogs } from './store';
 import {
+  decodeSort,
+  filtersFromView,
   fromUrlState,
   LOG_URL_DEFAULTS,
   type LogFilters,
@@ -156,6 +160,61 @@ export function useLogUrlSync(): void {
   }, [filters, sort, order, router, pathname]);
 }
 
+/** A link that opens a saved view: the current page and scope with `view=<id>`. */
+export function viewLink(id: string): string {
+  const here = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams();
+  for (const name of ['org', 'env']) {
+    const value = here.get(name);
+    if (value) params.set(name, value);
+  }
+  params.set('view', id);
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+/**
+ * Opens a saved view from its link (`?view=<id>`): the view is read (it may be shared and not in
+ * the rail's first page), then its filters and sort replace the URL's and its columns are shown.
+ * The parameter goes once applied, so later changes are the reader's own.
+ */
+export function useLogViewLink(): void {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const id = params.get('view');
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    const replace = (next: URLSearchParams) => {
+      next.delete('view');
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    };
+    const known = useLogs.getState().views.data?.find((v) => v.id === id);
+    (known ? Promise.resolve(known) : logsApi.view(id))
+      .then((view) => {
+        if (!live) return;
+        const { sort, order } = decodeSort(view.sort);
+        if (view.columns?.length) usePreferences.getState().set({ logColumns: resolveColumns(view.columns) });
+        replace(
+          encodeFilters(
+            new URLSearchParams(window.location.search),
+            toUrlState(filtersFromView(view.filters), sort, order),
+            LOG_URL_DEFAULTS,
+          ),
+        );
+      })
+      .catch(() => {
+        if (!live) return;
+        notify('error', "Couldn't open the saved view", "It was deleted, or it isn't shared with you.");
+        replace(new URLSearchParams(window.location.search));
+      });
+    return () => {
+      live = false;
+    };
+  }, [id, router, pathname]);
+}
+
 /** "14 days", "36 hours". */
 function retentionLabel(seconds: number): string {
   if (seconds % 86_400 === 0) {
@@ -182,8 +241,9 @@ export function useRetention(): { seconds: number; label: string } | null {
     let live = true;
     logsApi
       .retention()
-      .then((seconds) => {
-        if (live && seconds) setRetention({ seconds, label: retentionLabel(seconds) });
+      .then(({ records, content }) => {
+        useLogs.setState({ contentRetention: content });
+        if (live && records) setRetention({ seconds: records, label: retentionLabel(records) });
       })
       .catch(() => undefined);
     return () => {
@@ -192,6 +252,24 @@ export function useRetention(): { seconds: number; label: string } | null {
     };
   }, [canRead, setRetention]);
   return retention;
+}
+
+/**
+ * How long the store keeps prompts and responses, for those who may read the observability
+ * settings: read once, and null while it is not known.
+ */
+export function useContentRetention(): { seconds: number; label: string } | null {
+  const canRead = usePermission('config:read');
+  const seconds = useLogs((s) => s.contentRetention);
+  useEffect(() => {
+    if (!canRead || useLogs.getState().contentRetention !== undefined) return;
+    useLogs.setState({ contentRetention: null });
+    logsApi
+      .retention()
+      .then(({ content }) => useLogs.setState({ contentRetention: content }))
+      .catch(() => undefined);
+  }, [canRead]);
+  return seconds ? { seconds, label: retentionLabel(seconds) } : null;
 }
 
 /** The columns the log shows: the user's choice, else the standard set. */

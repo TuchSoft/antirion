@@ -3,7 +3,15 @@ import { create } from 'zustand';
 import type { LogRecord, LogView } from '@/lib/api/types';
 import { asApiError, emptySlot, loadSlot, type Slot } from '@/lib/slot';
 
-import { type FacetValue, type LatencyHistogram, type LogQuery, type LogViewUpdate, logsApi } from './api';
+import {
+  FACET_DIMENSIONS,
+  type FacetValue,
+  type LatencyHistogram,
+  type LogField,
+  type LogQuery,
+  type LogViewUpdate,
+  logsApi,
+} from './api';
 import { EMPTY_LOG_FILTERS, type LogFilters, type LogSort, type SortOrder } from './types';
 
 export interface Aggregates {
@@ -38,6 +46,10 @@ interface LogState {
   histogram: Slot<LatencyHistogram>;
   views: Slot<LogView[]>;
   detail: Slot<LogRecord>;
+  /** The record's fields from `GET /logs/schema`, for the column chooser; empty until read. */
+  fields: Slot<LogField[]>;
+  /** Seconds the store keeps content; undefined until asked, null when unknown. */
+  contentRetention: number | null | undefined;
   setFilters: (filters: LogFilters) => void;
   /** A header click: the same column flips its order, another starts descending. */
   setSort: (sort: LogSort) => void;
@@ -56,6 +68,8 @@ interface LogState {
   updateView: (id: string, body: LogViewUpdate) => Promise<LogView>;
   deleteView: (id: string) => Promise<void>;
   loadDetail: (id: string) => Promise<void>;
+  /** Reads the record's fields once; a failed read is tried again on the next call. */
+  loadFields: () => Promise<void>;
 }
 
 function merge(records: LogRecord[], into: LogRecord[]): LogRecord[] {
@@ -80,6 +94,8 @@ export const useLogs = create<LogState>()((set, get) => ({
   histogram: emptySlot(),
   views: emptySlot(),
   detail: emptySlot(),
+  fields: emptySlot(),
+  contentRetention: undefined,
 
   setFilters(filters) {
     set({ filters });
@@ -155,7 +171,7 @@ export const useLogs = create<LogState>()((set, get) => ({
   },
 
   async loadSide(query) {
-    const dims = ['provider', 'team', 'model', 'status_class', 'environment'] as const;
+    const dims = FACET_DIMENSIONS;
     await Promise.all([
       loadSlot(set, get, 'aggregates', () => logsApi.aggregates(query), { quiet: true }),
       loadSlot(set, get, 'histogram', () => logsApi.histogram(query), { quiet: true }),
@@ -188,6 +204,12 @@ export const useLogs = create<LogState>()((set, get) => ({
   async deleteView(id) {
     await logsApi.deleteView(id);
     set((s) => ({ views: { ...s.views, data: (s.views.data ?? []).filter((v) => v.id !== id) } }));
+  },
+
+  async loadFields() {
+    const fields = get().fields;
+    if (fields.data || fields.status === 'loading') return;
+    await loadSlot(set, get, 'fields', logsApi.schema);
   },
 
   loadDetail: (id) =>

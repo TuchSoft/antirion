@@ -10,8 +10,10 @@ import { CopyButton } from '@/components/ui/misc';
 import { EmptyState } from '@/components/ui/states';
 import type { LogRecord } from '@/lib/api/types';
 import { cn } from '@/lib/cn';
+import { useNow } from '@/lib/hooks';
 import { formatBytes, formatCount, formatLatency, plural } from '@/lib/format';
 
+import { useContentRetention } from '../hooks';
 import { ttftMs } from '../types';
 import { requestMessages, responseView, storedBody, type TranscriptMessage } from '../transcript';
 
@@ -54,6 +56,8 @@ function Meta({ children }: { children: ReactNode }) {
 /** Why the content of a request cannot be shown, or null when it can. */
 export function useContentBlock(record: LogRecord, part: 'request' | 'response'): ReactNode | null {
   const canRead = usePermission('logs:read_content');
+  const kept = useContentRetention();
+  const now = useNow(60_000);
   if (!canRead)
     return (
       <EmptyState
@@ -62,23 +66,36 @@ export function useContentBlock(record: LogRecord, part: 'request' | 'response')
         description="Ask a gateway admin for access."
       />
     );
-  if (!storedBody(record.content?.[part]))
+  if (storedBody(record.content?.[part])) return null;
+  if (part === 'response' && record.content?.request)
     return (
       <EmptyState
         size="sm"
-        title={
-          part === 'response' && record.content?.request
-            ? 'No response was stored'
-            : "Content wasn't stored for this request"
-        }
-        description={
-          part === 'response' && record.content?.request
-            ? "The request failed first, or the answer wasn't kept."
-            : 'Turn on content logging in Settings → Data & privacy.'
-        }
+        title="No response was stored"
+        description="The request failed first, or the answer wasn't kept."
       />
     );
-  return null;
+  // Content is kept for less time than the record (`content_retention`): past it, only the record stays.
+  const age = now - Date.parse(record.started_at);
+  if (kept && age > kept.seconds * 1000)
+    return (
+      <EmptyState
+        size="sm"
+        title="Content is no longer kept"
+        description={`Content is kept for ${kept.label}; this request is older.`}
+      />
+    );
+  return (
+    <EmptyState
+      size="sm"
+      title="Content wasn't stored for this request"
+      description={
+        kept
+          ? 'Turn on content logging in Settings → Data & privacy.'
+          : 'Content logging was off for it, or its content is past the time content is kept.'
+      }
+    />
+  );
 }
 
 function Truncated({ bytes }: { bytes: number | null }) {

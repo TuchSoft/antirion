@@ -14,7 +14,7 @@ import { usePreferences } from '@/stores/preferences';
 
 import { type ReactNode, useEffect, useRef } from 'react';
 
-import { columnOf, STANDARD_COLUMNS } from '../columns';
+import { columnOf, fieldCell, STANDARD_COLUMNS } from '../columns';
 import {
   cacheStatus,
   costUsd,
@@ -296,8 +296,23 @@ export function LogTable(props: LogTableProps) {
             {r.route ?? '—'}
           </Td>
         );
-      default:
-        return null;
+      default: {
+        const field = columnOf(id)?.field;
+        if (!field) return null;
+        const value = fieldCell(r, field);
+        return (
+          <Td
+            key={id}
+            mono
+            muted
+            numeric={columnOf(id)?.numeric}
+            title={value?.full}
+            className="max-w-[280px] truncate"
+          >
+            {value?.text ?? <span className="text-dim">—</span>}
+          </Td>
+        );
+      }
     }
   };
 

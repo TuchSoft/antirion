@@ -6,6 +6,8 @@ import { Swatch } from '@/components/ui/badge';
 import { ModelMark, ProviderMark } from '@/components/ui/marks';
 import { useProviderType } from '@/stores/provider-types';
 import { Checkbox, Input, NumberInput } from '@/components/ui/form';
+import { useCan } from '@/components/ui/gate';
+import { Select } from '@/components/ui/select';
 import type { LogRecord } from '@/lib/api/types';
 import { cn } from '@/lib/cn';
 import { formatCount, formatLatency } from '@/lib/format';
@@ -14,13 +16,22 @@ import type { LatencyHistogram } from '../api';
 import { useLogs } from '../store';
 import {
   activeFilterCount,
+  CACHE_OUTCOMES,
   EMPTY_LOG_FILTERS,
   environmentOf,
+  ERROR_CODES,
+  guardrailFacts,
   latencyMs,
+  metadataPair,
+  RESPONSE_PATHS,
+  responsePathLabel,
   STATUS_CLASSES,
+  statusCodeOf,
+  withMetadata,
   type LogFilters,
   type StatusClass,
 } from '../types';
+import { EraseEndUserDialog } from './erase-end-user';
 import { LogViews } from './log-views';
 
 function toggle<T>(list: T[], value: T): T[] {
@@ -308,6 +319,79 @@ function Range({
   );
 }
 
+/** The values of the loaded requests, with how many requests have each, most first. */
+function counted(values: Iterable<string>): { value: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
+}
+
+/** A field under a group that adds a typed value; the value is cleaned, checked, then added. */
+function AddValue({
+  label,
+  placeholder,
+  clean = (v) => v.trim(),
+  valid,
+  onAdd,
+}: {
+  label: string;
+  placeholder: string;
+  clean?: (typed: string) => string;
+  valid: (value: string) => boolean;
+  onAdd: (value: string) => void;
+}) {
+  const [typed, setTyped] = useState('');
+  return (
+    <form
+      className="mt-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const value = clean(typed);
+        if (valid(value)) onAdd(value);
+        setTyped('');
+      }}
+    >
+      <Input
+        aria-label={label}
+        placeholder={placeholder}
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        className="h-7 text-caption"
+      />
+    </form>
+  );
+}
+
+/** A select under a group that adds one value of a closed set. */
+function AddChoice({
+  label,
+  options,
+  onAdd,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  onAdd: (value: string) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <div className="mt-1.5">
+      <Select
+        size="sm"
+        aria-label={label}
+        placeholder={label}
+        options={options}
+        value=""
+        onChange={onAdd}
+        searchable={options.length > 10}
+        searchLabel="Find a value"
+      />
+    </div>
+  );
+}
+
+/** An id as the gateway takes it: no spaces, at most 256 characters. */
+const ID_TEXT = /^\S{1,256}$/;
+
 /** Tags: the ones on the loaded requests with their counts, and any other typed in. */
 function Tags({
   records,
@@ -318,39 +402,119 @@ function Tags({
   selected: string[];
   onChange: (tags: string[]) => void;
 }) {
-  const [typed, setTyped] = useState('');
-  const counts = new Map<string, number>();
-  for (const r of records)
-    for (const t of r.tags) if (!t.startsWith('env:')) counts.set(t, (counts.get(t) ?? 0) + 1);
-  const values = [...counts.entries()]
-    .map(([value, count]) => ({ value, count }))
-    .sort((a, b) => b.count - a.count);
   return (
     <Facet
       title="Tags"
+      values={counted(records.flatMap((r) => r.tags.filter((t) => !t.startsWith('env:'))))}
+      selected={selected}
+      onToggle={(v) => onChange(toggle(selected, v))}
+      onClear={() => onChange([])}
+      always
+      footer={
+        <AddValue
+          label="Add a tag filter"
+          placeholder="Add a tag, e.g. app:support"
+          valid={(tag) => /^[A-Za-z0-9:_.-]{1,64}$/.test(tag) && !selected.includes(tag)}
+          onAdd={(tag) => onChange([...selected, tag])}
+        />
+      }
+    />
+  );
+}
+
+/** A record's metadata members whose values are text, numbers or switches, as `name=value`. */
+function metadataEntries(r: LogRecord): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries((r as { metadata?: Record<string, unknown> }).metadata ?? {}))
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+      out.push(`${k}=${String(v)}`);
+  return out;
+}
+
+/** Metadata: the members on the loaded requests, and any `name=value` typed in; all must match. */
+function Metadata({
+  records,
+  selected,
+  onChange,
+}: {
+  records: LogRecord[];
+  selected: string[];
+  onChange: (metadata: string[]) => void;
+}) {
+  const add = (entry: string) => {
+    const pair = metadataPair(entry);
+    if (pair) onChange(withMetadata(selected, pair[0], pair[1]));
+  };
+  return (
+    <Facet
+      title="Metadata"
+      values={counted(records.flatMap(metadataEntries))}
+      selected={selected}
+      onToggle={(v) => (selected.includes(v) ? onChange(selected.filter((x) => x !== v)) : add(v))}
+      onClear={() => onChange([])}
+      always
+      footer={
+        <AddValue
+          label="Add a metadata filter"
+          placeholder="name=value, e.g. tier=gold"
+          valid={(entry) => metadataPair(entry) !== null && !selected.includes(entry)}
+          onAdd={add}
+        />
+      }
+    />
+  );
+}
+
+/**
+ * End users: the busiest ones in the range, any id typed in, and erasing an end user's records
+ * (the selected one, or an id typed in the dialog) for those who may.
+ */
+function EndUsers({
+  values,
+  selected,
+  onChange,
+}: {
+  values: { value: string; count: number }[];
+  selected: string[];
+  onChange: (endUser: string[]) => void;
+}) {
+  const canErase = useCan('deleteEndUserLogs');
+  const [erasing, setErasing] = useState(false);
+  const one = selected.length === 1 ? (selected[0] ?? null) : null;
+  return (
+    <Facet
+      title="End user"
       values={values}
       selected={selected}
       onToggle={(v) => onChange(toggle(selected, v))}
       onClear={() => onChange([])}
       always
       footer={
-        <form
-          className="mt-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const tag = typed.trim();
-            if (/^[A-Za-z0-9:_.-]{1,64}$/.test(tag) && !selected.includes(tag)) onChange([...selected, tag]);
-            setTyped('');
-          }}
-        >
-          <Input
-            aria-label="Add a tag filter"
-            placeholder="Add a tag, e.g. app:support"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            className="h-7 text-caption"
+        <>
+          <AddValue
+            label="Add an end user filter"
+            placeholder="End user ID"
+            valid={(id) => ID_TEXT.test(id) && !selected.includes(id)}
+            onAdd={(id) => onChange([...selected, id])}
           />
-        </form>
+          {canErase ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setErasing(true)}
+                className="mt-1.5 self-start truncate rounded-xs text-caption text-muted hover:text-error"
+              >
+                {one ? `Erase the records of ${one}` : "Erase an end user's records"}
+              </button>
+              <EraseEndUserDialog
+                open={erasing}
+                endUser={one}
+                onClose={() => setErasing(false)}
+                onErased={(id) => onChange(selected.filter((v) => v !== id))}
+              />
+            </>
+          ) : null}
+        </>
       }
     />
   );
@@ -416,7 +580,41 @@ export function FiltersRail({
             onChange={() => set({ statusClass: toggle(filters.statusClass, c.value) })}
           />
         ))}
+        {filters.statusCode.map((code) => (
+          <Option
+            key={code}
+            label={`${code} exactly`}
+            count={records.filter((r) => String(r.status_code) === code).length}
+            checked
+            onChange={() => set({ statusCode: filters.statusCode.filter((c) => c !== code) })}
+          />
+        ))}
+        <AddValue
+          label="Add an exact status code"
+          placeholder="Exact code, e.g. 429"
+          clean={(v) => v.replace(/\D/g, '')}
+          valid={(code) => statusCodeOf(code) !== null && !filters.statusCode.includes(code)}
+          onAdd={(code) => set({ statusCode: [...filters.statusCode, code] })}
+        />
       </Group>
+      <Facet
+        title="Error code"
+        values={counted(records.flatMap((r) => (r.code ? [r.code] : [])))}
+        selected={filters.code}
+        onToggle={(v) => set({ code: toggle(filters.code, v) })}
+        onClear={() => set({ code: [] })}
+        always
+        footer={
+          <AddChoice
+            label="Add an error code"
+            options={ERROR_CODES.filter((c) => !filters.code.includes(c)).map((c) => ({
+              value: c,
+              label: c,
+            }))}
+            onAdd={(c) => set({ code: [...filters.code, c] })}
+          />
+        }
+      />
       <Facet
         title="Provider"
         values={facet('provider', (r) => r.provider)}
@@ -424,6 +622,13 @@ export function FiltersRail({
         onToggle={(v) => set({ provider: toggle(filters.provider, v) })}
         onClear={() => set({ provider: [] })}
         iconOf={(v) => <ProviderMark type={providerType?.(v) ?? typeOf(v)} className="text-muted" />}
+      />
+      <Facet
+        title="Deployment"
+        values={facet('deployment', (r) => r.deployment)}
+        selected={filters.deployment}
+        onToggle={(v) => set({ deployment: toggle(filters.deployment, v) })}
+        onClear={() => set({ deployment: [] })}
       />
       <Facet
         title="Model"
@@ -444,6 +649,27 @@ export function FiltersRail({
         selected={filters.team}
         onToggle={(v) => set({ team: toggle(filters.team, v) })}
         onClear={() => set({ team: [] })}
+      />
+      <EndUsers
+        values={facet('end_user', (r) => r.end_user)}
+        selected={filters.endUser}
+        onChange={(endUser) => set({ endUser })}
+      />
+      <Facet
+        title="Session"
+        values={counted(records.flatMap((r) => (r.session_id ? [r.session_id] : [])))}
+        selected={filters.sessionId}
+        onToggle={(v) => set({ sessionId: toggle(filters.sessionId, v) })}
+        onClear={() => set({ sessionId: [] })}
+        always
+        footer={
+          <AddValue
+            label="Add a session filter"
+            placeholder="Session ID"
+            valid={(id) => ID_TEXT.test(id) && !filters.sessionId.includes(id)}
+            onAdd={(id) => set({ sessionId: [...filters.sessionId, id] })}
+          />
+        }
       />
       <Facet
         title="Environment"
@@ -496,16 +722,14 @@ export function FiltersRail({
         selected={filters.cache.length + (filters.streamed ? 1 : 0) + (filters.flagged ? 1 : 0)}
         onClear={() => set({ cache: [], streamed: false, flagged: false })}
       >
-        <Option
-          label="Cache hits"
-          checked={filters.cache.includes('hit')}
-          onChange={() => set({ cache: toggle(filters.cache, 'hit') })}
-        />
-        <Option
-          label="Cache misses"
-          checked={filters.cache.includes('miss')}
-          onChange={() => set({ cache: toggle(filters.cache, 'miss') })}
-        />
+        {CACHE_OUTCOMES.map((c) => (
+          <Option
+            key={c.value}
+            label={c.label}
+            checked={filters.cache.includes(c.value)}
+            onChange={() => set({ cache: toggle(filters.cache, c.value) })}
+          />
+        ))}
         <Option
           label="Streamed"
           checked={filters.streamed}
@@ -517,7 +741,57 @@ export function FiltersRail({
           onChange={() => set({ flagged: !filters.flagged })}
         />
       </Group>
+      <Facet
+        title="Guardrail"
+        values={
+          facets.guardrail?.length
+            ? facets.guardrail
+            : counted(records.flatMap((r) => guardrailFacts(r).name))
+        }
+        selected={filters.guardrail}
+        onToggle={(v) => set({ guardrail: toggle(filters.guardrail, v) })}
+        onClear={() => set({ guardrail: [] })}
+      />
+      <Facet
+        title="Guardrail verdict"
+        values={
+          facets.guardrail_verdict?.length
+            ? facets.guardrail_verdict
+            : counted(records.flatMap((r) => guardrailFacts(r).verdict))
+        }
+        selected={filters.guardrailVerdict}
+        onToggle={(v) => set({ guardrailVerdict: toggle(filters.guardrailVerdict, v) })}
+        onClear={() => set({ guardrailVerdict: [] })}
+      />
+      <Facet
+        title="Guardrail category"
+        values={
+          facets.guardrail_category?.length
+            ? facets.guardrail_category
+            : counted(records.flatMap((r) => guardrailFacts(r).category))
+        }
+        selected={filters.guardrailCategory}
+        onToggle={(v) => set({ guardrailCategory: toggle(filters.guardrailCategory, v) })}
+        onClear={() => set({ guardrailCategory: [] })}
+      />
+      <Facet
+        title="Response path"
+        values={counted(records.map((r) => r.response_path).filter(Boolean))}
+        selected={filters.responsePath}
+        onToggle={(v) => set({ responsePath: toggle(filters.responsePath, v) })}
+        onClear={() => set({ responsePath: [] })}
+        labelOf={responsePathLabel}
+        always
+        footer={
+          <AddChoice
+            label="Add a response path"
+            options={RESPONSE_PATHS.filter((p) => !filters.responsePath.includes(p.value))}
+            onAdd={(p) => set({ responsePath: [...filters.responsePath, p] })}
+          />
+        }
+      />
       <Tags records={records} selected={filters.tag} onChange={(tag) => set({ tag })} />
+      <Metadata records={records} selected={filters.metadata} onChange={(metadata) => set({ metadata })} />
       {active > 0 ? (
         <div className="px-4 py-3">
           <button

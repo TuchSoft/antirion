@@ -160,7 +160,9 @@ describe('saved views and columns', () => {
     const nav = await screen.findByRole('navigation', { name: 'Saved views' });
     await userEvent.click(await within(nav).findByRole('button', { name: 'Star theirs' }));
     expect(patched).toEqual([{ id: 'theirs', starred: true }]);
-    expect(within(nav).queryByRole('button', { name: 'Actions for theirs' })).not.toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole('button', { name: 'Actions for theirs' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Copy link']);
+    await userEvent.keyboard('{Escape}');
     expect(within(nav).getByRole('button', { name: 'Actions for mine' })).toBeInTheDocument();
     expect(within(nav).queryByRole('button', { name: 'Star Errors' })).not.toBeInTheDocument();
   });

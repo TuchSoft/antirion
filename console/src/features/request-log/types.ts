@@ -2,6 +2,15 @@ import type { LogRecord } from '@/lib/api/types';
 
 export type StatusClass = '2xx' | '4xx' | '5xx';
 
+/** How the response cache answered: a hit, a semantic hit, a miss, or not consulted. */
+export type CacheOutcome = 'hit' | 'semantic_hit' | 'miss' | 'bypass';
+export const CACHE_OUTCOMES: { value: CacheOutcome; label: string; chip: string }[] = [
+  { value: 'hit', label: 'Cache hits', chip: 'hits' },
+  { value: 'semantic_hit', label: 'Semantic cache hits', chip: 'semantic hits' },
+  { value: 'miss', label: 'Cache misses', chip: 'misses' },
+  { value: 'bypass', label: 'Cache bypassed', chip: 'bypassed' },
+];
+
 export interface LogFilters {
   statusClass: StatusClass[];
   provider: string[];
@@ -19,7 +28,23 @@ export interface LogFilters {
   environment: string[];
   /** Request tags, every one required. */
   tag: string[];
-  cache: ('hit' | 'miss')[];
+  /** Deployments that served the final attempt. */
+  deployment: string[];
+  /** The end users the app sent (`user`, `x-antirion-end-user`). */
+  endUser: string[];
+  sessionId: string[];
+  /** Error codes (`antirion.code`), such as `rate_limited`. */
+  code: string[];
+  /** Exact statuses, as typed (`429`). */
+  statusCode: string[];
+  /** How the response was produced: `upstream`, `fallback`, `cache`, … */
+  responsePath: string[];
+  guardrail: string[];
+  guardrailVerdict: string[];
+  guardrailCategory: string[];
+  /** Metadata members, `name=value`, every one required; one value per name. */
+  metadata: string[];
+  cache: CacheOutcome[];
   streamed: boolean;
   flagged: boolean;
   /** Milliseconds, as typed. */
@@ -43,6 +68,16 @@ export const EMPTY_LOG_FILTERS: LogFilters = {
   requestId: [],
   environment: [],
   tag: [],
+  deployment: [],
+  endUser: [],
+  sessionId: [],
+  code: [],
+  statusCode: [],
+  responsePath: [],
+  guardrail: [],
+  guardrailVerdict: [],
+  guardrailCategory: [],
+  metadata: [],
   cache: [],
   streamed: false,
   flagged: false,
@@ -137,11 +172,42 @@ function money(text: string): string | null {
   return n === null ? null : String(n);
 }
 
+/** A typed status as a code the gateway can have sent (100 to 599), or null. */
+export function statusCodeOf(text: string): number | null {
+  const t = text.trim();
+  return /^[1-5]\d\d$/.test(t) ? Number(t) : null;
+}
+
+/** A metadata filter `name=value` as its two parts, or null when it has no name or no `=`. */
+export function metadataPair(entry: string): [string, string] | null {
+  const at = entry.indexOf('=');
+  if (at <= 0) return null;
+  const name = entry.slice(0, at).trim();
+  const value = entry.slice(at + 1).trim();
+  return /^[A-Za-z0-9_.-]{1,128}$/.test(name) && value !== '' ? [name, value] : null;
+}
+
+/** Adds a metadata filter, replacing an earlier value of the same name. */
+export function withMetadata(list: string[], name: string, value: string): string[] {
+  return [...list.filter((e) => metadataPair(e)?.[0] !== name), `${name}=${value}`];
+}
+
+/** The metadata filters as the contract's `metadata.<name>` parameters. */
+export function metadataQuery(list: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of list) {
+    const pair = metadataPair(entry);
+    if (pair) out[`metadata.${pair[0]}`] = pair[1];
+  }
+  return out;
+}
+
 /**
  * The filters as the list's query parameters. The tags of the environments and the tags are sent
  * together (`tag`), with the scope's environment added by the caller.
  */
 export function filtersToQuery(f: LogFilters) {
+  const statusCodes = f.statusCode.map(statusCodeOf).filter((v): v is number => v !== null);
   const latencyMin = amount(f.latencyMin);
   const latencyMax = amount(f.latencyMax);
   const costMin = money(f.costMin);
@@ -157,6 +223,16 @@ export function filtersToQuery(f: LogFilters) {
     ...(f.user.length ? { user: f.user } : {}),
     ...(f.requestId[0] ? { request_id: f.requestId[0] } : {}),
     ...(f.environment.length ? { environment: f.environment } : {}),
+    ...(f.deployment.length ? { deployment: f.deployment } : {}),
+    ...(f.endUser.length ? { end_user: f.endUser } : {}),
+    ...(f.sessionId.length ? { session_id: f.sessionId } : {}),
+    ...(f.code.length ? { code: f.code } : {}),
+    ...(statusCodes.length ? { status_code: statusCodes } : {}),
+    ...(f.responsePath.length ? { response_path: f.responsePath } : {}),
+    ...(f.guardrail.length ? { guardrail: f.guardrail } : {}),
+    ...(f.guardrailVerdict.length ? { guardrail_verdict: f.guardrailVerdict } : {}),
+    ...(f.guardrailCategory.length ? { guardrail_category: f.guardrailCategory } : {}),
+    ...metadataQuery(f.metadata),
     ...(f.cache.length ? { cache: f.cache } : {}),
     ...(f.streamed ? { stream: true } : {}),
     ...(f.flagged ? { flagged: true } : {}),
@@ -181,6 +257,16 @@ export function activeFilterCount(f: LogFilters): number {
     f.requestId.length +
     f.environment.length +
     f.tag.length +
+    f.deployment.length +
+    f.endUser.length +
+    f.sessionId.length +
+    f.code.length +
+    f.statusCode.length +
+    f.responsePath.length +
+    f.guardrail.length +
+    f.guardrailVerdict.length +
+    f.guardrailCategory.length +
+    f.metadata.length +
     f.cache.length +
     (f.streamed ? 1 : 0) +
     (f.flagged ? 1 : 0) +
@@ -191,6 +277,7 @@ export function activeFilterCount(f: LogFilters): number {
 }
 
 const STATUS_VALUES: readonly string[] = ['2xx', '4xx', '5xx'];
+const CACHE_VALUES: readonly string[] = CACHE_OUTCOMES.map((c) => c.value);
 
 function strings(value: unknown): string[] {
   if (typeof value === 'string') return value === '' ? [] : [value];
@@ -207,6 +294,33 @@ function text(value: unknown): string {
 
 function flag(value: unknown): boolean {
   return value === true || value === 'true' || value === '1';
+}
+
+/** Statuses stored as numbers (the list's parameters) or typed text, kept when they are real codes. */
+function statusCodes(value: unknown): string[] {
+  const list = Array.isArray(value) ? (value as unknown[]) : value === undefined ? [] : [value];
+  return list
+    .map((v) => (typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : ''))
+    .filter((v) => statusCodeOf(v) !== null);
+}
+
+/**
+ * A view's metadata filters: its `metadata.<name>` members (the list's parameters) and the
+ * console's own `metadata` list of `name=value`, one value per name.
+ */
+function metadataOf(raw: Record<string, unknown>): string[] {
+  let out: string[] = [];
+  for (const entry of strings(raw.metadata)) {
+    const pair = metadataPair(entry);
+    if (pair) out = withMetadata(out, pair[0], pair[1]);
+  }
+  for (const [k, v] of Object.entries(raw)) {
+    if (!k.startsWith('metadata.')) continue;
+    const value = typeof v === 'number' || typeof v === 'boolean' ? String(v) : strings(v)[0];
+    const pair = value === undefined ? null : metadataPair(`${k.slice(9)}=${value}`);
+    if (pair) out = withMetadata(out, pair[0], pair[1]);
+  }
+  return out;
 }
 
 /**
@@ -234,7 +348,17 @@ export function filtersFromView(raw: Record<string, unknown>): LogFilters {
     requestId: strings(pick('request_id', 'requestId')),
     environment: strings(raw.environment),
     tag: strings(raw.tag),
-    cache: strings(raw.cache).filter((v): v is 'hit' | 'miss' => v === 'hit' || v === 'miss'),
+    deployment: strings(raw.deployment),
+    endUser: strings(pick('end_user', 'endUser')),
+    sessionId: strings(pick('session_id', 'sessionId')),
+    code: strings(raw.code),
+    statusCode: statusCodes(pick('status_code', 'statusCode')),
+    responsePath: strings(pick('response_path', 'responsePath')),
+    guardrail: strings(raw.guardrail),
+    guardrailVerdict: strings(pick('guardrail_verdict', 'guardrailVerdict')),
+    guardrailCategory: strings(pick('guardrail_category', 'guardrailCategory')),
+    metadata: metadataOf(raw),
+    cache: strings(raw.cache).filter((v): v is CacheOutcome => CACHE_VALUES.includes(v)),
     streamed: flag(pick('stream', 'streamed')),
     flagged: flag(raw.flagged),
     latencyMin: text(pick('latency_ms_min', 'latencyMin')),
@@ -269,6 +393,16 @@ export const LOG_URL_DEFAULTS = {
   request_id: [] as string[],
   environment: [] as string[],
   tag: [] as string[],
+  deployment: [] as string[],
+  end_user: [] as string[],
+  session_id: [] as string[],
+  code: [] as string[],
+  status_code: [] as string[],
+  response_path: [] as string[],
+  guardrail: [] as string[],
+  guardrail_verdict: [] as string[],
+  guardrail_category: [] as string[],
+  metadata: [] as string[],
   cache: [] as string[],
   stream: false,
   flagged: false,
@@ -294,6 +428,16 @@ export function toUrlState(f: LogFilters, sort: LogSort, order: SortOrder): LogU
     request_id: f.requestId,
     environment: f.environment,
     tag: f.tag,
+    deployment: f.deployment,
+    end_user: f.endUser,
+    session_id: f.sessionId,
+    code: f.code,
+    status_code: f.statusCode,
+    response_path: f.responsePath,
+    guardrail: f.guardrail,
+    guardrail_verdict: f.guardrailVerdict,
+    guardrail_category: f.guardrailCategory,
+    metadata: f.metadata,
     cache: f.cache,
     stream: f.streamed,
     flagged: f.flagged,
@@ -320,6 +464,16 @@ export function fromUrlState(u: LogUrlState): { filters: LogFilters; sort: LogSo
       request_id: u.request_id,
       environment: u.environment,
       tag: u.tag,
+      deployment: u.deployment,
+      end_user: u.end_user,
+      session_id: u.session_id,
+      code: u.code,
+      status_code: u.status_code,
+      response_path: u.response_path,
+      guardrail: u.guardrail,
+      guardrail_verdict: u.guardrail_verdict,
+      guardrail_category: u.guardrail_category,
+      metadata: u.metadata,
       cache: u.cache,
       stream: u.stream,
       flagged: u.flagged,
@@ -344,6 +498,55 @@ export function environmentOf(r: LogRecord): string | null {
   return tag ? tag.slice(4) : null;
 }
 
+/** A record's guardrail facts: the names, verdicts and categories of the guardrails that ran. */
+export function guardrailFacts(r: LogRecord): { name: string[]; verdict: string[]; category: string[] } {
+  const pick = (k: string) =>
+    r.guardrails.map((g) => g[k]).filter((v): v is string => typeof v === 'string' && v !== '');
+  return { name: pick('name'), verdict: pick('verdict'), category: pick('category') };
+}
+
+/** A metadata member of a record as text (`a.b` reads a nested member), or null. */
+export function metadataValue(r: LogRecord, name: string): string | null {
+  let v: unknown = (r as { metadata?: unknown }).metadata;
+  for (const part of name.split('.'))
+    v = v && typeof v === 'object' ? (v as Record<string, unknown>)[part] : null;
+  return typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : null;
+}
+
+/**
+ * The checks on a record's own members that the new filters add, for the live tail and for an
+ * older gateway that refused their parameters (`skip` names the ones the gateway applied).
+ */
+function memberChecks(f: LogFilters, skip: (param: string) => boolean = () => false) {
+  const inList = (values: string[], v: string | null) =>
+    values.length === 0 || (v !== null && values.includes(v));
+  const any = (values: string[], have: string[]) =>
+    values.length === 0 || have.some((v) => values.includes(v));
+  const checks: ((r: LogRecord) => boolean)[] = [];
+  const add = (param: string, active: boolean, check: (r: LogRecord) => boolean) => {
+    if (active && !skip(param)) checks.push(check);
+  };
+  add('deployment', f.deployment.length > 0, (r) => inList(f.deployment, r.deployment));
+  add('end_user', f.endUser.length > 0, (r) => inList(f.endUser, r.end_user));
+  add('session_id', f.sessionId.length > 0, (r) => inList(f.sessionId, r.session_id));
+  add('code', f.code.length > 0, (r) => inList(f.code, r.code));
+  add('status_code', f.statusCode.length > 0, (r) => inList(f.statusCode, String(r.status_code)));
+  add('response_path', f.responsePath.length > 0, (r) => inList(f.responsePath, r.response_path));
+  add('guardrail', f.guardrail.length > 0, (r) => any(f.guardrail, guardrailFacts(r).name));
+  add('guardrail_verdict', f.guardrailVerdict.length > 0, (r) =>
+    any(f.guardrailVerdict, guardrailFacts(r).verdict),
+  );
+  add('guardrail_category', f.guardrailCategory.length > 0, (r) =>
+    any(f.guardrailCategory, guardrailFacts(r).category),
+  );
+  for (const entry of f.metadata) {
+    const pair = metadataPair(entry);
+    if (pair) add(`metadata.${pair[0]}`, true, (r) => metadataValue(r, pair[0]) === pair[1]);
+  }
+  add('cache', f.cache.length > 0, (r) => f.cache.includes(cacheStatus(r) as CacheOutcome));
+  return (r: LogRecord) => checks.every((c) => c(r));
+}
+
 /**
  * Whether a record the live tail sent belongs to the filtered list. The tail filters on equality
  * only; the ranges, flags and search are checked here, as the list would.
@@ -361,9 +564,7 @@ export function matchesFilters(r: LogRecord, f: LogFilters): boolean {
   // A record does not carry the person a key acts for; with that filter, new requests wait for a reload.
   if (f.user.length) return false;
   if (f.tag.some((t) => !r.tags.includes(t))) return false;
-  const cache = cacheStatus(r);
-  if (f.cache.length && !f.cache.some((c) => (c === 'hit' ? cache.includes('hit') : cache === 'miss')))
-    return false;
+  if (!memberChecks(f)(r)) return false;
   if (f.streamed && !isStreamed(r)) return false;
   if (f.flagged && flags(r).length === 0) return false;
   const latency = latencyMs(r) ?? 0;
@@ -405,10 +606,8 @@ export function applyLocally(
   let out = records;
   if (unsupported.has('status_class') && f.statusClass.length)
     out = out.filter((r) => f.statusClass.includes(`${String(r.status_code).charAt(0)}xx` as StatusClass));
-  if (unsupported.has('cache') && f.cache.length)
-    out = out.filter((r) =>
-      f.cache.some((c) => (c === 'hit' ? cacheStatus(r).includes('hit') : cacheStatus(r) === 'miss')),
-    );
+  const members = memberChecks(f, (param) => !unsupported.has(param));
+  out = out.filter(members);
   if (unsupported.has('stream') && f.streamed) out = out.filter(isStreamed);
   if (unsupported.has('flagged') && f.flagged) out = out.filter((r) => flags(r).length > 0);
   if (unsupported.has('latency_ms_min') && f.latencyMin)
@@ -445,6 +644,56 @@ export function applyLocally(
   return out;
 }
 
+/** The gateway's error codes (`antirion.code`), for the error-code filter. */
+export const ERROR_CODES: readonly string[] = [
+  'invalid_request',
+  'unsupported_capability',
+  'no_route_matched',
+  'guardrail_blocked',
+  'unauthenticated',
+  'budget_exceeded',
+  'forbidden',
+  'model_not_found',
+  'not_found',
+  'method_not_allowed',
+  'not_acceptable',
+  'request_timeout',
+  'payload_too_large',
+  'unsupported_media_type',
+  'headers_too_large',
+  'rate_limited',
+  'request_exceeds_limit',
+  'upstream_rejected',
+  'upstream_auth_failed',
+  'upstream_quota_exhausted',
+  'upstream_bad_response',
+  'upstream_rate_limited',
+  'upstream_unavailable',
+  'upstream_timeout',
+  'no_healthy_deployment',
+  'dependency_unavailable',
+  'overloaded',
+  'draining',
+  'internal',
+];
+
+/** How a response was produced (`response_path`), in plain words. */
+export const RESPONSE_PATHS: { value: string; label: string }[] = [
+  { value: 'upstream', label: 'From the first deployment' },
+  { value: 'fallback', label: 'From a fallback deployment' },
+  { value: 'cache', label: 'From the cache' },
+  { value: 'local', label: 'Answered by the gateway' },
+  { value: 'extension', label: 'Answered by an extension' },
+  { value: 'rate_limited', label: 'Refused by a rate limit' },
+  { value: 'budget', label: 'Refused by a budget' },
+  { value: 'blocked', label: 'Blocked by a guardrail' },
+  { value: 'error', label: 'Failed' },
+];
+
+export function responsePathLabel(value: string): string {
+  return RESPONSE_PATHS.find((p) => p.value === value)?.label ?? value;
+}
+
 /** The status classes the log filters on, with their plain-word labels. */
 export const STATUS_CLASSES: { value: StatusClass; label: string }[] = [
   { value: '2xx', label: '2xx · Success' },
@@ -476,21 +725,45 @@ export function filterChips(f: LogFilters): FilterChip[] {
       | 'user'
       | 'requestId'
       | 'environment'
-      | 'tag',
+      | 'tag'
+      | 'deployment'
+      | 'endUser'
+      | 'sessionId'
+      | 'code'
+      | 'statusCode'
+      | 'guardrail'
+      | 'guardrailVerdict'
+      | 'guardrailCategory'
+      | 'metadata',
   ) => {
     if (f[key].length) chips.push({ label, value: f[key].join(', '), without: { ...f, [key]: [] } });
   };
   list('Status', 'statusClass');
+  list('Status code', 'statusCode');
+  list('Error code', 'code');
   list('Provider', 'provider');
+  list('Deployment', 'deployment');
   list('Model', 'model');
   list('Requested model', 'requestedModel');
   list('Team', 'team');
   list('Project', 'project');
   list('Key', 'key');
   list('User', 'user');
+  list('End user', 'endUser');
+  list('Session', 'sessionId');
   list('Request ID', 'requestId');
   list('Environment', 'environment');
   list('Tags', 'tag');
+  if (f.responsePath.length)
+    chips.push({
+      label: 'Response path',
+      value: f.responsePath.map(responsePathLabel).join(', '),
+      without: { ...f, responsePath: [] },
+    });
+  list('Guardrail', 'guardrail');
+  list('Guardrail verdict', 'guardrailVerdict');
+  list('Guardrail category', 'guardrailCategory');
+  list('Metadata', 'metadata');
   const range = (min: string, max: string, unit: (v: string) => string) =>
     min && max ? `${unit(min)} to ${unit(max)}` : min ? `at least ${unit(min)}` : `at most ${unit(max)}`;
   if (f.latencyMin || f.latencyMax)
@@ -508,7 +781,7 @@ export function filterChips(f: LogFilters): FilterChip[] {
   if (f.cache.length)
     chips.push({
       label: 'Cache',
-      value: f.cache.map((c) => (c === 'hit' ? 'hits' : 'misses')).join(', '),
+      value: f.cache.map((c) => CACHE_OUTCOMES.find((o) => o.value === c)?.chip ?? c).join(', '),
       without: { ...f, cache: [] },
     });
   if (f.streamed) chips.push({ label: 'Streamed', value: 'yes', without: { ...f, streamed: false } });

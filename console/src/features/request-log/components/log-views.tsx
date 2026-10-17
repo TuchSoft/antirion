@@ -13,7 +13,7 @@ import { isGatewayPrincipal, useSession } from '@/stores/session';
 import { notify } from '@/stores/ui';
 
 import { resolveColumns } from '../columns';
-import { useLogColumnsPreference } from '../hooks';
+import { useLogColumnsPreference, viewLink } from '../hooks';
 import { useLogs } from '../store';
 import {
   decodeSort,
@@ -266,8 +266,19 @@ export function LogViews({ className }: { className?: string }) {
         onToggleStar={(id) => void toggleStar(id)}
         menu={(id) => {
           const view = views.find((v) => `view-${v.id}` === id);
-          if (!view || !mayChange(me, view)) return [];
+          if (!view) return [];
+          const copyLink = {
+            label: 'Copy link',
+            icon: 'link' as const,
+            onSelect: () =>
+              void navigator.clipboard.writeText(viewLink(view.id)).then(
+                () => notify('success', `Copied the link to ${view.name}`),
+                () => notify('error', "Couldn't copy the link"),
+              ),
+          };
+          if (!mayChange(me, view)) return [copyLink];
           return [
+            copyLink,
             {
               label: 'Update with the current filters',
               icon: 'refresh',

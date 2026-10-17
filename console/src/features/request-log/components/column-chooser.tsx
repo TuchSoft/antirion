@@ -1,17 +1,21 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button, IconButton } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/form';
+import { Checkbox, Input } from '@/components/ui/form';
 import { Popover } from '@/components/ui/overlay';
+import { EmptyPill } from '@/components/ui/states';
 import { cn } from '@/lib/cn';
 
-import { columnOf, isStandard, LOG_COLUMNS, moveColumn, toggleColumn } from '../columns';
+import { columnGroups, columnOf, isStandard, moveColumn, toggleColumn } from '../columns';
+import { useLogs } from '../store';
 
 /**
  * Which columns the table shows and in what order: a checkbox per column and arrows to move a
- * shown one. The choice is the user's own and follows them (preferences); views keep one too.
+ * shown one. Beside the log's own columns it offers every field of the record the gateway's
+ * schema describes, grouped. The choice is the user's own and follows them (preferences); views
+ * keep one too.
  */
 export function ColumnChooser({
   columns,
@@ -23,7 +27,26 @@ export function ColumnChooser({
 }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const hidden = LOG_COLUMNS.filter((c) => !columns.includes(c.id));
+  const [find, setFind] = useState('');
+  const fields = useLogs((s) => s.fields);
+  const loadFields = useLogs((s) => s.loadFields);
+  useEffect(() => {
+    if (open) void loadFields();
+  }, [open, loadFields]);
+  const needle = find.trim().toLowerCase();
+  const groups = columnGroups(fields.data?.map((f) => f.name) ?? null)
+    .map((g) => ({
+      title: g.title,
+      columns: g.columns.filter(
+        (c) =>
+          !columns.includes(c.id) &&
+          (!needle || c.label.toLowerCase().includes(needle) || (c.field ?? '').includes(needle)),
+      ),
+    }))
+    .filter((g) => g.columns.length > 0);
+  const anyHidden = columnGroups(fields.data?.map((f) => f.name) ?? null).some((g) =>
+    g.columns.some((c) => !columns.includes(c.id)),
+  );
   const set = (next: string[]) => onChange(isStandard(next) ? null : next);
   return (
     <>
@@ -93,22 +116,47 @@ export function ColumnChooser({
             );
           })}
         </ul>
-        {hidden.length > 0 ? (
-          <>
-            <div className="border-t border-line px-3 pt-2 pb-1 text-caption text-muted">Hidden</div>
-            <ul aria-label="Hidden columns" className="flex flex-col p-1 pt-0">
-              {hidden.map((c) => (
-                <li key={c.id} className="flex h-8 items-center rounded-sm px-2 hover:bg-hover">
-                  <Checkbox
-                    className="min-w-0 flex-1"
-                    checked={false}
-                    onChange={() => set(toggleColumn(columns, c.id))}
-                    label={<span className="truncate">{c.label}</span>}
-                  />
+        {anyHidden ? (
+          <div className="border-t border-line">
+            <div className="flex flex-col gap-1.5 px-3 pt-2 pb-1">
+              <span className="text-caption text-muted">Hidden</span>
+              <Input
+                aria-label="Find a column"
+                icon="search"
+                placeholder="Find a column"
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+                className="h-7 text-caption"
+              />
+            </div>
+            {groups.map((g) => (
+              <ul key={g.title} aria-label={`Hidden columns: ${g.title}`} className="flex flex-col p-1 pt-0">
+                <li aria-hidden="true" className="px-2 pt-2 pb-1 text-caption font-medium text-dim">
+                  {g.title}
                 </li>
-              ))}
-            </ul>
-          </>
+                {g.columns.map((c) => (
+                  <li key={c.id} className="flex h-8 items-center rounded-sm px-2 hover:bg-hover">
+                    <Checkbox
+                      className="min-w-0 flex-1"
+                      checked={false}
+                      onChange={() => set(toggleColumn(columns, c.id))}
+                      label={<span className="truncate">{c.label}</span>}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ))}
+            {groups.length === 0 ? (
+              <div className="flex justify-center px-3 py-3">
+                <EmptyPill>No column matches</EmptyPill>
+              </div>
+            ) : null}
+            {fields.error && !fields.data ? (
+              <p className="px-3 pb-2 text-caption text-dim">
+                The record&apos;s other fields couldn&apos;t be read from the gateway.
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </Popover>
     </>
