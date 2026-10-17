@@ -8,6 +8,7 @@ import type {
   UsageBucket,
   DeploymentHealth,
   DeploymentResource,
+  DeploymentSpec,
   EffectivePrice,
   ModelResource,
   ModelSpec,
@@ -66,6 +67,8 @@ interface CatalogState {
   loadAccess: (model: string) => Promise<void>;
   /** Re-reads the providers, after one is added from the Models screen. */
   loadProviders: () => Promise<void>;
+  /** Re-reads the deployments' runtime health, after one is turned off, on or resumed. */
+  loadHealth: () => Promise<void>;
   loadUsage: () => Promise<void>;
   loadPrices: (deployments: string[]) => Promise<void>;
   loadAudit: (model: string) => Promise<void>;
@@ -183,6 +186,7 @@ export const useCatalog = create<CatalogState>()((set, get) => ({
   },
 
   loadProviders: () => loadSlot(set, get, 'providers', modelsApi.providers, { quiet: true }),
+  loadHealth: () => loadSlot(set, get, 'health', modelsApi.health, { quiet: true }),
 
   loadUsage: () =>
     loadSlot(set, get, 'usage', () => {
@@ -294,6 +298,48 @@ export async function overridePrice(
     };
   });
   await useCatalog.getState().loadPrices([deployment]);
+}
+
+/** Puts a deployment read back from the gateway in the catalog, dropping its cached price and capabilities. */
+function storeDeployment(updated: DeploymentResource): void {
+  useCatalog.setState((s) => {
+    const list = s.deployments.data ?? [];
+    const known = list.some((d) => d.name === updated.name);
+    const { [updated.name]: _p, ...prices } = s.prices;
+    const { [updated.name]: _c, ...capabilities } = s.capabilities;
+    return {
+      deployments: {
+        ...s.deployments,
+        data: known ? list.map((d) => (d.name === updated.name ? updated : d)) : [...list, updated],
+      },
+      prices,
+      capabilities,
+    };
+  });
+  void useCatalog.getState().loadPrices([updated.name]);
+  void useCatalog.getState().loadCapabilities([updated.name]);
+}
+
+/** Replaces a deployment's spec with its ETag (`PUT`), or creates one when `etag` is null. */
+export async function saveDeployment(
+  name: string,
+  spec: DeploymentSpec,
+  etag: string | null,
+  reason?: string,
+): Promise<DeploymentResource> {
+  const updated =
+    etag === null
+      ? await modelsApi.createDeployment(name, spec)
+      : await modelsApi.replaceDeployment(name, spec, etag, reason);
+  storeDeployment(updated);
+  return updated;
+}
+
+/** Turns a deployment on or off in its settings (`enabled`), with its ETag. */
+export async function setDeploymentEnabled(name: string, enabled: boolean, reason?: string): Promise<void> {
+  const dep = useCatalog.getState().deployments.data?.find((d) => d.name === name);
+  const updated = await modelsApi.patchDeployment(name, { enabled }, dep?.metadata.etag, reason);
+  storeDeployment(updated);
 }
 
 /** "Export pricing": the gateway's effective-price CSV, or the same columns built from each leaf's price. */

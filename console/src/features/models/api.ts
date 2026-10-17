@@ -88,6 +88,13 @@ export const modelsApi = {
     reason?: string,
   ): Promise<DeploymentResource> =>
     api.patch('/deployments/{name}', { path: { name }, body: { spec }, ifMatch: etag, reason }),
+  replaceDeployment: (
+    name: string,
+    spec: DeploymentSpec,
+    etag: string | undefined,
+    reason?: string,
+  ): Promise<DeploymentResource> =>
+    api.put('/deployments/{name}', { path: { name }, body: { spec }, ifMatch: etag, reason }),
   setEnabled: (
     name: string,
     enabled: boolean,

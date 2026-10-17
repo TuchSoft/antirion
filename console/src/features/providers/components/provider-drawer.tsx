@@ -14,7 +14,7 @@ import { ProviderMark } from '@/components/ui/marks';
 import { formatCount, formatPercent } from '@/lib/format';
 import { useEdited, useNow } from '@/lib/hooks';
 import { providerTypeLabel } from '@/lib/providers';
-import type { ProviderResource } from '@/lib/api/types';
+import type { DeploymentResource, ProviderResource } from '@/lib/api/types';
 import { formatRelative } from '@/lib/time';
 import { notify } from '@/stores/ui';
 
@@ -50,6 +50,7 @@ import {
 } from '../keys';
 import { useProviders } from '../store';
 import { api, ApiError, describeError, isChangeControl } from '@/lib/api/client';
+import { DeploymentDrawer } from '@/features/models/components/deployment-drawer';
 import { collectLeaves } from '@/features/models/types';
 import { hasGatewayPermission, useSession } from '@/stores/session';
 
@@ -89,10 +90,12 @@ function useUsedDeployments(open: boolean): Set<string> | null {
  * The provider's deployments, each with the upstream model it calls and whether a Model routes to
  * it; one no Model uses (left by a deleted Model) can be deleted here, by typing its name.
  */
-function DeploymentList({ provider }: { provider: string }) {
+function DeploymentList({ provider, type }: { provider: string; type: string | undefined }) {
   const deployments = useProviders((s) => s.deployments.data);
   const load = useProviders((s) => s.load);
   const canDelete = useCan('deleteDeployment');
+  const canEdit = useCan('replaceDeployment');
+  const [editing, setEditing] = useState<DeploymentResource | null>(null);
   const used = useUsedDeployments(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const mine = (deployments ?? []).filter((d) => d.spec.provider === provider);
@@ -113,6 +116,12 @@ function DeploymentList({ provider }: { provider: string }) {
                 <span className="mono block truncate text-caption text-muted">{d.spec.model}</span>
               </span>
               {orphan ? <Badge tone="warn">No Model uses it</Badge> : null}
+              {d.spec.enabled === false ? <Badge tone="error">Off</Badge> : null}
+              {canEdit ? (
+                <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditing(d)}>
+                  Edit
+                </Button>
+              ) : null}
               {canDelete ? (
                 <Button size="sm" variant="ghost" icon="trash" onClick={() => setDeleting(d.name)}>
                   Delete
@@ -141,6 +150,14 @@ function DeploymentList({ provider }: { provider: string }) {
           await load({ quiet: true });
         }}
       />
+      {editing ? (
+        <DeploymentDrawer
+          deployment={editing}
+          providerType={type}
+          onClose={() => setEditing(null)}
+          onSaved={() => void load({ quiet: true })}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1040,7 +1057,7 @@ function ProviderEditor({
             </div>
           ) : null}
         </section>
-        <DeploymentList provider={provider.name} />
+        <DeploymentList provider={provider.name} type={provider.spec.type} />
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>

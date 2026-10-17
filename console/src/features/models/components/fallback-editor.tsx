@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Badge, Dot } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { Combobox, Field, Segmented } from '@/components/ui/form';
+import { useCan } from '@/components/ui/gate';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { Banner, EmptyState, InlineError } from '@/components/ui/states';
 import { cn } from '@/lib/cn';
@@ -15,6 +16,7 @@ import { useDeploymentMap, useRouteMap } from '../hooks';
 import { saveModelSpec, useCatalog } from '../store';
 import { describeNode, moveStep, newStep, type Step, type StepKind, stepsOf, withChain } from '../tree';
 import { healthName, type ModelView, tierLabel } from '../types';
+import { DeploymentDrawer } from './deployment-drawer';
 
 const KIND_LABEL: Record<StepKind, string> = {
   deployment: 'Deployment',
@@ -41,6 +43,8 @@ export function FallbackEditor({ view, onClose }: { view: ModelView; onClose: ()
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const edited = useEdited(steps);
+  const canCreate = useCan('createDeployment');
+  const [creating, setCreating] = useState(false);
 
   const options =
     kind === 'deployment'
@@ -204,7 +208,27 @@ export function FallbackEditor({ view, onClose }: { view: ModelView; onClose: ()
               Add step
             </Button>
           </div>
+          {kind === 'deployment' && canCreate ? (
+            <p className="text-caption text-muted">
+              Not listed?{' '}
+              <button type="button" className="text-accent hover:underline" onClick={() => setCreating(true)}>
+                Add a deployment
+              </button>{' '}
+              with its region and provider options.
+            </p>
+          ) : null}
         </fieldset>
+        {creating ? (
+          <DeploymentDrawer
+            deployment={null}
+            provider={view.providers[0]}
+            onClose={() => setCreating(false)}
+            onSaved={(d) => {
+              setProblem(null);
+              setSteps((s) => [...s, newStep('deployment', d.name)]);
+            }}
+          />
+        ) : null}
       </div>
     </Drawer>
   );

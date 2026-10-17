@@ -54,7 +54,9 @@ import { healthName, type ModelView, rate, statusOf, STATUS_LABEL, STATUS_TONE, 
 import { AccessDrawer, AccessPanel } from './access-panel';
 import { ActivityList } from './activity-tab';
 import { AliasDialog, RemoveAliasDialog } from './alias-dialog';
-import { RuntimeState, useDisablesFor } from './deployment-runtime';
+import { DeploymentDrawer } from './deployment-drawer';
+import { DeploymentMenu, reloadHealth } from './deployment-menu';
+import { RuntimeState, TurnOffDialog, useDisablesFor } from './deployment-runtime';
 import { FallbackEditor } from './fallback-editor';
 import { MigrationPanel } from './migration-panel';
 import { ModelUsage } from './model-usage';
@@ -203,6 +205,8 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
     | 'chain'
     | { alias: string | null }
     | { removeAlias: string }
+    | { deployment: string }
+    | { turnOff: string }
     | null
   >(null);
   const spec = view.model.spec;
@@ -290,6 +294,12 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
   const aliasDialog = typeof dialog === 'object' && dialog !== null && 'alias' in dialog ? dialog : null;
   const removeAlias =
     typeof dialog === 'object' && dialog !== null && 'removeAlias' in dialog ? dialog : null;
+  const editing =
+    typeof dialog === 'object' && dialog !== null && 'deployment' in dialog
+      ? deployments.get(dialog.deployment)
+      : undefined;
+  const turningOff =
+    typeof dialog === 'object' && dialog !== null && 'turnOff' in dialog ? dialog.turnOff : null;
 
   return (
     <div>
@@ -556,6 +566,9 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
                   <Th>Provider’s model</Th>
                   <Th>Health</Th>
                   <Th numeric>In / out, {tokenPrice.label}</Th>
+                  <Th>
+                    <span className="sr-only">Actions</span>
+                  </Th>
                 </tr>
               </thead>
               <tbody>
@@ -590,6 +603,16 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
                           : leafPrice === null
                             ? 'No price'
                             : '…'}
+                      </Td>
+                      <Td className="text-right">
+                        {dep ? (
+                          <DeploymentMenu
+                            deployment={dep}
+                            health={h}
+                            onEdit={() => setDialog({ deployment: leaf })}
+                            onTurnOff={() => setDialog({ turnOff: leaf })}
+                          />
+                        ) : null}
                       </Td>
                     </Tr>
                   );
@@ -696,6 +719,13 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
         deployments={view.leaves}
         open={dialog === 'price'}
         onClose={() => setDialog(null)}
+      />
+      {editing ? <DeploymentDrawer deployment={editing} onClose={() => setDialog(null)} /> : null}
+      <TurnOffDialog
+        name={turningOff ?? ''}
+        open={turningOff !== null}
+        onClose={() => setDialog(null)}
+        onDone={reloadHealth}
       />
       {dialog === 'access' ? <AccessDrawer view={view} onClose={() => setDialog(null)} /> : null}
       {dialog === 'chain' ? <FallbackEditor view={view} onClose={() => setDialog(null)} /> : null}
