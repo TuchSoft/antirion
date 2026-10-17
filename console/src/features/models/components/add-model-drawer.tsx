@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Combobox, Field, Input, MultiSelect, Segmented, Select, Textarea } from '@/components/ui/form';
+import { Autocomplete, type SelectOption } from '@/components/ui/select';
 import { useCan } from '@/components/ui/gate';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
+import { Icon } from '@/components/ui/icon';
 import { InlineError } from '@/components/ui/states';
 import { ProviderMark } from '@/components/ui/marks';
 import { useEdited, useTokenPrice } from '@/lib/hooks';
@@ -16,6 +18,9 @@ import { serverFieldErrors, validate, type FieldErrors } from '@/lib/validation'
 import { notify } from '@/stores/ui';
 
 import { AddProviderDrawer } from '@/features/providers/components/add-provider-drawer';
+import type { ProviderModel } from '@/features/providers/api';
+import { contextText, useProviderModels } from '@/features/providers/models';
+import { formatMoney, type TokenUnit } from '@/lib/format';
 
 import {
   type AddModelValues,
@@ -24,7 +29,7 @@ import {
   EMPTY_ADD_MODEL,
   toModelSpec,
 } from '../form';
-import { toPerMillion } from '../catalog';
+import { fromPerMillion, toPerMillion } from '../catalog';
 import { useEffectivePrice } from '../hooks';
 import { addModel, useCatalog } from '../store';
 import { BUILTIN_TIERS, rate, tierLabel } from '../types';
@@ -46,6 +51,35 @@ const STATUS_HINTS: Record<AddModelValues['lifecycle'], string> = {
 function suggestedName(upstream: string): string {
   const last = upstream.trim().split('/').pop() ?? '';
   return last.replace(/^[a-z]+\./, '').replace(/:\d+$/, '');
+}
+
+/** A catalog price in the reader's unit: "$0.15" per 1M, "$0.00015" per 1K. */
+function money(perMillion: string, unit: TokenUnit): string {
+  const n = Number(perMillion);
+  return formatMoney(unit === '1K' ? n / 1000 : n);
+}
+
+/** A provider's model as an option: its id, its name, context window and price, and where it's from. */
+function modelOption(m: ProviderModel, unit: TokenUnit): SelectOption {
+  const name = m.name && m.name.toLowerCase() !== m.id.toLowerCase() ? m.name : null;
+  const description = [name, contextText(m.context_window), m.listed_by_provider ? null : 'from catalog']
+    .filter(Boolean)
+    .join(' · ');
+  return {
+    value: m.id,
+    label: m.id,
+    ...(description ? { description } : {}),
+    ...(m.price ? { meta: `${money(m.price.input, unit)} in · ${money(m.price.output, unit)} out` } : {}),
+  };
+}
+
+/** The catalog's prices of a model in the reader's unit, as the price fields hold them. */
+interface CatalogPrice {
+  id: string;
+  input: string;
+  output: string;
+  /** Per 1M, as the API states it. */
+  cacheRead: string | null;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -116,6 +150,65 @@ export function AddModelDrawer({
     setErrors(({ existingDeployment: _e, name: _n, ...rest }) => rest);
   };
 
+  // The provider's models: listed ones first, then the catalog's; any other id can be typed.
+  const modelsEntry = useProviderModels((s) => (values.provider ? s.byProvider[values.provider] : undefined));
+  const loadModels = useProviderModels((s) => s.load);
+  const resolveModel = useProviderModels((s) => s.resolve);
+  const upstreamId = values.upstreamModel.trim();
+  const resolved = useProviderModels((s) =>
+    values.provider && upstreamId ? s.resolved[`${values.provider}/${upstreamId}`] : undefined,
+  );
+  useEffect(() => {
+    if (!open || !values.provider) return;
+    const entry = useProviderModels.getState().byProvider[values.provider];
+    if (!entry?.loaded && !entry?.loading) void loadModels(values.provider);
+  }, [open, values.provider, loadModels]);
+  const listedModel = modelsEntry?.list?.items.find((m) => m.id === upstreamId);
+  // A typed id the list doesn't have: ask the gateway once typing pauses.
+  useEffect(() => {
+    if (!open || !values.provider || !upstreamId || listedModel || resolved !== undefined) return;
+    const provider = values.provider;
+    const timer = window.setTimeout(() => {
+      resolveModel(provider, upstreamId).catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [open, values.provider, upstreamId, listedModel, resolved, resolveModel]);
+  const known = listedModel ?? resolved ?? null;
+  const tokenPriceUnit = useTokenPrice().unit;
+  const modelOptions = useMemo(
+    () => (modelsEntry?.list?.items ?? []).map((m) => modelOption(m, tokenPriceUnit)),
+    [modelsEntry?.list?.items, tokenPriceUnit],
+  );
+
+  // Prices from the catalog fill the fields the person hasn't typed in, and follow the model.
+  const catalog: CatalogPrice | null =
+    known?.price && upstreamId
+      ? {
+          id: upstreamId,
+          input: fromPerMillion(known.price.input, tokenPriceUnit),
+          output: fromPerMillion(known.price.output, tokenPriceUnit),
+          cacheRead: known.price.cache_read,
+        }
+      : null;
+  const [prefilled, setPrefilled] = useState<CatalogPrice | null>(null);
+  const catalogKey = catalog ? `${values.provider}/${catalog.id}/${catalog.input}/${catalog.output}` : '';
+  const [appliedKey, setAppliedKey] = useState('');
+  if (catalogKey !== appliedKey) {
+    setAppliedKey(catalogKey);
+    setValues((v) => {
+      const untouched = (field: 'inputPrice' | 'outputPrice', was: string | undefined) =>
+        v[field] === '' || v[field] === was;
+      return {
+        ...v,
+        inputPrice: untouched('inputPrice', prefilled?.input) ? (catalog?.input ?? '') : v.inputPrice,
+        outputPrice: untouched('outputPrice', prefilled?.output) ? (catalog?.output ?? '') : v.outputPrice,
+      };
+    });
+    setPrefilled(catalog);
+  }
+  const usesCatalog =
+    catalog !== null && values.inputPrice === catalog.input && values.outputPrice === catalog.output;
+
   const priced = values.deploymentMode === 'existing' ? values.existingDeployment : reuse?.name;
   const catalogPrice = useEffectivePrice(priced || undefined);
   const tokenPrice = useTokenPrice();
@@ -147,6 +240,8 @@ export function AddModelDrawer({
                       price: {
                         input: toPerMillion(v.inputPrice, tokenPrice.unit),
                         output: toPerMillion(v.outputPrice, tokenPrice.unit),
+                        // The catalog's cached-read price comes along while its prices are kept.
+                        ...(usesCatalog && catalog.cacheRead ? { cache_read: catalog.cacheRead } : {}),
                       },
                     }
                   : {}),
@@ -156,6 +251,7 @@ export function AddModelDrawer({
       notify('success', 'Model added', `Apps can call it as ${v.name}.`);
       onAdded(v.name);
       setValues(EMPTY_ADD_MODEL);
+      setPrefilled(null);
       onClose();
     } catch (e) {
       setError(e);
@@ -242,15 +338,53 @@ export function AddModelDrawer({
                   label="Provider’s model ID"
                   error={errors.upstreamModel}
                   required
+                  aside={
+                    values.provider ? (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1 text-caption text-accent hover:underline disabled:text-muted disabled:no-underline"
+                        disabled={modelsEntry?.loading}
+                        onClick={() => void loadModels(values.provider, { refresh: true })}
+                      >
+                        <Icon name="refresh" size={12} />
+                        {modelsEntry?.loading ? 'Refreshing…' : 'Refresh list'}
+                      </button>
+                    ) : undefined
+                  }
                   hint={
-                    reuse
-                      ? `Uses the existing deployment ${reuse.name}.`
-                      : values.provider && values.upstreamModel
-                        ? `Creates the deployment ${deploymentNameFor(values.provider, values.upstreamModel)}.`
-                        : 'As the provider names it, e.g. gpt-4o-mini'
+                    <>
+                      {modelsEntry?.list?.error ? (
+                        <span className="block">
+                          The provider didn’t list its models, so this list comes from the catalog.
+                        </span>
+                      ) : null}
+                      {reuse
+                        ? `Uses the existing deployment ${reuse.name}.`
+                        : values.provider && values.upstreamModel
+                          ? `Creates the deployment ${deploymentNameFor(values.provider, values.upstreamModel)}.`
+                          : 'As the provider names it, e.g. gpt-4o-mini. Pick from the list or type any ID.'}
+                    </>
                   }
                 >
-                  <Input mono value={values.upstreamModel} onChange={(e) => setUpstream(e.target.value)} />
+                  <Autocomplete
+                    mono
+                    value={values.upstreamModel}
+                    onChange={setUpstream}
+                    options={modelOptions}
+                    placeholder={values.provider ? 'Search or type an ID' : undefined}
+                    noMatch="Not in the list. You can still use this ID."
+                    status={
+                      !values.provider
+                        ? 'Choose a provider to see its models.'
+                        : modelsEntry?.loading && !modelsEntry.list
+                          ? 'Loading the provider’s models…'
+                          : modelsEntry?.error && !modelsEntry.list
+                            ? 'Couldn’t load the provider’s models. You can still type an ID.'
+                            : modelOptions.length > 0
+                              ? `Prices in USD per ${tokenPriceUnit} tokens, input and output.`
+                              : undefined
+                    }
+                  />
                 </Field>
                 {noProviders && canAddProvider ? (
                   <div className="flex items-center gap-3 rounded-control border border-dashed border-line-strong px-3 py-2.5 sm:col-span-2">
@@ -301,7 +435,7 @@ export function AddModelDrawer({
                   label={`Input price (USD per ${tokenPrice.unit} tokens)`}
                   optional
                   error={errors.inputPrice}
-                  hint="Leave both blank to use list prices."
+                  hint={catalog ? undefined : 'Leave both blank to use list prices.'}
                 >
                   <Input
                     mono
@@ -322,6 +456,34 @@ export function AddModelDrawer({
                     onChange={(e) => set('outputPrice', e.target.value)}
                   />
                 </Field>
+                {catalog ? (
+                  <p className="-mt-2 flex flex-wrap items-baseline gap-x-2 text-caption text-muted sm:col-span-2">
+                    {usesCatalog ? (
+                      'Prices from the catalog · edit to override'
+                    ) : (
+                      <>
+                        <span>
+                          Catalog price: {money(known?.price?.input ?? '', tokenPriceUnit)} input,{' '}
+                          {money(known?.price?.output ?? '', tokenPriceUnit)} output
+                        </span>
+                        <button
+                          type="button"
+                          className="text-accent hover:underline"
+                          onClick={() => {
+                            setValues((v) => ({
+                              ...v,
+                              inputPrice: catalog.input,
+                              outputPrice: catalog.output,
+                            }));
+                            setErrors(({ inputPrice: _i, outputPrice: _o, ...rest }) => rest);
+                          }}
+                        >
+                          Use catalog price
+                        </button>
+                      </>
+                    )}
+                  </p>
+                ) : null}
               </div>
             </Section>
           ) : null}

@@ -233,7 +233,7 @@ export async function addModel(input: {
     name: string;
     provider: string;
     model: string;
-    price?: { input: string; output: string };
+    price?: { input: string; output: string; cache_read?: string };
   } | null;
   existingDeployment: string | null;
 }): Promise<ModelResource> {

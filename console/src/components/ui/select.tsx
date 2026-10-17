@@ -28,6 +28,8 @@ export interface SelectOption {
   description?: string;
   /** A small mark before the label (a provider's logo), decorative. */
   icon?: ReactNode;
+  /** Short muted text on the row's right (a price). */
+  meta?: string;
 }
 
 interface ControlAria {
@@ -162,6 +164,7 @@ function OptionRow({
   selected,
   active,
   multi,
+  mono,
   onPick,
   onHover,
 }: {
@@ -170,6 +173,7 @@ function OptionRow({
   selected: boolean;
   active: boolean;
   multi?: boolean;
+  mono?: boolean;
   onPick: () => void;
   onHover: () => void;
 }) {
@@ -211,11 +215,14 @@ function OptionRow({
         </span>
       ) : null}
       <span className="min-w-0 flex-1">
-        <span className="block truncate">{option.label}</span>
+        <span className={cn('block truncate', mono && 'mono')}>{option.label}</span>
         {option.description ? (
           <span className="block truncate text-caption text-muted">{option.description}</span>
         ) : null}
       </span>
+      {option.meta ? (
+        <span className="mono shrink-0 text-caption text-muted tabular-nums">{option.meta}</span>
+      ) : null}
     </div>
   );
 }
@@ -518,6 +525,230 @@ export const Combobox = forwardRef<SelectHandle, Omit<SelectProps, 'searchable'>
     return <Select ref={ref} {...props} searchable />;
   },
 );
+
+export interface AutocompleteProps extends Omit<BaseProps, 'size'> {
+  /** The text in the field: any value, listed or not. */
+  value: string;
+  onChange: (value: string) => void;
+  /** An option picked from the list (its value is passed to `onChange` first). */
+  onPick?: (option: SelectOption) => void;
+  placeholder?: string;
+  /** A line under the options: loading, or where the list comes from. */
+  status?: ReactNode;
+  /** Said when nothing listed matches what was typed. */
+  noMatch?: string;
+  /** The most options shown at once; typing narrows the rest. */
+  limit?: number;
+}
+
+/**
+ * A text field with suggestions (the WAI-ARIA editable combobox with a list): any value can be
+ * typed, and the list under it filters as you type. Arrow keys open and move through it, Enter
+ * picks the active option, Escape closes it and keeps the text, Tab moves on with the text.
+ */
+export const Autocomplete = forwardRef<HTMLInputElement, AutocompleteProps>(function Autocomplete(
+  {
+    options,
+    value,
+    onChange,
+    onPick,
+    placeholder,
+    status,
+    noMatch = 'No matches',
+    limit = 100,
+    disabled,
+    className,
+    mono,
+    name,
+    id,
+    ...aria
+  },
+  ref,
+) {
+  const autoId = useId();
+  const inputId = id ?? `autocomplete${autoId}`;
+  const listId = `${inputId}-list`;
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  const [active, setActive] = useState(-1);
+  // Whether the list filters by the text: not when it opens on a value already chosen.
+  const [filtering, setFiltering] = useState(false);
+  const [listLabel, setListLabel] = useState<string | undefined>(undefined);
+  const open = target !== null;
+  const isTop = useLayer(open);
+  useFloating(input, list, open, { matchWidth: true });
+
+  const { shown, more } = useMemo(() => {
+    const q = filtering ? value.trim().toLowerCase() : '';
+    // Matches, those that start with the text first.
+    const all = q
+      ? options
+          .filter(
+            (o) =>
+              o.value.toLowerCase().includes(q) ||
+              o.label.toLowerCase().includes(q) ||
+              (o.description?.toLowerCase().includes(q) ?? false),
+          )
+          .sort(
+            (a, b) =>
+              Number(b.value.toLowerCase().startsWith(q)) - Number(a.value.toLowerCase().startsWith(q)),
+          )
+      : options;
+    return { shown: all.slice(0, limit), more: Math.max(0, all.length - limit) };
+  }, [options, value, filtering, limit]);
+  const optionId = (i: number) => `${listId}-${i}`;
+
+  const close = () => {
+    setTarget(null);
+    setActive(-1);
+  };
+  useOutsidePress(open, isTop, [input, list], close);
+
+  useEffect(() => {
+    if (open && active >= 0) scrollIntoView(list.current, optionId(active));
+    // optionId only depends on listId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, active]);
+
+  const openList = (filter: boolean) => {
+    if (disabled) return;
+    setFiltering(filter);
+    if (open) return;
+    setListLabel(labelOf(input.current, aria['aria-label']));
+    setTarget(targetFor(input.current));
+  };
+
+  const pick = (i: number) => {
+    const o = shown[i];
+    if (!o || o.disabled) return;
+    if (o.value !== value) onChange(o.value);
+    onPick?.(o);
+    setFiltering(false);
+    close();
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) {
+        openList(false);
+        setActive(e.key === 'ArrowDown' ? first(options) : last(options.slice(0, limit)));
+        return;
+      }
+      const moved = navigate(e.key, active, shown);
+      if (moved !== null) setActive(moved);
+    } else if ((e.key === 'PageDown' || e.key === 'PageUp') && open) {
+      e.preventDefault();
+      const moved = navigate(e.key, active, shown);
+      if (moved !== null) setActive(moved);
+    } else if (e.key === 'Enter' && open && active >= 0) {
+      e.preventDefault();
+      pick(active);
+    } else if (e.key === 'Escape' && open) {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    } else if (e.key === 'Tab' && open) {
+      close();
+    }
+  };
+
+  return (
+    <>
+      <div className={cn('relative', className)}>
+        <input
+          ref={(el) => {
+            input.current = el;
+            if (typeof ref === 'function') ref(el);
+            else if (ref) ref.current = el;
+          }}
+          id={inputId}
+          type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-activedescendant={open && active >= 0 && shown[active] ? optionId(active) : undefined}
+          aria-label={aria['aria-label']}
+          aria-describedby={aria['aria-describedby']}
+          aria-invalid={aria['aria-invalid']}
+          aria-required={aria['aria-required']}
+          data-autofocus={aria['data-autofocus'] || undefined}
+          name={name}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={disabled}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            openList(true);
+            setActive(-1);
+          }}
+          onClick={() => (open ? close() : openList(false))}
+          onKeyDown={onKeyDown}
+          onBlur={(e) => {
+            const to = e.relatedTarget as Node | null;
+            if (open && !list.current?.contains(to)) close();
+          }}
+          className={cn(
+            'h-8 w-full rounded-control border border-line bg-canvas pr-8 pl-2.5 text-ui text-fg placeholder:text-dim',
+            'hover:border-line-strong focus:border-accent focus:ring-2 focus:ring-accent-dim focus:outline-none',
+            'disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-error',
+            mono && 'mono',
+          )}
+        />
+        <Icon
+          name="chevronDown"
+          size={14}
+          className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-dim"
+        />
+      </div>
+      {target
+        ? createPortal(
+            <div ref={list} className={LIST} data-select-popup>
+              <div
+                id={listId}
+                role="listbox"
+                aria-label={listLabel}
+                tabIndex={-1}
+                className="min-h-0 overflow-y-auto overscroll-contain p-1"
+              >
+                {shown.length === 0 && !status ? (
+                  <div className="flex justify-center px-2.5 py-3">
+                    <EmptyPill>{noMatch}</EmptyPill>
+                  </div>
+                ) : null}
+                {shown.map((o, i) => (
+                  <OptionRow
+                    key={o.value}
+                    id={optionId(i)}
+                    option={o}
+                    mono={mono}
+                    selected={o.value === value}
+                    active={i === active}
+                    onPick={() => pick(i)}
+                    onHover={() => {
+                      if (i !== active) setActive(i);
+                    }}
+                  />
+                ))}
+              </div>
+              {more > 0 || status ? (
+                <div className="shrink-0 border-t border-line px-2.5 py-1.5 text-caption text-muted">
+                  {shown.length === 0 && filtering && value.trim() ? <p>{noMatch}</p> : null}
+                  {more > 0 ? <p>{`${String(more)} more · type to narrow the list`}</p> : null}
+                  {status}
+                </div>
+              ) : null}
+            </div>,
+            target,
+          )
+        : null}
+    </>
+  );
+});
 
 export interface MultiSelectProps extends BaseProps {
   value: string[];
