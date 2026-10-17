@@ -1,13 +1,14 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { AccountDialog } from '@/features/account/components/account-dialog';
 import { GatewayNotices } from '@/features/settings/components/gateway-notices';
 import { SettingsDialog } from '@/features/settings/components/settings-dialog';
 import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/ui/icon';
+import { KeyboardHintsSlot } from '@/components/ui/keyboard-hints';
 import { Toaster } from '@/components/ui/misc';
 import { Dialog } from '@/components/ui/overlay';
 import { activeNav, GO_KEYS, navAllowed, navItem, SETTINGS_NAV } from '@/lib/nav';
@@ -110,6 +111,29 @@ function PageAccess({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The scrolling main area: the page, then the slot the keyboard-hints strip renders into. The page
+ * grows to fill the view, so the strip sits at the bottom of the view under a short list and stays
+ * pinned there (sticky) over a long one; `main` is the only thing that scrolls.
+ */
+export function MainArea({ children }: { children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  return (
+    // While a page shows its main empty, error or loading state, the view below the page's content
+    // takes the raised surface, so that state's band runs to the bottom of the view.
+    <main
+      id="main"
+      tabIndex={-1}
+      className="flex min-w-0 flex-col overflow-auto outline-none has-[[data-page-state]]:bg-raised"
+    >
+      <div data-page className="flex shrink-0 grow flex-col [&>*]:shrink-0">
+        <KeyboardHintsSlot.Provider value={slot}>{children}</KeyboardHintsSlot.Provider>
+      </div>
+      <div ref={setSlot} data-keyboard-hints-slot="" className="sticky bottom-0 z-10 shrink-0" />
+    </main>
+  );
+}
+
 /** The splash shown while the session is checked; static, with no data. */
 export function Splash() {
   return (
@@ -198,18 +222,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="grid h-dvh grid-cols-[minmax(0,1fr)] grid-rows-[48px_minmax(0,1fr)] bg-canvas lg:grid-cols-[var(--spacing-sidebar)_minmax(0,1fr)]">
         <Topbar />
         <Sidebar />
-        {/* While a page shows its main empty, error or loading state, the view below the page's
-            content takes the raised surface, so that state's band runs to the bottom of the view. */}
-        <main
-          id="main"
-          tabIndex={-1}
-          className="flex min-w-0 flex-col overflow-auto outline-none has-[[data-page-state]]:bg-raised [&>*]:shrink-0"
-        >
+        <MainArea>
           <Suspense fallback={null}>
             <GatewayNotices />
             <PageAccess>{children}</PageAccess>
           </Suspense>
-        </main>
+        </MainArea>
       </div>
       <CommandPalette />
       <ShortcutsDialog />

@@ -126,7 +126,8 @@
   }
   /*
    * The height a pane pinned under the top bar may take: the view, less the keyboard-hints strip
-   * pinned under the page when it shows one (from 768px, where the strip appears).
+   * the shell keeps at the bottom of `main` when the page shows one (from 768px, where the strip
+   * appears). A page as tall as this fills the view without making `main` scroll.
    */
   main {
     --pane-h: calc(100dvh - 48px);

@@ -331,7 +331,7 @@ export function RequestLogScreen() {
   const rail = <FiltersRail />;
 
   return (
-    <div className="flex min-h-[calc(100vh-48px)]">
+    <div className="flex min-h-(--pane-h)">
       {showRail && inline ? (
         <aside
           aria-label="Filters"

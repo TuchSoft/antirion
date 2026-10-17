@@ -1,5 +1,8 @@
 'use client';
 
+import { createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
+
 import { usePreferences } from '@/stores/preferences';
 
 import { Kbd } from './misc';
@@ -17,14 +20,22 @@ const HINTS: Record<HintKey, { keys: string[]; label: string }> = {
 };
 
 /**
+ * Where the shell wants the strip: a slot after the page, at the bottom of the main area. A screen
+ * can render the strip anywhere in its tree; it lands there, so it sits at the bottom of the view
+ * however short the list is. Without a slot (a screen rendered alone) it stays where it is.
+ */
+export const KeyboardHintsSlot = createContext<HTMLElement | null>(null);
+
+/**
  * The strip under a list screen naming the keys that work there, pinned to the bottom of the view
  * so it reads the same wherever the page is scrolled. Hidden under 768px and when the user turned
  * keyboard hints off in their preferences.
  */
 export function KeyboardHints({ keys = ['search', 'move', 'open', 'close'] }: { keys?: HintKey[] }) {
   const on = usePreferences((s) => s.keyboardHints);
+  const slot = useContext(KeyboardHintsSlot);
   if (!on) return null;
-  return (
+  const strip = (
     <div
       aria-label="Keyboard shortcuts on this page"
       role="note"
@@ -44,4 +55,5 @@ export function KeyboardHints({ keys = ['search', 'move', 'open', 'close'] }: { 
       </span>
     </div>
   );
+  return slot ? createPortal(strip, slot) : strip;
 }
