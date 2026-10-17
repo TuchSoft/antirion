@@ -81,6 +81,86 @@ describe('key form', () => {
       rpm: { unit: 'requests', limit: 120, per: '1m' },
     });
   });
+  it('saves a key unchanged when nothing was edited', () => {
+    const base: KeyResource['spec'] = {
+      project: 'p',
+      description: 'Support bot',
+      owner: 'ada',
+      expires_at: '2027-01-01T00:00:00Z',
+      endpoints: ['chat', 'gemini'],
+      permissions: ['route:pin'],
+      models: ['gpt-4o', 'claude-*'],
+      deny_models: ['gpt-4o-mini'],
+      providers: ['openai*'],
+      deny_providers: ['legacy'],
+      deployments: ['azure-*'],
+      allowed_ips: ['10.0.0.0/8', 'set:office'],
+      regions: ['eu-west-1'],
+      deny_regions: ['us-east-1'],
+      tags: ['env:prod', 'team:core'],
+      metadata: { cost_center: '42', owner_email: 'ada@acme.test' },
+      allowed_request_tags: ['env:*'],
+      end_user: 'required',
+      priority_class: 'interactive',
+      require_client_cert: { san: 'spiffe://acme.test/bot' },
+      policies: {
+        limits: { rpm: { unit: 'requests', limit: 60, per: '1m', burst: 5 } },
+        budgets: { monthly: { unit: 'usd', amount: '10' } },
+      },
+    };
+    const values = fromKeySpec('k', base);
+    expect(keyFormSchema.safeParse(values).success).toBe(true);
+    expect(toKeySpec(values, base, NOW, true)).toEqual(base);
+  });
+  it('keeps an explicit every-endpoint list and an optional end user', () => {
+    const base = { project: 'p', endpoints: ['*' as const], end_user: 'optional' as const };
+    expect(toKeySpec(fromKeySpec('k', base), base, NOW, true)).toEqual(base);
+  });
+  it('writes deny lists, tags, metadata and the end-user requirement', () => {
+    const spec = toKeySpec(
+      {
+        ...EMPTY_KEY_FORM,
+        name: 'k',
+        expiry: 'never',
+        denyModels: ['o1*'],
+        providers: ['anthropic'],
+        deployments: ['bedrock-*'],
+        tags: ['env:dev'],
+        metadata: [
+          { key: 'cost_center', value: '7' },
+          { key: ' ', value: 'ignored' },
+        ],
+        requestTags: ['ab:*'],
+        endUser: 'required',
+      },
+      {},
+      NOW,
+    );
+    expect(spec).toEqual({
+      project: 'default',
+      deny_models: ['o1*'],
+      providers: ['anthropic'],
+      deployments: ['bedrock-*'],
+      tags: ['env:dev'],
+      metadata: { cost_center: '7' },
+      allowed_request_tags: ['ab:*'],
+      end_user: 'required',
+    });
+  });
+  it('rejects bad tags, patterns and repeated metadata keys', () => {
+    const ok = { ...EMPTY_KEY_FORM, name: 'k' };
+    expect(keyFormSchema.safeParse({ ...ok, tags: ['antirion.internal'] }).success).toBe(false);
+    expect(keyFormSchema.safeParse({ ...ok, providers: ['a*b*'] }).success).toBe(false);
+    expect(
+      keyFormSchema.safeParse({
+        ...ok,
+        metadata: [
+          { key: 'a', value: '1' },
+          { key: 'a', value: '2' },
+        ],
+      }).success,
+    ).toBe(false);
+  });
   it('changes only the number of a declared rpm or tpm limit', () => {
     const rpm = {
       unit: 'requests' as const,

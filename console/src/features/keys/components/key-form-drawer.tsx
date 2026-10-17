@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { usePermission } from '@/components/ui/gate';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Tooltip } from '@/components/ui/tooltip';
-import { joinValues, splitValues } from '@/components/ui/select';
 import {
   Checkbox,
   Combobox,
@@ -14,7 +13,6 @@ import {
   Input,
   MultiSelect,
   NumberInput,
-  Segmented,
   Select,
   Textarea,
 } from '@/components/ui/form';
@@ -39,7 +37,8 @@ import {
   toKeySpec,
 } from '../form';
 import { createKey, useKeys, useKeysContext } from '../store';
-import { ENDPOINT_GROUPS, KEY_PERMISSIONS } from '../types';
+import { KEY_PERMISSIONS } from '../types';
+import { EndpointsField, LabelFields, ModelFields, NetworkFields, ProviderFields } from './access-fields';
 
 export interface KeyFormDrawerProps {
   open: boolean;
@@ -95,8 +94,6 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
   const [values, setValues] = useState<KeyFormValues>(() =>
     editing ? fromKeySpec(editing.name, editing.spec) : EMPTY_KEY_FORM,
   );
-  const [scoped, setScoped] = useState(() => values.endpoints.length > 0);
-  const [kept, setKept] = useState<string[]>(values.endpoints);
   const [advanced, setAdvanced] = useState(() => advancedCount(values) > 0);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
@@ -104,12 +101,6 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
   const edited = useEdited(values);
   const projects = useKeysContext((s) => s.projects.data) ?? [];
   const users = useKeysContext((s) => s.users.data) ?? [];
-  const ipSets = useKeysContext((s) => s.auth.data?.spec.ip_sets);
-  const knownRegions = useKeysContext((s) => s.regions.data) ?? [];
-  const loadRegions = useKeysContext((s) => s.loadRegions);
-  useEffect(() => {
-    if (open) void loadRegions();
-  }, [open, loadRegions]);
   const update = useKeys((s) => s.update);
   const canGrant = usePermission('keys:grant_permissions');
   const team = projects.find((p) => p.name === values.project)?.spec.team;
@@ -122,20 +113,17 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
     if (errors[key]) setErrors(({ [key]: _, ...rest }) => rest);
   }
 
-  function toggle(key: 'endpoints' | 'permissions', item: string) {
+  /** Merges several changed members, clearing their errors. */
+  function change(patch: Partial<KeyFormValues>) {
+    setValues((v) => ({ ...v, ...patch }));
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !(k in patch))));
+  }
+
+  function toggle(key: 'permissions', item: string) {
     setValues((v) => ({
       ...v,
       [key]: v[key].includes(item) ? v[key].filter((x) => x !== item) : [...v[key], item],
     }));
-  }
-
-  function chooseScope(only: boolean) {
-    setScoped(only);
-    if (only) set('endpoints', kept);
-    else {
-      setKept(values.endpoints);
-      set('endpoints', []);
-    }
   }
 
   async function submit() {
@@ -292,66 +280,38 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
         </Section>
 
         <Section title="Access" description="API keys can't be used for admin access.">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-ui font-medium text-fg" id="key-endpoints-label">
-                Endpoints
-              </span>
-              <Segmented<'all' | 'only'>
-                label="Endpoints"
-                value={scoped ? 'only' : 'all'}
-                onChange={(v) => chooseScope(v === 'only')}
-                options={[
-                  { value: 'all', label: 'All endpoints' },
-                  { value: 'only', label: 'Only these…' },
-                ]}
-              />
-              {scoped ? (
-                <span className="text-caption text-muted">
-                  {values.endpoints.length === 0
-                    ? 'None chosen yet: the key can call every endpoint.'
-                    : `${plural(values.endpoints.length, 'endpoint')} chosen`}
-                </span>
-              ) : null}
-            </div>
-            {scoped ? (
-              <fieldset
-                aria-labelledby="key-endpoints-label"
-                className="grid grid-cols-3 gap-4 rounded-control border border-line bg-sunken p-4 max-sm:grid-cols-1"
-              >
-                {ENDPOINT_GROUPS.map((group) => (
-                  <div key={group.label} className="flex flex-col gap-2">
-                    <span className="text-caption font-medium text-muted">{group.label}</span>
-                    {group.items.map((item) => (
-                      <Tooltip key={item.id} content={item.id} side="bottom">
-                        <span>
-                          <Checkbox
-                            label={item.label}
-                            checked={values.endpoints.includes(item.id)}
-                            onChange={() => toggle('endpoints', item.id)}
-                          />
-                        </span>
-                      </Tooltip>
-                    ))}
-                  </div>
-                ))}
-              </fieldset>
-            ) : null}
-          </div>
+          <EndpointsField id="key" value={values.endpoints} onChange={(v) => set('endpoints', v)} />
+          <ModelFields values={values} set={change} errors={errors} />
+          <ProviderFields values={values} set={change} errors={errors} />
+          <Checkbox
+            label="Require an end-user id"
+            description="Refuse requests that don't say which of the app's users they are for. Budgets and limits split by end user count them."
+            checked={values.endUser === 'required'}
+            onChange={(v) =>
+              set('endUser', v ? 'required' : editing?.spec.end_user === 'optional' ? 'optional' : '')
+            }
+          />
+        </Section>
+
+        <Section
+          title="Tags and metadata"
+          description="Labels that budgets, limits, routing and analytics can match and group by."
+        >
+          <LabelFields values={values} set={change} errors={errors} />
           <Field
-            label="Allowed models"
+            label="Tags a request may add"
             optional
-            error={errors.models}
-            hint="Leave blank to allow all. Use * as a wildcard, e.g. claude-*."
+            error={errors.requestTags}
+            hint="With the Tag requests permission. Leave blank for any; use * as a wildcard, e.g. env:*."
           >
             <MultiSelect
               mono
               creatable
-              noun="model"
-              placeholder="All models"
+              noun="tag"
+              placeholder="Any tag"
               options={[]}
-              value={splitValues(values.models)}
-              onChange={(v) => set('models', joinValues(v))}
+              value={values.requestTags}
+              onChange={(v) => set('requestTags', v)}
             />
           </Field>
         </Section>
@@ -408,71 +368,7 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
                   />
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
-                <Field
-                  label="Allowed IP addresses"
-                  optional
-                  error={errors.allowedIps}
-                  hint="One address or range per line, e.g. 10.0.0.0/8. Leave both blank to allow any."
-                >
-                  <Textarea
-                    mono
-                    rows={3}
-                    value={values.allowedIps}
-                    onChange={(e) => set('allowedIps', e.target.value)}
-                  />
-                </Field>
-                <Field
-                  label="Named IP sets"
-                  optional
-                  hint={
-                    ipSets && Object.keys(ipSets).length > 0
-                      ? 'Sets defined in Settings; a change to a set applies to every key using it.'
-                      : 'No IP sets are defined in Settings yet.'
-                  }
-                >
-                  <MultiSelect
-                    mono
-                    noun="IP set"
-                    placeholder="No sets"
-                    options={Object.entries(ipSets ?? {}).map(([name, ranges]) => ({
-                      value: name,
-                      label: name,
-                      description: ranges.join(', '),
-                    }))}
-                    value={values.ipSets}
-                    onChange={(v) => set('ipSets', v)}
-                  />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
-                <Field
-                  label="Only these regions"
-                  optional
-                  hint="Requests go only to deployments in these regions. Leave blank for any."
-                >
-                  <MultiSelect
-                    mono
-                    creatable
-                    noun="region"
-                    placeholder="Any region"
-                    options={knownRegions.map((r) => ({ value: r, label: r }))}
-                    value={values.regions}
-                    onChange={(v) => set('regions', v)}
-                  />
-                </Field>
-                <Field label="Never these regions" optional hint="Deployments in these regions are skipped.">
-                  <MultiSelect
-                    mono
-                    creatable
-                    noun="region"
-                    placeholder="None"
-                    options={knownRegions.map((r) => ({ value: r, label: r }))}
-                    value={values.denyRegions}
-                    onChange={(v) => set('denyRegions', v)}
-                  />
-                </Field>
-              </div>
+              <NetworkFields values={values} set={change} errors={errors} />
               <Field
                 label="Priority class"
                 optional

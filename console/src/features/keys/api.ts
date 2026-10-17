@@ -34,6 +34,13 @@ export const keysCollection: CollectionApi<KeyResource, KeyCreateInput, KeySpec>
   },
 };
 
+/** Names the access lists offer: regions, providers and deployments. */
+export interface AccessTargets {
+  regions: string[];
+  providers: string[];
+  deployments: string[];
+}
+
 export const keysApi = {
   setEnabled: (
     name: string,
@@ -133,14 +140,23 @@ export const keysApi = {
       ifMatch: etag,
       reason,
     }),
-  /** The regions the deployments report, for the key form's region lists. */
-  regions: async (): Promise<string[]> => {
+  /**
+   * The regions, providers and deployments the deployments name, for the access lists' choices
+   * (any other name can still be typed).
+   */
+  targets: async (): Promise<AccessTargets> => {
     const deployments = await listAll((cursor) => api.get('/deployments', { query: { limit: 200, cursor } }));
     const regions = deployments.map(
       (d) =>
         (d.metadata as { region?: string | null }).region ?? (d.spec as { region?: string }).region ?? null,
     );
-    return [...new Set(regions.filter((r): r is string => Boolean(r)))].sort();
+    const sorted = (l: (string | null | undefined)[]) =>
+      [...new Set(l.filter((x): x is string => Boolean(x)))].sort();
+    return {
+      regions: sorted(regions),
+      providers: sorted(deployments.map((d) => (d.spec as { provider?: string }).provider)),
+      deployments: sorted(deployments.map((d) => d.name)),
+    };
   },
   usage24h: async (from: string, to: string): Promise<Map<string, { requests: number; cost: number }>> => {
     const result = await api.get('/analytics/usage', { query: { from, to, group_by: ['key'] } });

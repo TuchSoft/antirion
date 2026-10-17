@@ -19,6 +19,8 @@ export const ENDPOINT_FAMILIES = [
   'batches',
   'realtime',
   'models',
+  'gemini',
+  'bedrock',
   'mcp',
   'a2a',
 ] as const;
@@ -52,6 +54,8 @@ export const ENDPOINT_GROUPS: { label: string; items: { id: EndpointFamily; labe
       { id: 'files', label: 'Files' },
       { id: 'batches', label: 'Batches' },
       { id: 'models', label: 'Model list' },
+      { id: 'gemini', label: 'Gemini-style API' },
+      { id: 'bedrock', label: 'Bedrock-style API' },
       { id: 'mcp', label: 'MCP tools' },
       { id: 'a2a', label: 'Agent-to-agent' },
     ],

@@ -1,30 +1,39 @@
 import { z } from 'zod';
 
 import type { KeySpec } from '@/lib/api/types';
-import { cidr, modelName, resourceName, splitList } from '@/lib/validation';
+import { resourceName } from '@/lib/validation';
 
-import { ENDPOINT_FAMILIES, KEY_PERMISSIONS } from './types';
+import {
+  accessFrom,
+  accessShape,
+  accessSpec,
+  type AccessValues,
+  EMPTY_ACCESS,
+  EMPTY_LABELS,
+  labelsFrom,
+  labelsShape,
+  labelsSpec,
+  type LabelValues,
+} from './access';
+import { KEY_PERMISSIONS } from './types';
 
 export type ExpiryChoice = 'never' | '7d' | '30d' | '90d' | '365d' | 'custom';
 
 /** How a key is bound to a client certificate: not at all, by the certificate's SHA-256, or by a name in it. */
 export type CertBinding = 'none' | 'fingerprint' | 'san';
 
-export interface KeyFormValues {
+export interface KeyFormValues extends AccessValues, LabelValues {
   name: string;
   description: string;
   project: string;
   owner: string;
   expiry: ExpiryChoice;
   expiresOn: string;
-  endpoints: string[];
   permissions: string[];
-  models: string;
-  allowedIps: string;
-  /** Named IP sets of the gateway's settings, written as `set:<name>` entries of `allowed_ips`. */
-  ipSets: string[];
-  regions: string[];
-  denyRegions: string[];
+  /** `allowed_request_tags`: the tags a request may add (patterns); empty for any. */
+  requestTags: string[];
+  /** `end_user`: `required` refuses a request that names no end user; empty is the default. */
+  endUser: '' | 'optional' | 'required';
   /** The class a limit's priority shares give this key's requests. */
   priorityClass: string;
   /** The client certificate a request with this key must present over mutual TLS. */
@@ -42,13 +51,11 @@ export const EMPTY_KEY_FORM: KeyFormValues = {
   owner: '',
   expiry: '90d',
   expiresOn: '',
-  endpoints: [],
+  ...EMPTY_ACCESS,
+  ...EMPTY_LABELS,
   permissions: [],
-  models: '',
-  allowedIps: '',
-  ipSets: [],
-  regions: [],
-  denyRegions: [],
+  requestTags: [],
+  endUser: '',
   priorityClass: '',
   certBinding: 'none',
   certValue: '',
@@ -71,23 +78,16 @@ export const keyFormSchema = z
     owner: z.string(),
     expiry: z.enum(['never', '7d', '30d', '90d', '365d', 'custom']),
     expiresOn: z.string(),
-    endpoints: z.array(z.enum(ENDPOINT_FAMILIES)),
+    ...accessShape,
+    ...labelsShape,
     permissions: z.array(z.enum(KEY_PERMISSIONS.map((p) => p.id) as [string, ...string[]])),
-    models: z
-      .string()
+    requestTags: z
+      .array(z.string())
       .refine(
-        (v) => splitList(v).every((m) => m === '*' || modelName.safeParse(m.replace(/\*$/, 'x')).success),
-        'Enter model names separated by commas, e.g. gpt-4o, claude-*',
+        (l) => l.every((t) => /^[A-Za-z0-9:_.-]*\*?[A-Za-z0-9:_.-]*$/.test(t) && t !== ''),
+        'Tags with at most one *, e.g. env:*',
       ),
-    allowedIps: z
-      .string()
-      .refine(
-        (v) => splitList(v).every((ip) => cidr.safeParse(ip).success),
-        'Enter one IP address or range per line, e.g. 10.0.0.0/8',
-      ),
-    ipSets: z.array(z.string()),
-    regions: z.array(z.string()),
-    denyRegions: z.array(z.string()),
+    endUser: z.enum(['', 'optional', 'required']),
     priorityClass: z
       .string()
       .trim()
@@ -151,12 +151,11 @@ export function toKeySpec(
     description: values.description.trim() || undefined,
     owner: values.owner || undefined,
     expires_at: keepExpiry ? base.expires_at : expiresAt(values, now),
-    endpoints: values.endpoints,
+    ...accessSpec(values, base),
+    ...labelsSpec(values),
     permissions: values.permissions,
-    models: splitList(values.models),
-    allowed_ips: [...splitList(values.allowedIps), ...values.ipSets.map((n) => `set:${n}`)],
-    regions: values.regions,
-    deny_regions: values.denyRegions,
+    allowed_request_tags: values.requestTags.length > 0 ? values.requestTags : undefined,
+    end_user: values.endUser || undefined,
     priority_class: values.priorityClass.trim() || undefined,
     require_client_cert: clientCert(values),
     policies: compact(policies),
@@ -209,13 +208,11 @@ export function fromKeySpec(name: string, spec: KeySpec): KeyFormValues {
     owner: spec.owner ?? '',
     expiry: spec.expires_at ? 'custom' : 'never',
     expiresOn: spec.expires_at ? spec.expires_at.slice(0, 10) : '',
-    endpoints: (spec.endpoints ?? []).filter((e) => e !== '*'),
+    ...accessFrom(spec),
+    ...labelsFrom(spec),
     permissions: spec.permissions ?? [],
-    models: (spec.models ?? []).join(', '),
-    allowedIps: (spec.allowed_ips ?? []).filter((ip) => !ip.startsWith('set:')).join('\n'),
-    ipSets: (spec.allowed_ips ?? []).filter((ip) => ip.startsWith('set:')).map((ip) => ip.slice(4)),
-    regions: spec.regions ?? [],
-    denyRegions: spec.deny_regions ?? [],
+    requestTags: spec.allowed_request_tags ?? [],
+    endUser: spec.end_user ?? '',
     priorityClass: spec.priority_class ?? '',
     certBinding: spec.require_client_cert?.sha256_fingerprint
       ? 'fingerprint'

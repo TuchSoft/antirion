@@ -47,6 +47,7 @@ function liveHandlers(keys: unknown[]) {
     http.get('*/admin/v1/users', () => HttpResponse.json({ items: [], next_cursor: null })),
     http.get('*/admin/v1/runtime/budgets', () => HttpResponse.json({ items: [], next_cursor: null })),
     http.get('*/admin/v1/audit', () => HttpResponse.json({ items: [], next_cursor: null })),
+    http.get('*/admin/v1/deployments', () => HttpResponse.json({ items: [], next_cursor: null })),
   );
 }
 
@@ -156,7 +157,7 @@ describe('API key details', () => {
     await screen.findByText('No API keys yet');
     await userEvent.click(first(screen.getAllByRole('button', { name: 'Create key' })));
     const drawer = screen.getByRole('dialog', { name: 'Create API key' });
-    expect(within(drawer).queryAllByRole('checkbox')).toHaveLength(0);
+    expect(within(drawer).queryByRole('checkbox', { name: 'Chat completions' })).not.toBeInTheDocument();
     await userEvent.type(within(drawer).getByLabelText(/^Name/), 'scoped');
     await userEvent.click(within(drawer).getByRole('radio', { name: 'Only these…' }));
     await userEvent.click(within(drawer).getByRole('checkbox', { name: 'Chat completions' }));

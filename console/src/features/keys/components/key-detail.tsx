@@ -314,6 +314,37 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
             <dt className="eyebrow mb-1.5">Models</dt>
             <dd className={key.spec.models?.length ? 'mono text-fg' : 'text-fg'}>
               {key.spec.models?.length ? key.spec.models.join(', ') : 'All models'}
+              {key.spec.deny_models?.length ? (
+                <span className="block font-sans text-caption text-muted">
+                  Never <span className="mono">{key.spec.deny_models.join(', ')}</span>
+                </span>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt className="eyebrow mb-1.5">Providers and deployments</dt>
+            <dd className="text-fg">
+              {key.spec.providers?.length ? (
+                <span className="mono">{key.spec.providers.join(', ')}</span>
+              ) : (
+                'Any provider'
+              )}
+              {key.spec.deny_providers?.length ? (
+                <span className="block text-caption text-muted">
+                  Never <span className="mono">{key.spec.deny_providers.join(', ')}</span>
+                </span>
+              ) : null}
+              {key.spec.deployments?.length ? (
+                <span className="block text-caption text-muted">
+                  Only <span className="mono">{key.spec.deployments.join(', ')}</span>
+                </span>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt className="eyebrow mb-1.5">End-user id</dt>
+            <dd className="text-fg">
+              {key.spec.end_user === 'required' ? 'Required on every request' : 'Optional'}
             </dd>
           </div>
           <div>
@@ -383,6 +414,43 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
                 </>
               ) : (
                 'Not required'
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="eyebrow mb-1.5">Tags</dt>
+            <dd>
+              {key.spec.tags?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {key.spec.tags.map((t) => (
+                    <Badge key={t}>
+                      <span className="mono">{t}</span>
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted">None</p>
+              )}
+              {key.spec.allowed_request_tags?.length ? (
+                <span className="block text-caption text-muted">
+                  Requests may add <span className="mono">{key.spec.allowed_request_tags.join(', ')}</span>
+                </span>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt className="eyebrow mb-1.5">Metadata</dt>
+            <dd>
+              {key.spec.metadata && Object.keys(key.spec.metadata).length > 0 ? (
+                <ul className="flex flex-col gap-0.5 text-fg">
+                  {Object.entries(key.spec.metadata).map(([k, v]) => (
+                    <li key={k}>
+                      <span className="mono text-muted">{k}</span> <span className="mono">{v}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted">None</p>
               )}
             </dd>
           </div>

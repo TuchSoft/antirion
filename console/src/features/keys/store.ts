@@ -14,7 +14,7 @@ import type {
 import { createCollectionStore } from '@/lib/collection-store';
 import { asApiError, emptySlot, loadSlot, type Slot } from '@/lib/slot';
 
-import { type KeyCreateInput, keysApi, keysCollection, type LimitCounter } from './api';
+import { type AccessTargets, type KeyCreateInput, keysApi, keysCollection, type LimitCounter } from './api';
 import { hasGatewayPermission, useSession } from '@/stores/session';
 
 function mayOnGateway(permission: string): boolean {
@@ -54,7 +54,8 @@ interface KeysContextState {
   auth: Slot<AuthSettings>;
   organizations: Slot<OrganizationResource[]>;
   activity: Slot<AuditEntry[]>;
-  regions: Slot<string[]>;
+  /** The regions, providers and deployments the access lists offer. */
+  targets: Slot<AccessTargets>;
   /** Per key: its hours, rate-limit counters and source addresses. */
   keyHourly: Record<string, Slot<Hourly[]>>;
   limits: Record<string, Slot<LimitCounter[]>>;
@@ -62,7 +63,9 @@ interface KeysContextState {
   loadHourly: () => Promise<void>;
   loadSettings: () => Promise<void>;
   loadActivity: () => Promise<void>;
-  loadRegions: () => Promise<void>;
+  loadTargets: () => Promise<void>;
+  /** The gateway's sign-in settings (its IP sets), for those who may read them. */
+  loadAuth: () => Promise<void>;
   loadKeyFacts: (name: string) => Promise<void>;
   saveKeyPolicy: (organization: string, policy: Record<string, unknown>, reason?: string) => Promise<void>;
   loadDirectory: () => Promise<void>;
@@ -87,7 +90,7 @@ export const useKeysContext = create<KeysContextState>()((set, get) => ({
   auth: emptySlot(),
   organizations: emptySlot(),
   activity: emptySlot(),
-  regions: emptySlot(),
+  targets: emptySlot(),
   keyHourly: {},
   limits: {},
   ips: {},
@@ -107,7 +110,10 @@ export const useKeysContext = create<KeysContextState>()((set, get) => ({
     ]);
   },
   loadActivity: () => loadSlot(set, get, 'activity', keysApi.activity),
-  loadRegions: () => loadSlot(set, get, 'regions', keysApi.regions),
+  loadTargets: () => loadSlot(set, get, 'targets', keysApi.targets),
+  loadAuth: async () => {
+    if (mayOnGateway('security:read')) await loadSlot(set, get, 'auth', keysApi.auth);
+  },
   async loadKeyFacts(name) {
     const to = new Date();
     const from48 = new Date(to.getTime() - 48 * 3_600_000).toISOString();
