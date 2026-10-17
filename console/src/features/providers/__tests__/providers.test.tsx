@@ -11,6 +11,7 @@ import { pickOption, signInAs } from '@/test/utils';
 import { ProvidersScreen } from '../components/providers-screen';
 import { EMPTY_PROVIDER, providerSchema, suggestName, toProviderSpec } from '../form';
 import { keyState, providerKeyStatus, rotation } from '../keys';
+import { useProviderModels } from '../models';
 import { useProviders } from '../store';
 
 const TYPES = [
@@ -62,7 +63,9 @@ function reset() {
     types: emptySlot(),
     deployments: emptySlot(),
     health: emptySlot(),
+    tests: {},
   });
+  useProviderModels.setState({ byProvider: {}, resolved: {} });
 }
 
 describe('provider form', () => {
@@ -130,19 +133,88 @@ describe('Settings › Providers', () => {
     const [headerAdd] = screen.getAllByRole('button', { name: 'Add provider' });
     await userEvent.click(headerAdd ?? document.body);
     const drawer = screen.getByRole('dialog', { name: 'Add provider' });
-    await userEvent.click(within(drawer).getByRole('button', { name: 'Add provider' }));
-    expect(within(drawer).getByText('Select a provider', { selector: '[role=alert]' })).toBeInTheDocument();
+    const save = () => within(drawer).getByRole('button', { name: 'Add provider' });
+    expect(save()).toBeDisabled();
     await pickOption(await within(drawer).findByRole('combobox', { name: /^Provider/ }), 'OpenAI');
     expect(within(drawer).getByLabelText(/^Name/)).toHaveValue('openai');
     expect(within(drawer).getByText('Leave blank to use https://api.openai.com/v1.')).toBeInTheDocument();
     await userEvent.type(within(drawer).getByLabelText(/^API key/), 'sk-test-1234');
-    await userEvent.click(within(drawer).getByRole('button', { name: 'Add provider' }));
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Test connection' }));
+    expect(await within(drawer).findByText('Connected · 10 models · 412 ms')).toBeInTheDocument();
+    await userEvent.click(save());
     expect(await screen.findByRole('table', { name: 'Providers' })).toBeInTheDocument();
     expect(posted).toEqual({
       name: 'openai',
       spec: { type: 'openai', auth: { method: 'api_key', api_key: 'sk-test-1234' } },
     });
     expect(screen.queryByRole('dialog', { name: 'Add provider' })).not.toBeInTheDocument();
+    // The models the test listed are kept for the Add model form.
+    expect(useProviderModels.getState().byProvider.openai?.list?.items).toHaveLength(10);
+  });
+
+  it('saves a new provider only after a test of exactly the current values passed', async () => {
+    reset();
+    signInAs(['providers:read', 'providers:write', 'models:read']);
+    handlers([]);
+    const tested: unknown[] = [];
+    server.use(
+      http.post(/\/admin\/v1\/providers:test$/, async ({ request }) => {
+        tested.push(await request.json());
+        const body = tested.at(-1) as { spec: { auth: { api_key: string } } };
+        const bad = body.spec.auth.api_key.includes('bad');
+        return HttpResponse.json({
+          ok: !bad,
+          method: 'list_models',
+          status_code: bad ? 401 : 200,
+          latency_ms: 120,
+          error: bad ? 'Incorrect API key provided' : null,
+          models: bad ? null : [],
+          tested_at: '2026-10-17T12:00:00Z',
+        });
+      }),
+    );
+    render(<ProvidersScreen />);
+    await userEvent.click(
+      (await screen.findAllByRole('button', { name: 'Add provider' }))[0] ?? document.body,
+    );
+    const drawer = screen.getByRole('dialog', { name: 'Add provider' });
+    const save = () => within(drawer).getByRole('button', { name: 'Add provider' });
+    const testButton = () => within(drawer).getByRole('button', { name: 'Test connection' });
+    await pickOption(await within(drawer).findByRole('combobox', { name: /^Provider/ }), 'OpenAI');
+    const key = within(drawer).getByLabelText(/^API key/);
+
+    // Before a test: disabled.
+    await userEvent.type(key, 'sk-bad-1');
+    expect(save()).toBeDisabled();
+
+    // A failed test keeps it disabled and says why in plain words, with the details behind a disclosure.
+    await userEvent.click(testButton());
+    expect(await within(drawer).findByText(/The provider refused the key/)).toBeInTheDocument();
+    expect(within(drawer).getByText('Incorrect API key provided')).not.toBeVisible();
+    await userEvent.click(within(drawer).getByText('Details'));
+    expect(within(drawer).getByText('Incorrect API key provided')).toBeVisible();
+    expect(save()).toBeDisabled();
+
+    // A passing test of these values: enabled.
+    await userEvent.clear(key);
+    await userEvent.type(key, 'sk-good-1');
+    await userEvent.click(testButton());
+    expect(await within(drawer).findByText('Connected · 0 models · 120 ms')).toBeInTheDocument();
+    expect(save()).toBeEnabled();
+    expect(tested.at(-1)).toEqual({
+      name: 'openai',
+      spec: { type: 'openai', auth: { method: 'api_key', api_key: 'sk-good-1' } },
+    });
+
+    // Any change to what the test covers: disabled again until it is tested again.
+    await userEvent.type(within(drawer).getByLabelText(/^Base URL/), 'https://eu.api.openai.com/v1');
+    expect(save()).toBeDisabled();
+    expect(within(drawer).getByText('Changed since the last test.')).toBeInTheDocument();
+    await userEvent.clear(within(drawer).getByLabelText(/^Base URL/));
+    expect(save()).toBeEnabled();
+    // The name is not part of the connection: renaming keeps the test.
+    await userEvent.type(within(drawer).getByLabelText(/^Name/), '-eu');
+    expect(save()).toBeEnabled();
   });
 
   it('asks before turning a provider off, and the toast undoes it', async () => {
@@ -408,18 +480,102 @@ describe('Providers › keys and limits', () => {
 });
 
 describe('providers', () => {
-  it("can't test a provider with no deployment, and exports the table", async () => {
+  it('tests a provider with no deployment, and the key status shows the outcome at once', async () => {
     reset();
     signInAs(['providers:read', 'providers:write', 'models:read']);
-    handlers([{ name: 'lonely', spec: { type: 'openai' }, metadata: meta }]);
+    handlers([{ name: 'lonely', spec: { type: 'openai', auth: { api_key: '[REDACTED]' } }, metadata: meta }]);
+    let pass = true;
+    let statusReads = 0;
+    server.use(
+      http.get('*/admin/v1/runtime/providers', () => {
+        statusReads += 1;
+        return HttpResponse.json({
+          items: [
+            {
+              name: 'lonely',
+              type: 'openai',
+              credential: { method: 'api_key', state: 'valid' },
+              tls_verify: true,
+            },
+          ],
+          next_cursor: null,
+        });
+      }),
+      http.post(/\/admin\/v1\/providers\/lonely:test$/, () =>
+        HttpResponse.json({
+          ok: pass,
+          method: 'list_models',
+          status_code: pass ? 200 : 401,
+          latency_ms: 98,
+          error: pass ? null : 'invalid_api_key',
+          models: pass ? [] : null,
+          tested_at: new Date().toISOString(),
+        }),
+      ),
+    );
+    render(<ProvidersScreen />);
+    const table = await screen.findByRole('table', { name: 'Providers' });
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument();
+    expect(await within(table).findByText('Not tested yet')).toBeInTheDocument();
+    const reads = statusReads;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for lonely' }));
+    const item = await screen.findByRole('menuitem', { name: /Test connection/ });
+    expect(item).not.toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(item);
+    expect(await within(table).findByText('Working')).toBeInTheDocument();
+    expect(useUi.getState().toasts.some((t) => t.title === 'lonely answered')).toBe(true);
+    // The gateway's state is read again too.
+    await waitFor(() => expect(statusReads).toBeGreaterThan(reads));
+
+    pass = false;
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for lonely' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Test connection/ }));
+    expect(await within(table).findByText('Failed')).toBeInTheDocument();
+    expect(useUi.getState().toasts.some((t) => t.title === "lonely didn't pass the test")).toBe(true);
+  });
+
+  it('replaces a key only after the new key passed a test', async () => {
+    reset();
+    signInAs(['providers:read', 'providers:write', 'models:read']);
+    handlers([{ name: 'openai', spec: { type: 'openai', auth: { api_key: '[REDACTED]' } }, metadata: meta }]);
+    const tested: unknown[] = [];
+    let rotated: unknown = null;
+    server.use(
+      http.post(/\/admin\/v1\/providers:test$/, async ({ request }) => {
+        tested.push(await request.json());
+        return HttpResponse.json({
+          ok: true,
+          method: 'list_models',
+          status_code: 200,
+          latency_ms: 50,
+          error: null,
+          models: [],
+          tested_at: new Date().toISOString(),
+        });
+      }),
+      http.post(/\/admin\/v1\/providers\/openai:rotate_credential$/, async ({ request }) => {
+        rotated = await request.json();
+        return HttpResponse.json({ name: 'openai', spec: { type: 'openai' }, metadata: meta });
+      }),
+    );
     render(<ProvidersScreen />);
     await screen.findByRole('table', { name: 'Providers' });
-    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Actions for lonely' }));
-    expect(await screen.findByRole('menuitem', { name: /Test connection/ })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for openai' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Replace API key/ }));
+    const dialog = await screen.findByRole('alertdialog', { name: /Replace the API key of openai/ });
+    const confirm = () => within(dialog).getByRole('button', { name: 'Replace key' });
+    expect(confirm()).toBeDisabled();
+    await userEvent.type(within(dialog).getByLabelText('New API key'), 'sk-new-1');
+    expect(confirm()).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Test the new key' }));
+    expect(await within(dialog).findByText(/^Connected/)).toBeInTheDocument();
+    expect(tested).toEqual([
+      { name: 'openai', spec: { type: 'openai', auth: { method: 'api_key', api_key: 'sk-new-1' } } },
+    ]);
+    expect(confirm()).toBeEnabled();
+    await userEvent.click(confirm());
+    await waitFor(() => expect(rotated).toMatchObject({ credential: 'sk-new-1' }));
   });
 
   it('says what the base URL accepts', () => {

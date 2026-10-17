@@ -155,3 +155,13 @@ export function toProviderSpec(v: ProviderValues): ProviderSpec {
     };
   return spec;
 }
+
+/**
+ * A saved provider's spec with one new API key in place of its keys, to test the key before it
+ * replaces one: the other keys read back redacted, so the test uses the new key alone.
+ */
+export function specWithKey(spec: ProviderSpec, secret: string): ProviderSpec {
+  const { enabled: _enabled, auth, ...rest } = spec;
+  const { api_key: _key, api_keys: _keys, ...others } = auth ?? {};
+  return { ...rest, auth: { ...others, method: 'api_key', api_key: secret.trim() } };
+}

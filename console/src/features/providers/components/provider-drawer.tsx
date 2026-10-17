@@ -16,7 +16,7 @@ import type { ProviderResource } from '@/lib/api/types';
 import { formatRelative } from '@/lib/time';
 import { notify } from '@/stores/ui';
 
-import type { ProviderStatus } from '../api';
+import type { ProviderStatus, ProviderTestResult } from '../api';
 import { AUTH_LABELS, type AuthMethod } from '../form';
 import {
   ageText,
@@ -25,6 +25,7 @@ import {
   type ProviderKeyRow,
   type RateLimits,
   rotation,
+  withTest,
 } from '../keys';
 import { useProviders } from '../store';
 import { api, describeError } from '@/lib/api/client';
@@ -280,7 +281,10 @@ export function ProviderDrawer({
   onClose,
   onReplace,
   onTest,
+  test,
 }: {
+  /** The provider's last test in this session. */
+  test?: ProviderTestResult | undefined;
   provider: ProviderResource | null;
   status: ProviderStatus | undefined;
   onClose: () => void;
@@ -292,12 +296,10 @@ export function ProviderDrawer({
   const now = useNow(60_000);
   if (!provider) return null;
   const method = status?.credential.method ?? provider.spec.auth?.method ?? 'api_key';
-  const keys = providerKeys(provider, status, deployments.data, health.data);
+  const keys = withTest(providerKeys(provider, status, deployments.data, health.data), test);
   const age = rotation(provider, now);
   const tier = status?.account_tier ?? provider.spec.account_tier ?? null;
   const single = keys.length <= 1;
-  const untestable =
-    deployments.data !== null && !deployments.data.some((d) => d.spec.provider === provider.name);
   return (
     <Drawer
       open
@@ -313,12 +315,7 @@ export function ProviderDrawer({
       footer={
         <>
           {onTest ? (
-            <Button
-              icon="play"
-              disabled={untestable}
-              disabledReason="Add a deployment first: the test sends a request through one of its deployments."
-              onClick={() => onTest(provider.name)}
-            >
+            <Button icon="play" onClick={() => onTest(provider.name)}>
               Test connection
             </Button>
           ) : null}

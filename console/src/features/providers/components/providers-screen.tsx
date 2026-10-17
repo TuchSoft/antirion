@@ -20,21 +20,26 @@ import type { CsvColumn } from '@/lib/csv';
 import { plural } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { ProviderMark } from '@/components/ui/marks';
+import { Tooltip } from '@/components/ui/tooltip';
 import { providerTypeLabel } from '@/lib/providers';
+import { formatDateTime } from '@/lib/time';
+import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
 
-import { providersApi, type ProviderStatus } from '../api';
-import { AUTH_LABELS, type AuthMethod } from '../form';
+import { providersApi, type ProviderStatus, type ProviderTestResult } from '../api';
+import { AUTH_LABELS, type AuthMethod, specWithKey } from '../form';
 import { useProviders } from '../store';
 import { ageText, providerKeys, providerKeyStatus, rotation } from '../keys';
+import { testFailure, testSummary } from '../test-result';
 import { AddProviderDrawer } from './add-provider-drawer';
 import { ProviderDrawer } from './provider-drawer';
+import { TestConnection, testGateReason, type TestState } from './test-connection';
 
 const STATE_LABEL: Record<string, string> = {
   valid: 'Working',
   untested: 'Not tested yet',
   refreshing: 'Refreshing',
-  failed: 'Failing',
+  failed: 'Failed',
   dead: 'Not working',
   none: 'No key needed',
 };
@@ -47,6 +52,13 @@ function credentialTone(state: string | undefined): 'success' | 'error' | 'warn'
   return 'neutral';
 }
 
+/** The key status cell's hint after a test in this session: when, and how it went. */
+function testNote(test: ProviderTestResult | undefined, timeZone: string): string | undefined {
+  if (!test) return undefined;
+  const at = formatDateTime(test.tested_at, timeZone);
+  return test.ok ? `Tested ${at}: ${testSummary(test)}` : `Tested ${at}: ${testFailure(test)}`;
+}
+
 function RotateDialog({
   target,
   onClose,
@@ -55,13 +67,31 @@ function RotateDialog({
   onClose: () => void;
 }) {
   const name = target?.name ?? null;
+  const provider = useProviders((s) => s.providers.data?.find((p) => p.name === name));
   const [secret, setSecret] = useState('');
   const [overlap, setOverlap] = useState('1h');
+  const [test, setTest] = useState<TestState | null>(null);
+  const [testing, setTesting] = useState(false);
+  const of = secret.trim();
+
+  async function runTest() {
+    if (!name || !provider || of === '') return;
+    setTesting(true);
+    try {
+      setTest({ of, result: await providersApi.testSpec(name, specWithKey(provider.spec, of)), error: null });
+    } catch (e) {
+      setTest({ of, result: null, error: e });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <ConfirmDialog
       open={name !== null}
       onClose={() => {
         setSecret('');
+        setTest(null);
         onClose();
       }}
       title={
@@ -71,12 +101,16 @@ function RotateDialog({
       tone="primary"
       confirmLabel="Replace key"
       effect="The gateway starts using the new key at once and stops using the old one after the time you choose."
+      blockedReason={
+        of === '' ? 'Paste the new API key, then test it.' : testGateReason(test, of, 'replace the key')
+      }
       onConfirm={async () => {
         if (!name) return;
-        if (secret.trim() === '') throw new Error('Paste the new API key.');
-        await providersApi.rotateCredential(name, secret.trim(), overlap, target?.key);
+        if (of === '') throw new Error('Paste the new API key.');
+        await providersApi.rotateCredential(name, of, overlap, target?.key);
         void useProviders.getState().load({ quiet: true });
         setSecret('');
+        setTest(null);
         notify('success', 'API key replaced', `${name} uses the new key now.`);
       }}
     >
@@ -90,6 +124,14 @@ function RotateDialog({
           data-autofocus
         />
       </Field>
+      <TestConnection
+        test={test}
+        of={of}
+        busy={testing}
+        disabled={of === ''}
+        label="Test the new key"
+        onTest={() => void runTest()}
+      />
       <Field label="Stop using the old key">
         <Select
           value={overlap}
@@ -105,9 +147,6 @@ function RotateDialog({
     </ConfirmDialog>
   );
 }
-
-export const NO_DEPLOYMENT_TO_TEST =
-  'Add a deployment first: the test sends a request through one of its deployments.';
 
 /** The providers table as CSV: the columns on screen, with the key's age in days. */
 export function providerCsvColumns(
@@ -140,10 +179,17 @@ export function ProvidersScreen() {
   const deployments = useProviders((s) => s.deployments);
   const health = useProviders((s) => s.health);
   const load = useProviders((s) => s.load);
-  /** "Working" needs evidence: a key that has answered; until then "Not tested yet". */
+  const tests = useProviders((s) => s.tests);
+  const runTest = useProviders((s) => s.test);
+  const timeZone = usePreferences((s) => s.timeZone);
+  /** "Working" needs evidence: a key that has answered, or a test; until then "Not tested yet". */
   const keyStatus = (p: ProviderResource) => {
     const st = status.data?.find((x) => x.name === p.name);
-    return providerKeyStatus(st?.credential.state, providerKeys(p, st, deployments.data, health.data));
+    return providerKeyStatus(
+      st?.credential.state,
+      providerKeys(p, st, deployments.data, health.data),
+      tests[p.name],
+    );
   };
   const setEnabled = useProviders((s) => s.setEnabled);
   const remove = useProviders((s) => s.remove);
@@ -171,14 +217,18 @@ export function ProvidersScreen() {
     return map;
   }, [deployments.data]);
 
+  // The table shows the outcome at once (the store applies it) and agrees with the toast.
   const test = (name: string) =>
-    void providersApi.test(name).then(
-      () => notify('success', `${name} answered`, 'The gateway reached the provider with its key.'),
+    void runTest(name).then(
+      (result) =>
+        result.ok
+          ? notify('success', `${name} answered`, testSummary(result))
+          : notify('error', `${name} didn't pass the test`, testFailure(result)),
       (e: unknown) =>
         notify(
           'error',
-          `Couldn't reach ${name}`,
-          e instanceof ApiError && e.details[0]?.message ? e.details[0].message : undefined,
+          `Couldn't test ${name}`,
+          e instanceof ApiError && e.details[0]?.message ? e.details[0].message : describeError(e),
         ),
     );
 
@@ -260,9 +310,6 @@ export function ProvidersScreen() {
                             {
                               label: 'Test connection',
                               icon: 'play' as const,
-                              // The test sends a request through a deployment of the provider.
-                              disabled: deployments.data !== null && used === 0,
-                              disabledReason: NO_DEPLOYMENT_TO_TEST,
                               onSelect: () => test(p.name),
                             },
                           ]
@@ -321,12 +368,14 @@ export function ProvidersScreen() {
                         </Td>
                         <Td>
                           {st ? (
-                            <span className="flex items-center gap-1.5">
-                              <Dot tone={credentialTone(keyStatus(p))} />
-                              <span className="max-sm:sr-only">
-                                {STATE_LABEL[keyStatus(p) ?? ''] ?? keyStatus(p)}
+                            <Tooltip content={testNote(tests[p.name], timeZone)}>
+                              <span className="flex w-fit items-center gap-1.5">
+                                <Dot tone={credentialTone(keyStatus(p))} />
+                                <span className="max-sm:sr-only">
+                                  {STATE_LABEL[keyStatus(p) ?? ''] ?? keyStatus(p)}
+                                </span>
                               </span>
-                            </span>
+                            </Tooltip>
                           ) : (
                             <span className="text-muted">—</span>
                           )}
@@ -408,6 +457,7 @@ export function ProvidersScreen() {
       <AddProviderDrawer open={adding} onClose={() => setAdding(false)} />
       <RotateDialog target={rotating} onClose={() => setRotating(null)} />
       <ProviderDrawer
+        test={opened ? tests[opened] : undefined}
         provider={list.find((p) => p.name === opened) ?? null}
         status={status.data?.find((x) => x.name === opened)}
         onClose={() => setOpened(null)}

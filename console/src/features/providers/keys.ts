@@ -1,7 +1,7 @@
 import type { DeploymentHealth, DeploymentResource, ProviderResource } from '@/lib/api/types';
 import { parseDuration } from '@/lib/format';
 
-import type { ProviderStatus } from './api';
+import type { ProviderStatus, ProviderTestResult } from './api';
 
 export type RateLimits = NonNullable<ProviderStatus['rate_limits']>;
 
@@ -66,15 +66,38 @@ export function keyState(name: string, deployments: string[], health: Deployment
 
 /**
  * The provider's key status for its table row, from evidence: the gateway's credential state
- * when it failed or refreshes, else "Not tested yet" until one of its keys has answered.
+ * when it failed or refreshes, else the last test in this session, else "Not tested yet" until
+ * one of its keys has answered.
  */
 export function providerKeyStatus(
   credentialState: string | undefined,
   keys: ProviderKeyRow[],
+  test?: Pick<ProviderTestResult, 'ok'> | null,
 ): string | undefined {
-  if (credentialState !== 'valid') return credentialState;
-  if (keys.length === 0) return credentialState;
+  // A gateway that names a tested key's state says `working`.
+  const state = credentialState === 'working' ? 'valid' : credentialState;
+  if (state !== 'valid') return state;
+  if (test) return test.ok ? 'valid' : 'failed';
+  if (keys.length === 0) return state;
   return keys.some((k) => k.health.state === 'working') ? 'valid' : 'untested';
+}
+
+/**
+ * A key's state with the provider's last test: a provider with one key that passed is working,
+ * one that failed is not, where its deployments have no evidence of their own yet.
+ */
+export function withTest(keys: ProviderKeyRow[], test: ProviderTestResult | undefined): ProviderKeyRow[] {
+  if (!test || keys.length !== 1) return keys;
+  return keys.map((k) =>
+    k.health.state === 'untested' || k.health.state === 'unknown'
+      ? {
+          ...k,
+          health: test.ok
+            ? { state: 'working', reason: null, until: null }
+            : { state: 'not_working', reason: null, until: null },
+        }
+      : k,
+  );
 }
 
 /** Each key of a provider with its last replacement, its state and its latest rate-limit reading. */

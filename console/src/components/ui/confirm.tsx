@@ -33,6 +33,8 @@ export interface ConfirmDialogProps {
   /** `danger` (the default) fills the confirm button red; `primary` for a safe confirmation. */
   tone?: 'danger' | 'primary';
   onConfirm: (reason: string | undefined) => Promise<void>;
+  /** Why the confirm button waits (a check that hasn't passed yet), or nothing when it can go. */
+  blockedReason?: string | undefined;
   children?: ReactNode;
 }
 
@@ -52,6 +54,7 @@ export function ConfirmDialog({
   withReason = true,
   tone = 'danger',
   onConfirm,
+  blockedReason,
   children,
 }: ConfirmDialogProps) {
   const [typed, setTyped] = useState('');
@@ -68,7 +71,7 @@ export function ConfirmDialog({
     onClose();
   }
 
-  const blocked = typeToConfirm !== undefined && typed !== typeToConfirm;
+  const blocked = (typeToConfirm !== undefined && typed !== typeToConfirm) || blockedReason !== undefined;
 
   async function submit() {
     if (blocked) return;
@@ -106,7 +109,9 @@ export function ConfirmDialog({
             variant={tone === 'danger' ? 'danger-solid' : 'primary'}
             busy={busy}
             disabled={blocked}
-            disabledReason={typeToConfirm !== undefined ? `Type ${typeToConfirm} to confirm` : undefined}
+            disabledReason={
+              blockedReason ?? (typeToConfirm !== undefined ? `Type ${typeToConfirm} to confirm` : undefined)
+            }
             onClick={() => void submit()}
           >
             {confirmLabel}

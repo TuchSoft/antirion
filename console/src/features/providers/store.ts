@@ -3,7 +3,8 @@ import { create } from 'zustand';
 import type { DeploymentHealth, DeploymentResource, ProviderResource, ProviderType } from '@/lib/api/types';
 import { emptySlot, loadSlot, type Slot } from '@/lib/slot';
 
-import { providersApi, type ProviderSpec, type ProviderStatus } from './api';
+import { providersApi, type ProviderSpec, type ProviderStatus, type ProviderTestResult } from './api';
+import { useProviderModels } from './models';
 
 interface ProvidersState {
   providers: Slot<ProviderResource[]>;
@@ -11,12 +12,16 @@ interface ProvidersState {
   types: Slot<ProviderType[]>;
   deployments: Slot<DeploymentResource[]>;
   health: Slot<DeploymentHealth[]>;
+  /** The last test of each provider in this session, the freshest word on its key. */
+  tests: Record<string, ProviderTestResult>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
   loadTypes: () => Promise<void>;
   create: (name: string, spec: ProviderSpec) => Promise<ProviderResource>;
   setEnabled: (name: string, enabled: boolean) => Promise<void>;
   remove: (name: string, reason?: string) => Promise<void>;
   resetKey: (provider: string, key: string) => Promise<void>;
+  /** Tests a saved provider; the table shows the outcome at once and reads the gateway's again. */
+  test: (name: string) => Promise<ProviderTestResult>;
 }
 
 /**
@@ -29,6 +34,7 @@ export const useProviders = create<ProvidersState>()((set, get) => ({
   types: emptySlot(),
   deployments: emptySlot(),
   health: emptySlot(),
+  tests: {},
 
   async load(options) {
     await Promise.all([
@@ -65,6 +71,35 @@ export const useProviders = create<ProvidersState>()((set, get) => ({
   async resetKey(provider, key) {
     await providersApi.resetKey(provider, key);
     await loadSlot(set, get, 'health', providersApi.health, { quiet: true });
+  },
+
+  async test(name) {
+    const result = await providersApi.test(name);
+    set((s) => ({
+      tests: { ...s.tests, [name]: result },
+      // What the gateway will say once it is read again: working or failed.
+      status: s.status.data
+        ? {
+            ...s.status,
+            data: s.status.data.map((p) =>
+              p.name === name
+                ? {
+                    ...p,
+                    credential: {
+                      ...p.credential,
+                      state: result.ok ? (p.credential.state === 'none' ? 'none' : 'valid') : 'failed',
+                      last_error: result.ok ? null : result.error,
+                    },
+                  }
+                : p,
+            ),
+          }
+        : s.status,
+    }));
+    if (result.ok && result.models)
+      useProviderModels.getState().remember(name, result.models, result.tested_at);
+    void loadSlot(set, get, 'status', providersApi.status, { quiet: true });
+    return result;
   },
 
   async remove(name, reason) {

@@ -22,13 +22,17 @@ import {
   suggestName,
   toProviderSpec,
 } from '../form';
+import { providersApi } from '../api';
+import { useProviderModels } from '../models';
 import { useProviders } from '../store';
+import { passed, TestConnection, testGateReason, type TestState } from './test-connection';
 
 const SECRET_HINT = 'Stored encrypted and never shown again. A reference such as ${env:NAME} also works.';
 
 /**
  * "Add provider": the provider's type, a name, where its API is and how the gateway signs in to
- * it. The credential is write-only; the gateway keeps it encrypted.
+ * it. The credential is write-only; the gateway keeps it encrypted. It saves only once a test of
+ * exactly these values passed, and keeps the models the test listed for the Add model form.
  */
 export function AddProviderDrawer({
   open,
@@ -51,6 +55,8 @@ export function AddProviderDrawer({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [test, setTest] = useState<TestState | null>(null);
+  const [testing, setTesting] = useState(false);
   const edited = useEdited(values);
 
   useEffect(() => {
@@ -64,6 +70,9 @@ export function AddProviderDrawer({
   const ordered = useMemo(() => orderTypes(types.data ?? []), [types.data]);
   const type = ordered.find((t) => t.type === values.type);
   const methods = (type?.auth_methods ?? ['api_key']).filter((m): m is AuthMethod => m in AUTH_LABELS);
+  // What a test covers: the type, where its API is, how it signs in and its region (not the name).
+  const fingerprint = useMemo(() => JSON.stringify(toProviderSpec(values)), [values]);
+  const ready = passed(test, fingerprint);
 
   const set = <K extends keyof ProviderValues>(key: K, value: ProviderValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -88,10 +97,47 @@ export function AddProviderDrawer({
     setNameTouched(false);
     setErrors({});
     setError(null);
+    setTest(null);
     onClose();
   }
 
+  /** The gateway's field errors on the fields they name. */
+  function showServerErrors(e: unknown, name: string) {
+    const fields = serverFieldErrors(e, `providers.${name}`);
+    setErrors({
+      ...(fields.base_url ? { baseUrl: fields.base_url } : {}),
+      ...(fields.auth ? { apiKey: fields.auth } : {}),
+    });
+  }
+
+  async function runTest() {
+    const checked = validate(providerSchema(type, taken), values);
+    if (!checked.ok) {
+      setErrors(checked.errors);
+      return;
+    }
+    setErrors({});
+    setError(null);
+    setTesting(true);
+    const of = fingerprint;
+    const name = checked.data.name.trim();
+    try {
+      const result = await providersApi.testSpec(name, toProviderSpec(values));
+      setTest({ of, result, error: null });
+    } catch (e) {
+      setTest({ of, result: null, error: e });
+      showServerErrors(e, name);
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function submit() {
+    // Enter before a passing test runs the test.
+    if (!ready) {
+      if (!testing) await runTest();
+      return;
+    }
     const result = validate(providerSchema(type, taken), values);
     if (!result.ok) {
       setErrors(result.errors);
@@ -103,16 +149,18 @@ export function AddProviderDrawer({
     const name = result.data.name.trim();
     try {
       await create(name, toProviderSpec(values));
+      if (test?.result) {
+        const tested = test.result;
+        // The test that let it be added is the table's first word on its key.
+        useProviders.setState((s) => ({ tests: { ...s.tests, [name]: tested } }));
+        if (tested.models) useProviderModels.getState().remember(name, tested.models, tested.tested_at);
+      }
       notify('success', 'Provider added', `${name} is ready. Add the models you want to offer from it.`);
       onAdded?.(name);
       close();
     } catch (e) {
       setError(e);
-      const fields = serverFieldErrors(e, `providers.${name}`);
-      setErrors({
-        ...(fields.base_url ? { baseUrl: fields.base_url } : {}),
-        ...(fields.auth ? { apiKey: fields.auth } : {}),
-      });
+      showServerErrors(e, name);
     } finally {
       setBusy(false);
     }
@@ -130,7 +178,13 @@ export function AddProviderDrawer({
       footer={
         <>
           <CancelButton />
-          <Button variant="primary" busy={busy} onClick={() => void submit()}>
+          <Button
+            variant="primary"
+            busy={busy}
+            disabled={!ready}
+            disabledReason={testGateReason(test, fingerprint, 'add the provider')}
+            onClick={() => void submit()}
+          >
             Add provider
           </Button>
         </>
@@ -298,6 +352,7 @@ export function AddProviderDrawer({
                 onChange={(e) => set('baseUrl', e.target.value)}
               />
             </Field>
+            <TestConnection test={test} of={fingerprint} busy={testing} onTest={() => void runTest()} />
           </>
         ) : (
           <p className="text-ui text-muted">
