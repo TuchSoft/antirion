@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 
 import { Badge, Dot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm';
 import { Meter } from '@/components/ui/charts';
 import { Gate, useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
@@ -17,7 +16,6 @@ import { formatBytes, formatCount } from '@/lib/format';
 import { usePolling } from '@/lib/hooks';
 import { formatRelative } from '@/lib/time';
 import { useShell } from '@/stores/shell';
-import { notify } from '@/stores/ui';
 
 import {
   resumeNow,
@@ -30,8 +28,8 @@ import { runtimeStatus, useDeploymentDisables } from '@/features/models/deployme
 import { healthName } from '@/features/models/types';
 import { TestModePanel } from '@/features/test-mode/components/test-mode-panel';
 
-import { settingsApi } from '../api';
 import { useRuntime } from '../store';
+import { ClusterSection } from './cluster-section';
 
 const DEPENDENCY_LABEL: Record<string, string> = {
   store: 'Database',
@@ -44,7 +42,6 @@ export function HealthSection() {
   const health = useRuntime((s) => s.health);
   const deployments = useRuntime((s) => s.deployments);
   const providers = useRuntime((s) => s.providerStatus);
-  const nodes = useRuntime((s) => s.nodes);
   const load = useRuntime((s) => s.load);
   const canAudit = useCan('listAudit');
   const loadDeployments = useRuntime((s) => s.loadDeployments);
@@ -56,7 +53,6 @@ export function HealthSection() {
     await Promise.all([loadDeployments(), canAudit ? loadDisables() : Promise.resolve()]);
   };
   const status = useShell((s) => s.status);
-  const [draining, setDraining] = useState<string | null>(null);
 
   useEffect(() => {
     void load();
@@ -141,84 +137,7 @@ export function HealthSection() {
         ) : null}
       </Section>
       <TestModePanel />
-      <Section
-        title="Nodes"
-        subtitle={
-          nodes.data ? `${nodes.data.filter((n) => n.ready).length} of ${nodes.data.length} ready` : undefined
-        }
-      >
-        <LoadError of={nodes} subject="Nodes" />
-        {nodes.data ? (
-          <Table label="Nodes">
-            <thead>
-              <tr>
-                <Th>Node</Th>
-                <Th>Version</Th>
-                <Th numeric>Configuration</Th>
-                <Th>Status</Th>
-                <Th>Last seen</Th>
-                <Th>
-                  <span className="sr-only">Actions</span>
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {nodes.data.map((n) => (
-                <Tr key={n.node_id}>
-                  <Td mono>{n.node_id}</Td>
-                  <Td mono>{n.version}</Td>
-                  <Td numeric>{n.config_version}</Td>
-                  <Td>
-                    <span className="flex items-center gap-1.5">
-                      <Dot tone={n.ready ? 'success' : 'error'} />
-                      {n.draining ? 'Draining' : n.ready ? 'Ready' : 'Not ready'}
-                      {n.degraded.length > 0 ? (
-                        <Badge tone="warn">Degraded: {n.degraded.join(', ')}</Badge>
-                      ) : null}
-                    </span>
-                  </Td>
-                  <Td muted>{formatRelative(n.last_seen)}</Td>
-                  <Td className="text-right">
-                    {n.draining ? null : (
-                      <Gate operation="drainNode" mode="hide">
-                        <Button size="sm" variant="ghost" onClick={() => setDraining(n.node_id)}>
-                          Drain
-                        </Button>
-                      </Gate>
-                    )}
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        ) : null}
-      </Section>
-      <ConfirmDialog
-        open={draining !== null}
-        onClose={() => setDraining(null)}
-        title={`Drain node ${draining ?? ''}?`}
-        objectName={draining ?? undefined}
-        confirmLabel="Drain node"
-        typeToConfirm={draining ?? undefined}
-        withReason={false}
-        effect={
-          (nodes.data?.length ?? 0) <= 1
-            ? "This is the gateway's only node: every app gets a “try again” error until it's restarted. Requests in progress finish."
-            : 'The node stops taking new requests, so your load balancer sends them to the other nodes. Requests in progress finish. It stays drained until it is restarted.'
-        }
-        onConfirm={async () => {
-          if (!draining) return;
-          const r = await settingsApi.drainNode(draining);
-          notify(
-            'success',
-            `Node ${draining} is draining`,
-            'in_flight' in r && typeof r.in_flight === 'number'
-              ? `${formatCount(r.in_flight)} requests still in progress.`
-              : undefined,
-          );
-          await load({ quiet: true });
-        }}
-      />
+      <ClusterSection running={h?.config.generation ?? null} />
       <Section
         title="Deployments"
         subtitle="A deployment that keeps failing is paused for a while, then tried again. One turned off by hand stays off until someone turns it on."

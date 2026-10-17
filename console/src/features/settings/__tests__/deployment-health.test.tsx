@@ -66,7 +66,7 @@ describe('Settings › Status › deployments', () => {
       health: emptySlot(),
       deployments: emptySlot(),
       providerStatus: emptySlot(),
-      nodes: emptySlot(),
+      cluster: emptySlot(),
     });
     useDeploymentDisables.setState({ byName: {}, at: null });
     actions = [];

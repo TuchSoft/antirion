@@ -21,6 +21,7 @@ import { useAudit, useOrgSettings, useRuntime } from '../store';
 
 const meta = { etag: '"7"', generation: 7, created_at: '2026-10-01T00:00:00Z', managed_by: 'api' };
 const list = (items: unknown[]) => HttpResponse.json({ items, next_cursor: null });
+const cluster = (nodes: unknown[]) => HttpResponse.json({ mode: 'cluster', nodes, jobs: [] });
 
 function held(path: string, body?: unknown): ChangeRequest {
   return {
@@ -277,17 +278,17 @@ describe('Danger zone', () => {
 
 describe('Status', () => {
   it('drains a node after its name is typed', async () => {
-    signInAs(['health:read', 'node:drain']);
+    signInAs(['health:read', 'cluster:read', 'node:drain']);
     useRuntime.setState({
       health: emptySlot(),
       deployments: emptySlot(),
       providerStatus: emptySlot(),
-      nodes: emptySlot(),
+      cluster: emptySlot(),
     });
     const drained: string[] = [];
     server.use(
-      http.get('*/admin/v1/runtime/nodes', () =>
-        list([
+      http.get('*/admin/v1/cluster', () =>
+        cluster([
           {
             node_id: 'n1',
             version: '0.1.0',

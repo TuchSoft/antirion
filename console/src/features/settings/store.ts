@@ -19,7 +19,7 @@ import {
   type AuditSinkStatus,
   type ConfigDoc,
   type Convergence,
-  type NodeInfo,
+  type ClusterView,
   type ProviderStatus,
   settingsApi,
 } from './api';
@@ -231,7 +231,8 @@ interface RuntimeState {
   health: Slot<Health>;
   deployments: Slot<DeploymentHealth[]>;
   providerStatus: Slot<ProviderStatus[]>;
-  nodes: Slot<NodeInfo[]>;
+  /** The cluster: mode, nodes with their load, background job leases and totals. */
+  cluster: Slot<ClusterView>;
   providers: Slot<ProviderResource[]>;
   auditSinks: Slot<AuditSinkStatus[]>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
@@ -241,12 +242,12 @@ interface RuntimeState {
   setProviderEnabled: (name: string, enabled: boolean) => Promise<void>;
 }
 
-/** Runtime health: dependencies, admission, nodes, deployments and providers. */
+/** Runtime health: dependencies, admission, the cluster's nodes, deployments and providers. */
 export const useRuntime = create<RuntimeState>()((set, get) => ({
   health: emptySlot(),
   deployments: emptySlot(),
   providerStatus: emptySlot(),
-  nodes: emptySlot(),
+  cluster: emptySlot(),
   providers: emptySlot(),
   auditSinks: emptySlot(),
   async load(options) {
@@ -254,7 +255,7 @@ export const useRuntime = create<RuntimeState>()((set, get) => ({
       loadSlot(set, get, 'health', settingsApi.health, options),
       loadSlot(set, get, 'deployments', settingsApi.deployments, options),
       loadSlot(set, get, 'providerStatus', settingsApi.providerStatus, options),
-      loadSlot(set, get, 'nodes', settingsApi.nodes, options),
+      loadSlot(set, get, 'cluster', settingsApi.cluster, options),
     ]);
   },
   async loadProviders() {

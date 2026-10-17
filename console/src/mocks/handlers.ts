@@ -35,6 +35,34 @@ const meta = (generation: number): S['ResourceMetadata'] => ({
   managed_by: 'api',
 });
 
+/** Two nodes with their load (members the gateway sends beyond the contract's `Node`). */
+function clusterView(): S['Cluster'] {
+  const node = (id: string, inFlight: number): S['Node'] => {
+    const n = {
+      node_id: id,
+      version: '0.1.0',
+      config_version: 12,
+      ready: true,
+      draining: false,
+      degraded: [],
+      last_seen: now(),
+      in_flight: inFlight,
+      max_in_flight: 16384,
+      queue_depth: 0,
+      started_at: ago(5 * 86_400_000),
+      ready_since: ago(5 * 86_400_000 - 60_000),
+    };
+    return n;
+  };
+  const view = {
+    mode: 'cluster' as const,
+    nodes: [node('node-a', 14), node('node-b', 9)],
+    jobs: [{ name: 'rollups', holder: 'node-a', expires_at: new Date(Date.now() + 30_000).toISOString() }],
+    totals: { in_flight: 23, max_in_flight: 32768, queue_depth: 0 },
+  };
+  return view;
+}
+
 /** In-memory state the contract-only mocks keep between calls, so writes show up on the next read. */
 function createState() {
   return {
@@ -633,6 +661,13 @@ export const contractHandlers: HttpHandler[] = [
     last_error: null,
   })),
   mock('get', '/runtime/audit/sinks', () => ({ items: [], next_cursor: null })),
+  mock('get', '/cluster', () => clusterView()),
+  mock('get', '/runtime/nodes/{id}', ({ params }) => {
+    const n = clusterView().nodes.find((x) => x.node_id === params.id);
+    if (!n) throw new Error('no node');
+    return n;
+  }),
+  mock('get', '/cluster/converged', () => ({ converged: true })),
 ];
 
 /**

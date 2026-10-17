@@ -9,9 +9,11 @@ import { pickOption, signInAs } from '@/test/utils';
 
 import { auditBounds, zonedInstant } from '../audit-range';
 import { AuditSection } from '../components/audit-section';
+import { ClusterSection, DRAIN_POLL_MS } from '../components/cluster-section';
 import { ConfigSection } from '../components/config-section';
+import { HealthSection } from '../components/health-section';
 import { ObjectivesSection } from '../components/objectives-section';
-import { useAudit, useConfigDoc, useGatewaySettings, useOrgSettings } from '../store';
+import { useAudit, useConfigDoc, useGatewaySettings, useOrgSettings, useRuntime } from '../store';
 
 const meta = { etag: '"7"', generation: 7, created_at: null, updated_at: null, managed_by: 'api' };
 const list = (items: unknown[]) => HttpResponse.json({ items, next_cursor: null });
@@ -350,5 +352,97 @@ describe('Audit log time range', () => {
     expect(auditBounds('7d', custom, 'UTC', Date.parse('2026-10-17T00:00:00Z'))).toEqual({
       from: '2026-10-10T00:00:00.000Z',
     });
+  });
+});
+
+describe('Cluster view', () => {
+  const node = (id: string, extra: Record<string, unknown> = {}) => ({
+    node_id: id,
+    version: '0.1.0',
+    config_version: 9,
+    ready: true,
+    draining: false,
+    degraded: [],
+    last_seen: new Date().toISOString(),
+    in_flight: 12,
+    max_in_flight: 16384,
+    queue_depth: 3,
+    started_at: '2026-10-17T08:00:00Z',
+    ready_since: '2026-10-17T08:01:00Z',
+    ...extra,
+  });
+
+  beforeEach(() => {
+    useRuntime.setState({
+      health: emptySlot(),
+      deployments: emptySlot(),
+      providerStatus: emptySlot(),
+      cluster: emptySlot(),
+    });
+  });
+
+  it('shows the cluster totals, each node load, job leases and a node in a drawer', async () => {
+    signInAs(['health:read', 'cluster:read', 'node:drain']);
+    const opened: string[] = [];
+    let reads = 0;
+    server.use(
+      http.get('*/admin/v1/cluster', () =>
+        HttpResponse.json({
+          mode: 'cluster',
+          nodes: [node('node-a'), node('node-b', { config_version: 8, in_flight: 40, queue_depth: 0 })],
+          jobs: [
+            { name: 'rollups', holder: 'node-a', expires_at: new Date(Date.now() + 30_000).toISOString() },
+          ],
+          totals: { in_flight: 52, max_in_flight: 32768, queue_depth: 3 },
+        }),
+      ),
+      http.get('*/admin/v1/health', () =>
+        HttpResponse.json({
+          status: 'ok',
+          config: { generation: 9, hash: 'h' },
+          admission: { in_flight: 0, max_in_flight: 1, queued: 0, max_queue: 1 },
+          spool: { bytes: 0, max_bytes: 1, records: 0 },
+          dependencies: {},
+          clock_skew_ms: 0,
+        }),
+      ),
+      http.get('*/admin/v1/runtime/deployments', () => list([])),
+      http.get('*/admin/v1/runtime/providers', () => list([])),
+      http.get('*/admin/v1/runtime/nodes/:id', ({ params }) => {
+        opened.push(String(params.id));
+        reads += 1;
+        // Draining: two requests left on the first read, none on the next.
+        return HttpResponse.json(node(String(params.id), { draining: true, in_flight: reads > 1 ? 0 : 2 }));
+      }),
+    );
+    render(<HealthSection />);
+    expect(
+      await screen.findByText(/Cluster · 2 of 2 ready · 52 of 32,768 active · 3 waiting/),
+    ).toBeInTheDocument();
+    const table = screen.getByRole('table', { name: 'Nodes' });
+    const rowB = within(table).getByText('node-b').closest('tr') ?? table;
+    expect(within(rowB).getByText('40 / 16,384')).toBeInTheDocument();
+    expect(within(rowB).getByText('behind')).toBeInTheDocument();
+    const jobs = screen.getByRole('table', { name: 'Background jobs' });
+    expect(within(jobs).getByText('rollups')).toBeInTheDocument();
+    expect(within(jobs).getByText('node-a')).toBeInTheDocument();
+
+    await userEvent.click(within(rowB).getByText('node-b'));
+    const drawer = await screen.findByRole('dialog', { name: 'Node node-b' });
+    expect(await within(drawer).findByText(/Draining: 2 requests still in progress/)).toBeInTheDocument();
+    expect(opened[0]).toBe('node-b');
+    expect(
+      await within(drawer).findByText(
+        /Drained: no request in progress/,
+        {},
+        { timeout: DRAIN_POLL_MS + 2000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('shows nothing of the cluster without permission to read it', () => {
+    signInAs(['health:read']);
+    render(<ClusterSection running={null} />);
+    expect(screen.queryByRole('table', { name: 'Nodes' })).not.toBeInTheDocument();
   });
 });
