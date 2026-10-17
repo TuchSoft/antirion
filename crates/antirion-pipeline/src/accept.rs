@@ -128,13 +128,7 @@ pub(crate) fn run(cx: &Ctx, parts: &Parts) -> Accepted {
         None => match_endpoint(&parts.method, path),
     };
     let endpoint = match matched {
-        Matched::Found(e)
-            if api
-                .and_then(|a| a.get("endpoints"))
-                .and_then(|cfg| cfg.get(e.id))
-                .and_then(|c| c.get("enabled"))
-                == Some(&serde_json::Value::Bool(false)) =>
-        {
+        Matched::Found(e) if switched_off(api, &e) => {
             return Accepted::Respond(cx.error(&unknown_endpoint(&parts.method, path)));
         }
         Matched::Found(e) if e.kind == Kind::Feedback && !cx.snap.obs.feedback.enabled => {
@@ -305,11 +299,155 @@ fn preflight(cx: &Ctx, parts: &Parts) -> Response<Body> {
     resp
 }
 
+/// The `api.endpoints` switch an endpoint answers to: its own id, or for a native Gemini or Bedrock
+/// path, the protocol's switch (`gemini` covers every Gemini action, `bedrock` Converse and Invoke).
+fn switch(e: &Endpoint) -> &'static str {
+    match e.id {
+        "gemini_generate" => "gemini",
+        "bedrock_converse" | "bedrock_invoke" => "bedrock",
+        id => id,
+    }
+}
+
+/// Whether `api.endpoints.<switch>.enabled` is `false` for the endpoint.
+fn switched_off(api: Option<&serde_json::Value>, e: &Endpoint) -> bool {
+    api.and_then(|a| a.get("endpoints"))
+        .and_then(|cfg| cfg.get(switch(e)))
+        .and_then(|c| c.get("enabled"))
+        == Some(&serde_json::Value::Bool(false))
+}
+
 #[cfg(test)]
 mod tests {
     use http::HeaderName;
+    use serde_json::{Value, json};
 
     use super::*;
+
+    /// Every switch of `api.endpoints`, with the paths it names.
+    const SWITCHES: &[(&str, &[(Method, &str)])] = &[
+        ("chat_completions", &[(Method::POST, "/v1/chat/completions")]),
+        (
+            "responses",
+            &[
+                (Method::POST, "/v1/responses"),
+                (Method::POST, "/v1/responses/input_tokens"),
+                (Method::GET, "/v1/responses/resp_1"),
+            ],
+        ),
+        ("completions", &[(Method::POST, "/v1/completions")]),
+        ("embeddings", &[(Method::POST, "/v1/embeddings")]),
+        (
+            "images",
+            &[
+                (Method::POST, "/v1/images/generations"),
+                (Method::POST, "/v1/images/edits"),
+            ],
+        ),
+        (
+            "audio",
+            &[
+                (Method::POST, "/v1/audio/speech"),
+                (Method::POST, "/v1/audio/transcriptions"),
+            ],
+        ),
+        ("moderations", &[(Method::POST, "/v1/moderations")]),
+        (
+            "files",
+            &[
+                (Method::POST, "/v1/files"),
+                (Method::GET, "/v1/files/file-1/content"),
+            ],
+        ),
+        (
+            "batches",
+            &[
+                (Method::POST, "/v1/batches"),
+                (Method::POST, "/v1/batches/b/cancel"),
+            ],
+        ),
+        ("realtime", &[(Method::GET, "/v1/realtime")]),
+        ("messages", &[(Method::POST, "/v1/messages")]),
+        ("count_tokens", &[(Method::POST, "/v1/messages/count_tokens")]),
+        (
+            "models",
+            &[(Method::GET, "/v1/models"), (Method::GET, "/v1/models/m")],
+        ),
+        (
+            "gemini",
+            &[
+                (Method::POST, "/v1beta/models/g:generateContent"),
+                (Method::POST, "/v1beta/models/g:streamGenerateContent"),
+                (Method::POST, "/v1beta/models/g:countTokens"),
+                (Method::POST, "/v1beta/models/g:embedContent"),
+            ],
+        ),
+        (
+            "bedrock",
+            &[
+                (Method::POST, "/model/m/converse"),
+                (Method::POST, "/model/m/converse-stream"),
+                (Method::POST, "/model/m/invoke"),
+                (Method::POST, "/model/m/invoke-with-response-stream"),
+            ],
+        ),
+        ("rerank", &[(Method::POST, "/v1/rerank")]),
+    ];
+
+    fn off(id: &str) -> Value {
+        json!({"endpoints": {id: {"enabled": false}}})
+    }
+
+    #[test]
+    fn every_switch_turns_off_exactly_its_paths() {
+        for (id, paths) in SWITCHES {
+            let api = off(id);
+            for (method, path) in *paths {
+                let Matched::Found(e) = match_endpoint(method, path) else {
+                    panic!("{method} {path} is not an endpoint");
+                };
+                assert!(switched_off(Some(&api), &e), "{id} turns off {method} {path}");
+                for (other, _) in SWITCHES.iter().filter(|(o, _)| o != id) {
+                    assert!(
+                        !switched_off(Some(&off(other)), &e),
+                        "{other} leaves {method} {path} on"
+                    );
+                }
+                assert!(!switched_off(None, &e));
+                assert!(!switched_off(
+                    Some(&json!({"endpoints": {*id: {"enabled": true}}})),
+                    &e
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn the_switches_are_the_schema_ids() {
+        let schema: Value = serde_json::from_str(antirion_config::schema::JSON_SCHEMA).unwrap();
+        let ids: std::collections::BTreeSet<&str> = schema
+            .pointer("/$defs/Api/properties/endpoints/properties")
+            .and_then(Value::as_object)
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let tested: std::collections::BTreeSet<&str> = SWITCHES
+            .iter()
+            .map(|(id, _)| *id)
+            .chain(["responses_websocket"])
+            .collect();
+        assert_eq!(ids, tested, "every switch is tested");
+    }
+
+    #[test]
+    fn the_responses_socket_answers_to_its_switch_and_to_responses() {
+        let found = |api: &Value| matches!(crate::socket::matched(Some(api)), Matched::Found(_));
+        assert!(found(&json!({})));
+        assert!(!found(&off("responses_websocket")));
+        assert!(!found(&off("responses")));
+        assert!(found(&off("chat_completions")));
+    }
 
     #[test]
     fn header_limits() {
