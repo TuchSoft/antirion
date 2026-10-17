@@ -6,7 +6,7 @@ import { useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Forbidden, useCan } from '@/components/ui/gate';
 import { DefinitionGrid, Panel, TileGrid } from '@/components/ui/layout';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatPercent, parseDuration, plural } from '@/lib/format';
 import { formatDateTime, formatRelative } from '@/lib/time';
@@ -133,7 +133,7 @@ export function AccessPanel({ users }: { users: UserView[] }) {
     <TileGrid label="Access" className="lg:grid-cols-2">
       <Panel title="Ways to sign in" actions={edit}>
         {!canAuth ? <Forbidden what="sign-in settings" /> : null}
-        {auth.error ? <ErrorState error={auth.error} subject="Sign-in settings" size="sm" /> : null}
+        <LoadError of={auth} subject="Sign-in settings" size="sm" />
         {canAuth && !auth.data && !auth.error ? <LoadingRows rows={3} /> : null}
         {spec ? (
           <ul aria-label="Ways to sign in" className="flex flex-col divide-y divide-line">
@@ -179,7 +179,7 @@ export function AccessPanel({ users }: { users: UserView[] }) {
 
       <Panel title="Provisioning (SCIM)" subtitle="Your identity provider creates and removes accounts">
         {!canScim ? <Forbidden what="provisioning" /> : null}
-        {scim.error ? <ErrorState error={scim.error} subject="Provisioning" size="sm" /> : null}
+        <LoadError of={scim} subject="Provisioning" size="sm" />
         {canScim && !scim.data && !scim.error ? <LoadingRows rows={2} /> : null}
         {scim.data ? (
           scim.data.enabled ? (

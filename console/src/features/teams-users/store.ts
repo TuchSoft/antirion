@@ -19,7 +19,7 @@ import type {
   UserSpec,
 } from '@/lib/api/types';
 import { createCollectionStore } from '@/lib/collection-store';
-import { asApiError, emptySlot, loadSlot, type Slot } from '@/lib/slot';
+import { asApiError, emptySlot, failSlot, loadSlot, type Slot } from '@/lib/slot';
 
 import {
   type AuthSettings,
@@ -265,7 +265,7 @@ async function loadKeyed<T>(
     const data = await fn();
     update((r) => ({ ...r, [key]: keyedSlot(data, null, 'ready') }));
   } catch (error) {
-    update((r) => ({ ...r, [key]: keyedSlot<T>(r[key]?.data ?? null, error, 'error') }));
+    update((r) => ({ ...r, [key]: failSlot(r[key] ?? emptySlot<T>(), error) }));
   }
 }
 

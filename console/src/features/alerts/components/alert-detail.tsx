@@ -12,7 +12,8 @@ import { TileGrid } from '@/components/ui/layout';
 import { MenuButton } from '@/components/ui/menu';
 import { CopyLinkButton } from '@/components/ui/misc';
 import { Dialog } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, isUnavailable, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows, isUnavailable } from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import type { OperationId } from '@/lib/api/operations';
 import type { Alert } from '@/lib/api/types';
 import { cn } from '@/lib/cn';
@@ -149,11 +150,12 @@ function SimilarFires({ alert, onOpen }: { alert: Alert; onOpen: (id: string) =>
       title="Similar fires, last 90 days"
       aside={slot?.data ? (past.length ? plural(past.length, 'fire') : undefined) : undefined}
     >
-      {slot?.error ? (
-        isUnavailable(slot.error) ? (
+      <LoadError of={slot?.data ? slot : null} subject="Past fires" size="sm" />
+      {loadFailure(slot).failed ? (
+        isUnavailable(slot?.error) ? (
           <p className="text-ui text-muted">Past fires aren&apos;t available on this gateway yet.</p>
         ) : (
-          <ErrorState error={slot.error} subject="Past fires" size="sm" />
+          <ErrorState error={slot?.error} subject="Past fires" size="sm" />
         )
       ) : !slot?.data ? (
         <LoadingRows rows={2} label="Loading past fires" />
@@ -487,13 +489,14 @@ export function AlertDetail({ alert, onOpen }: { alert: Alert; onOpen: (id: stri
             : undefined
         }
       >
-        {signal?.error ? (
-          isUnavailable(signal.error) ? (
+        <LoadError of={signal?.data ? signal : null} subject="The metric" size="sm" />
+        {loadFailure(signal).failed ? (
+          isUnavailable(signal?.error) ? (
             <p className="text-ui text-muted">
               The metric behind this alert isn&apos;t available on this gateway yet.
             </p>
           ) : (
-            <ErrorState error={signal.error} subject="The metric" size="sm" />
+            <ErrorState error={signal?.error} subject="The metric" size="sm" />
           )
         ) : null}
         {!signal || (signal.status === 'loading' && !signal.data) ? (

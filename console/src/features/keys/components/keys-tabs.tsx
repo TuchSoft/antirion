@@ -8,7 +8,8 @@ import { Meter } from '@/components/ui/charts';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
 import { FilterBar, Panel, TileGrid } from '@/components/ui/layout';
-import { EmptyState, ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { CountNote, ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { auditEntryLabel, auditActorBy, auditActorLabel, auditToggle } from '@/lib/audit-words';
@@ -451,11 +452,12 @@ export function KeyActivity({ onOpen }: { onOpen: (name: string) => void }) {
     (e) =>
       !q || `${keyOf(e)} ${actionLabel(e)} ${auditActorLabel(e.actor, tokens)}`.toLowerCase().includes(q),
   );
-  if (activity.error)
-    return <ErrorState error={activity.error} subject="Key activity" onRetry={() => void load()} />;
+  const { failed } = loadFailure(activity);
+  if (failed) return <ErrorState error={failed} subject="Key activity" onRetry={() => void load()} />;
   if (!activity.data) return <LoadingRows />;
   return (
     <>
+      <LoadError of={activity} subject="Key activity" onRetry={() => void load()} />
       <FilterBar>
         <div className="w-64 max-sm:w-full">
           <Input

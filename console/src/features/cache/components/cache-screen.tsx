@@ -11,7 +11,15 @@ import { useCan } from '@/components/ui/gate';
 import { KpiStrip, KpiTile, type KpiState } from '@/components/ui/kpi';
 import { PageHeader, Panel, Tabs } from '@/components/ui/layout';
 import { UpdatedAt } from '@/components/ui/misc';
-import { Banner, EmptyState, ErrorState, isUnavailable, UnavailableState } from '@/components/ui/states';
+import {
+  Banner,
+  EmptyState,
+  ErrorState,
+  LoadError,
+  UnavailableState,
+  isUnavailable,
+} from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { downloadCsv } from '@/lib/csv';
 import { formatBytes, formatCount, formatDelta, formatMoney, formatPercent, plural } from '@/lib/format';
 import { usePolling } from '@/lib/hooks';
@@ -280,9 +288,17 @@ export function CacheScreen() {
         className="border-b border-line"
         actions={seriesState === 'ready' ? <Legend className="max-sm:hidden" items={LEGEND} /> : null}
       >
+        {seriesState !== 'unavailable' ? (
+          <LoadError
+            of={series.data ? series : null}
+            subject="Cache history"
+            size="sm"
+            onRetry={() => void loadSeries()}
+          />
+        ) : null}
         {seriesState === 'unavailable' ? (
           <UnavailableState subject="Cache history" size="sm" />
-        ) : series.error ? (
+        ) : loadFailure(series).failed ? (
           <ErrorState
             error={series.error}
             subject="Cache history"

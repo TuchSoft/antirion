@@ -11,7 +11,7 @@ import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
 import { MenuButton } from '@/components/ui/menu';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, InlineError } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { describeError } from '@/lib/api/client';
 import { formatCount } from '@/lib/format';
@@ -251,10 +251,8 @@ export function AuditSinksSection() {
       }
     >
       <div className="flex flex-col gap-3">
-        {sinks.error ? <ErrorState error={sinks.error} subject="Audit log destinations" size="sm" /> : null}
-        {governance.error ? (
-          <ErrorState error={governance.error} subject="Audit log settings" size="sm" />
-        ) : null}
+        <LoadError of={sinks} subject="Audit log destinations" size="sm" />
+        <LoadError of={governance} subject="Audit log settings" size="sm" />
         {governance.data && names.length === 0 ? (
           <EmptyState
             size="sm"

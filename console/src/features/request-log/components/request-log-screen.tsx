@@ -13,10 +13,10 @@ import { Drawer } from '@/components/ui/overlay';
 import {
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
+  isUnavailable,
 } from '@/components/ui/states';
 import { describeError } from '@/lib/api/client';
 import { cn } from '@/lib/cn';
@@ -444,13 +444,11 @@ export function RequestLogScreen() {
           {records.status === 'loading' && !records.data ? (
             <LoadingRows rows={10} label="Loading requests" />
           ) : null}
-          {records.error && !records.data ? (
-            isUnavailable(records.error) ? (
-              <ErrorState error={records.error} subject="The request log" />
-            ) : (
-              <ErrorState error={records.error} subject="The request log" onRetry={() => void load(query)} />
-            )
-          ) : null}
+          <LoadError
+            of={records}
+            subject="The request log"
+            onRetry={isUnavailable(records.error) ? undefined : () => void load(query)}
+          />
           {records.data && rows.length === 0 ? (
             <>
               <div aria-hidden="true" className="overflow-hidden max-sm:hidden">

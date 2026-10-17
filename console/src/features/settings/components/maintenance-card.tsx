@@ -10,7 +10,7 @@ import { Field, Input } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { MenuButton } from '@/components/ui/menu';
 import { CancelButton, Dialog } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, InlineError } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useEdited, useNow } from '@/lib/hooks';
 import { formatDateTime, formatRelative } from '@/lib/time';
@@ -166,9 +166,7 @@ export function MaintenanceCard() {
         ) : null
       }
     >
-      {governance.error ? (
-        <ErrorState error={governance.error} subject="Maintenance windows" size="sm" />
-      ) : null}
+      <LoadError of={governance} subject="Maintenance windows" size="sm" />
       {next ? (
         <p className="mb-3 flex flex-wrap items-center gap-2 text-ui text-fg" role="status">
           <Badge tone={next.active ? 'warn' : 'info'} dot>

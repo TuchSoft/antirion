@@ -5,7 +5,15 @@ import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Icon, type IconName } from '@/components/ui/icon';
 import { Tooltip } from '@/components/ui/tooltip';
-import { EmptyState, ErrorState, isUnavailable, LoadingRows, UnavailableState } from '@/components/ui/states';
+import {
+  EmptyState,
+  ErrorState,
+  LoadError,
+  LoadingRows,
+  UnavailableState,
+  isUnavailable,
+} from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { cn } from '@/lib/cn';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
@@ -28,7 +36,7 @@ export function ActivityTab() {
   const items = useMemo(() => toActivity(activity.data ?? []).slice(0, 100), [activity.data]);
 
   if (activity.status === 'loading' && !activity.data) return <LoadingRows rows={6} />;
-  if (activity.error)
+  if (loadFailure(activity).failed)
     return isUnavailable(activity.error) ? (
       <UnavailableState subject="Cache activity" />
     ) : (
@@ -36,6 +44,7 @@ export function ActivityTab() {
     );
   return (
     <section aria-labelledby="cache-activity-title">
+      <LoadError of={activity} subject="Cache activity" />
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-raised px-gutter pt-4 pb-3 max-sm:px-gutter-sm">
         <h2 id="cache-activity-title" className="text-title font-semibold text-fg">
           Activity

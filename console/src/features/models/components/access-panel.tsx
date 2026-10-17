@@ -10,7 +10,7 @@ import { useCan } from '@/components/ui/gate';
 import { DetailSection } from '@/components/ui/list-detail';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import type { SelectOption } from '@/components/ui/select';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api, listAll } from '@/lib/api/client';
 import type { ModelSpec } from '@/lib/api/types';
@@ -237,7 +237,7 @@ export function AccessPanel({ view, onEdit }: { view: ModelView; onEdit: () => v
         </div>
         {!canRead ? <p className="text-ui text-muted">You need to read models to see requests.</p> : null}
         {slot?.status === 'loading' && !slot.data ? <LoadingRows rows={2} /> : null}
-        {slot?.error ? <ErrorState error={slot.error} subject="Access requests" size="sm" /> : null}
+        <LoadError of={slot} subject="Access requests" size="sm" />
         {slot?.data && open.length === 0 ? (
           <p className="text-ui text-muted">
             No one is waiting. Teams ask for access from their own tools or the API.

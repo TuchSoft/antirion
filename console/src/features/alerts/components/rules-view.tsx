@@ -13,7 +13,7 @@ import { useCan } from '@/components/ui/gate';
 import { Panel } from '@/components/ui/layout';
 import { MenuButton } from '@/components/ui/menu';
 import { Dialog } from '@/components/ui/overlay';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyAction, EmptyState, ErrorState, LoadError, LoadingRows } from '@/components/ui/states';
 import { CountNote, ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import type { AlertRuleResource } from '@/lib/api/types';
 import { formatCount, plural } from '@/lib/format';
@@ -116,9 +116,12 @@ export function RulesView() {
   );
   if (rules.error && !rules.data) return <ErrorState error={rules.error} subject="The rule list" />;
   if (!rules.data) return <LoadingRows label="Loading alert rules" />;
+  // A failed refresh keeps the rules on screen, with a notice over them.
+  const notice = <LoadError of={rules} subject="The rule list" />;
   if (list.length === 0)
     return (
       <>
+        {notice}
         <div
           className={
             builtIn.length
@@ -149,6 +152,7 @@ export function RulesView() {
     );
   return (
     <>
+      {notice}
       <Panel
         title="Rules"
         subtitle={`${plural(list.length, 'rule')} · ${formatCount(on)} on`}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -180,6 +180,54 @@ describe('Settings › Providers', () => {
     expect(within(table).getByText('openai', { selector: '.mono' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add provider' })).not.toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /openai/ })).toBeDisabled();
+  });
+
+  it('keeps the providers on screen when a refresh fails, with a notice and no error state', async () => {
+    reset();
+    signInAs(['providers:read', 'providers:write', 'models:read']);
+    handlers([{ name: 'openai', spec: { type: 'openai' }, metadata: meta }]);
+    render(<ProvidersScreen />);
+    await screen.findByRole('table', { name: 'Providers' });
+
+    let calls = 0;
+    server.use(
+      http.get('*/admin/v1/providers', () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ error: { code: 'unavailable', message: 'restarting' } }, { status: 503 })
+          : HttpResponse.json({ items: [{ name: 'openai', spec: { type: 'openai' }, metadata: meta }] });
+      }),
+    );
+    await act(() => useProviders.getState().load({ quiet: true }));
+
+    const notice = await screen.findByText(/Couldn.t refresh providers/);
+    expect(notice).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('table', { name: 'Providers' })).getByText('openai', { selector: '.mono' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn.t load providers/)).not.toBeInTheDocument();
+    expect(screen.queryByText('No providers yet')).not.toBeInTheDocument();
+
+    // Try again refreshes; a success clears the notice.
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByText(/Couldn.t refresh providers/)).not.toBeInTheDocument());
+    expect(screen.getByRole('table', { name: 'Providers' })).toBeInTheDocument();
+  });
+
+  it('shows only the error state when the first load fails', async () => {
+    reset();
+    signInAs(['providers:read', 'providers:write', 'models:read']);
+    handlers([]);
+    server.use(
+      http.get('*/admin/v1/providers', () =>
+        HttpResponse.json({ error: { code: 'unavailable', message: 'restarting' } }, { status: 503 }),
+      ),
+    );
+    render(<ProvidersScreen />);
+    expect(await screen.findByText(/Couldn.t load providers/)).toBeInTheDocument();
+    expect(screen.queryByText('No providers yet')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Providers' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Couldn.t refresh/)).not.toBeInTheDocument();
   });
 });
 

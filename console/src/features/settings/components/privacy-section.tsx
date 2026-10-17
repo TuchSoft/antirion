@@ -11,7 +11,7 @@ import { Gate, useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
 import { MenuButton } from '@/components/ui/menu';
 import { Drawer } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { parseDuration, plural } from '@/lib/format';
 import { duration, validate, type FieldErrors } from '@/lib/validation';
@@ -194,7 +194,7 @@ function ContentCard() {
           : 'For all traffic, unless an organization, team, project or key sets its own.'
       }
     >
-      {policy.error ? <ErrorState error={policy.error} subject="Data settings" size="sm" /> : null}
+      <LoadError of={policy} subject="Data settings" size="sm" />
       {policy.status === 'loading' && !level ? <LoadingRows rows={4} /> : null}
       {level ? (
         <ContentForm
@@ -359,7 +359,7 @@ function RetentionCard() {
           : 'How long the request log keeps each request. Set once for the whole gateway.'
       }
     >
-      {observability.error ? <ErrorState error={observability.error} subject="Retention" size="sm" /> : null}
+      <LoadError of={observability} subject="Retention" size="sm" />
       {observability.status === 'loading' && !observability.data ? <LoadingRows rows={2} /> : null}
       {observability.data ? (
         <RetentionForm
@@ -578,7 +578,7 @@ function EntitiesCard() {
         </Gate>
       }
     >
-      {guardrails.error ? <ErrorState error={guardrails.error} subject="Custom entities" size="sm" /> : null}
+      <LoadError of={guardrails} subject="Custom entities" size="sm" />
       {guardrails.status === 'loading' && !guardrails.data ? <LoadingRows rows={2} /> : null}
       {guardrails.data && entities.length === 0 ? (
         <EmptyState

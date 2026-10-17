@@ -6,7 +6,8 @@ import { useScopedHref } from '@/components/layout/url-sync';
 import { Meter, TimeChart } from '@/components/ui/charts';
 import { DefinitionGrid } from '@/components/ui/layout';
 import { Tooltip } from '@/components/ui/tooltip';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows } from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatCount, formatMoney, formatPercent, formatSigned } from '@/lib/format';
 import { formatRelative } from '@/lib/time';
@@ -71,7 +72,8 @@ export function KeyHours({ name, now }: { name: string; now: number }) {
   const timeZone = usePreferences((s) => s.timeZone);
   const slot = useKeysContext((s) => s.keyHourly[name]);
   if (!slot || (slot.status === 'loading' && !slot.data)) return <LoadingRows rows={3} />;
-  if (slot.error) return <ErrorState error={slot.error} subject="The key's hours" size="sm" />;
+  const { failed } = loadFailure(slot);
+  if (failed) return <ErrorState error={failed} subject="The key's hours" size="sm" />;
   const hours = slot.data ?? [];
   const { current, previous } = splitDays(hours, now);
   const sum = (list: Hourly[], f: (h: Hourly) => number) => list.reduce((a, h) => a + f(h), 0);
@@ -80,6 +82,7 @@ export function KeyHours({ name, now }: { name: string; now: number }) {
   const day = lastDay(hours, now, (h) => h.requests);
   return (
     <div className="flex flex-col gap-3">
+      <LoadError of={slot} subject="The key's hours" size="sm" />
       <DefinitionGrid
         columns={2}
         items={[
@@ -181,12 +184,21 @@ export function TopIps({ name }: { name: string }) {
   const slot = useKeysContext((s) => s.ips[name]);
   const logHref = useScopedHref('/request-log/', { key: name });
   if (!slot || (slot.status === 'loading' && !slot.data)) return <LoadingRows rows={2} />;
-  if (slot.error) return <ErrorState error={slot.error} subject="Source addresses" size="sm" />;
+  const { failed } = loadFailure(slot);
+  if (failed) return <ErrorState error={failed} subject="Source addresses" size="sm" />;
+  const notice = <LoadError of={slot} subject="Source addresses" size="sm" />;
   const ips = (slot.data ?? []).slice(0, 8);
-  if (ips.length === 0) return <EmptyState size="sm" title="No requests in the last 24 hours" />;
+  if (ips.length === 0)
+    return (
+      <>
+        {notice}
+        <EmptyState size="sm" title="No requests in the last 24 hours" />
+      </>
+    );
   const total = ips.reduce((a, i) => a + i.requests, 0);
   return (
     <>
+      {notice}
       <Table label="Top source addresses, last 24 hours">
         <thead>
           <tr>

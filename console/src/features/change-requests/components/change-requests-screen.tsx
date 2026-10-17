@@ -10,7 +10,7 @@ import { KeyboardHints } from '@/components/ui/keyboard-hints';
 import { FilterBar, PageHeader, Tabs } from '@/components/ui/layout';
 import { MasterDetail, SelectableList } from '@/components/ui/list-detail';
 import { UpdatedAt } from '@/components/ui/misc';
-import { EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
 import { CountNote, ExportCsvButton } from '@/components/ui/table';
 import type { ChangeRequest } from '@/lib/api/client';
 import { type CsvColumn, exportCsv } from '@/lib/csv';
@@ -170,9 +170,7 @@ export function ChangeRequestsScreen() {
         </FilterBar>
       ) : null}
       {list.status === 'loading' && !list.data ? <LoadingRows /> : null}
-      {list.status === 'error' && !list.data ? (
-        <ErrorState error={list.error} subject="change requests" onRetry={() => void load()} />
-      ) : null}
+      <LoadError of={list} subject="change requests" onRetry={() => void load()} />
       {list.data && all.length === 0 ? (
         <EmptyState
           title="No change requests yet"

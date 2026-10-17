@@ -16,7 +16,7 @@ import { MarkTile, ModelMark, ProviderMark } from '@/components/ui/marks';
 import { KeyboardHints } from '@/components/ui/keyboard-hints';
 import { MasterDetail, SelectableList } from '@/components/ui/list-detail';
 import { UpdatedAt } from '@/components/ui/misc';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { EmptyAction, EmptyState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
 import { CountNote, Truncate } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { EffectivePrice } from '@/lib/api/types';
@@ -458,9 +458,7 @@ export function ModelsScreen() {
             </FilterBar>
           ) : null}
           {status === 'loading' && views.length === 0 ? <LoadingRows /> : null}
-          {status === 'error' ? (
-            <ErrorState error={error} subject="Models" onRetry={() => void fetch()} />
-          ) : null}
+          <LoadError of={{ error, loadedAt }} subject="Models" onRetry={() => void fetch()} />
           {status === 'ready' && views.length === 0 ? (
             <EmptyState
               title="No models yet"

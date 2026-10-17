@@ -7,7 +7,7 @@ import { ConfirmDialog } from '@/components/ui/confirm';
 import { Switch } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
 import { MenuButton } from '@/components/ui/menu';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyAction, EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import type { InvalidationRuleResource } from '@/lib/api/types';
 import { formatCount, plural } from '@/lib/format';
 import { formatRelative } from '@/lib/time';
@@ -61,9 +61,7 @@ export function RulesTab() {
         </Gate>
       </div>
       {rules.status === 'loading' && !rules.data ? <LoadingRows rows={3} /> : null}
-      {rules.error ? (
-        <ErrorState error={rules.error} subject="Clearing rules" onRetry={() => void load()} />
-      ) : null}
+      <LoadError of={rules} subject="Clearing rules" onRetry={() => void load()} />
       {rules.data?.length === 0 ? (
         <EmptyState
           title="No clearing rules"

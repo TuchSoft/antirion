@@ -7,7 +7,7 @@ import { Segmented } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { Icon, type IconName } from '@/components/ui/icon';
 import { Section } from '@/components/ui/layout';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { Alert } from '@/lib/api/types';
 import { formatDateTime, formatRelative } from '@/lib/time';
@@ -113,7 +113,7 @@ export function ActivityTab({ onOpenModel }: { onOpenModel?: (name: string) => v
           <p className="text-ui text-muted">You need access to the audit log to see changes.</p>
         ) : null}
         {audit.status === 'loading' && !audit.data ? <LoadingRows rows={5} /> : null}
-        {audit.error ? <ErrorState error={audit.error} subject="Catalog activity" size="sm" /> : null}
+        <LoadError of={audit} subject="Catalog activity" size="sm" />
         {audit.data && items.length === 0 ? (
           <EmptyState size="sm" title="Nothing yet" description="Changes and access decisions show here." />
         ) : null}

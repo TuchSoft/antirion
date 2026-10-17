@@ -12,7 +12,15 @@ import { Eyebrow, FilterBar, Hero, HeroCell, PageHeader, Stat, Tabs } from '@/co
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { ModelMark } from '@/components/ui/marks';
 import { UpdatedAt } from '@/components/ui/misc';
-import { Banner, EmptyAction, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import {
+  Banner,
+  EmptyAction,
+  EmptyState,
+  ErrorState,
+  LoadError,
+  LoadingRows,
+  NoMatch,
+} from '@/components/ui/states';
 import { CountNote, Table, Th } from '@/components/ui/table';
 import { downloadCsv } from '@/lib/csv';
 import { useUrlFilters } from '@/lib/url-filters';
@@ -536,9 +544,7 @@ export function BudgetsScreen() {
             </FilterBar>
           ) : null}
           {counters.status === 'loading' && !counters.data ? <LoadingRows /> : null}
-          {counters.error ? (
-            <ErrorState error={counters.error} subject="Budgets" onRetry={() => void load()} />
-          ) : null}
+          <LoadError of={counters} subject="Budgets" onRetry={() => void load()} />
           {counters.data && all.length === 0 ? (
             canSeeBudgets ? (
               <EmptyState

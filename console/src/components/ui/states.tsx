@@ -5,6 +5,7 @@ import { type ReactNode, useState } from 'react';
 
 import { ApiError, describeError, isChangeControl } from '@/lib/api/client';
 import { cn } from '@/lib/cn';
+import { loadFailure, type Loadable } from '@/lib/slot';
 import { useUi } from '@/stores/ui';
 
 import { Button } from './button';
@@ -18,7 +19,7 @@ export function Skeleton({ className }: { className?: string }) {
 /** Rows of placeholders while a list loads; the page keeps its shape. */
 export function LoadingRows({ rows = 6, label = 'Loading' }: { rows?: number; label?: string }) {
   return (
-    <div role="status" aria-live="polite" className="flex flex-col">
+    <div role="status" aria-live="polite" data-page-state="" className="flex flex-col">
       <span className="sr-only">{label}…</span>
       {Array.from({ length: rows }, (_, i) => (
         <div
@@ -57,6 +58,15 @@ export function EmptyPill({ children, className }: { children: ReactNode; classN
 
 /** Vertical room around a state: `sm` inside a chart, card or drawer; `md` in place of a page's table. */
 const STATE_PADDING = { sm: 'py-6', md: 'py-16' } as const;
+
+/**
+ * Marks a page's main state (`md`, and loading rows): while one shows, the shell paints the rest of
+ * the view below the page's content with the raised surface, so the state's band never stops
+ * halfway down the page.
+ */
+function pageState(size: 'sm' | 'md'): { 'data-page-state'?: '' } {
+  return size === 'md' ? { 'data-page-state': '' } : {};
+}
 
 const QUIET_ACTION =
   'inline-flex h-7 items-center rounded-control px-2 text-caption font-medium text-accent hover:bg-hover hover:underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:no-underline';
@@ -124,6 +134,7 @@ export function EmptyState({
   return (
     <div
       data-empty-state=""
+      {...pageState(size)}
       className={cn(
         'flex flex-col items-center justify-center gap-2 px-4 text-center',
         STATE_PADDING[size],
@@ -228,6 +239,7 @@ export function UnavailableState({
   return (
     <div
       data-empty-state=""
+      {...pageState(size)}
       className={cn(
         'flex flex-col items-center justify-center gap-2 px-4 text-center',
         STATE_PADDING[size],
@@ -293,6 +305,7 @@ export function ErrorState({ error, onRetry, subject, size = 'md', className }: 
   return (
     <div
       role="alert"
+      {...pageState(size)}
       className={cn(
         'flex flex-col items-center justify-center gap-2 px-4 text-center',
         STATE_PADDING[size],
@@ -310,6 +323,80 @@ export function ErrorState({ error, onRetry, subject, size = 'md', className }: 
       {onRetry ? <EmptyAction onClick={onRetry}>Try again</EmptyAction> : null}
     </div>
   );
+}
+
+export interface RefreshNoticeProps {
+  error: unknown;
+  /** What the view shows, for the wording ("Providers" → "Couldn't refresh providers"). */
+  subject?: string | undefined;
+  onRetry?: (() => void) | undefined;
+  /** `md` (default): a hairline strip over a page's content; `sm`: one line inside a card or drawer. */
+  size?: 'sm' | 'md';
+  className?: string | undefined;
+}
+
+/**
+ * A refresh that failed while the last data stays on screen: one quiet line, never the error
+ * state. It goes away when a refresh succeeds; the gateway's message is in its tooltip.
+ */
+export function RefreshNotice({ error, subject, onRetry, size = 'md', className }: RefreshNoticeProps) {
+  return (
+    <div
+      role="status"
+      data-refresh-notice=""
+      className={cn(
+        'flex flex-wrap items-center gap-x-1.5 gap-y-1 text-caption text-muted',
+        size === 'md' ? 'border-b border-line bg-raised px-gutter py-1.5 max-sm:px-gutter-sm' : 'py-1',
+        className,
+      )}
+    >
+      <Tooltip content={describeError(error)}>
+        <span className="inline-flex items-center gap-1.5 text-fg">
+          <Icon name="alert" size={14} className="shrink-0 text-warn" />
+          Couldn&apos;t refresh {subject ? midSentence(subject) : 'this view'}
+        </span>
+      </Tooltip>
+      {onRetry ? (
+        <>
+          <span aria-hidden="true" className="text-dim">
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-xs font-medium text-accent underline-offset-2 hover:underline"
+          >
+            Try again
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+export interface LoadErrorProps extends Omit<ErrorStateProps, 'error'> {
+  /** The read: a slot, a collection store's state, or `{ error, data }`. */
+  of: Loadable | null | undefined;
+}
+
+/**
+ * A read's failure, in its one right form: the error state when the read never loaded (and the
+ * screen shows nothing else for it), a `RefreshNotice` over the last data when a refresh failed,
+ * and nothing otherwise. Screens render their content from the data as usual beside it.
+ */
+export function LoadError({ of, onRetry, subject, size = 'md', className }: LoadErrorProps) {
+  const { failed, stale } = loadFailure(of);
+  if (failed) {
+    return (
+      <ErrorState error={failed} onRetry={onRetry} subject={subject} size={size} className={className} />
+    );
+  }
+  if (stale) {
+    return (
+      <RefreshNotice error={stale} onRetry={onRetry} subject={subject} size={size} className={className} />
+    );
+  }
+  return null;
 }
 
 /** An inline banner for a form or a failed write: what happened and what to do. */

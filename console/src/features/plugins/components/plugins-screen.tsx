@@ -15,11 +15,11 @@ import { UpdatedAt } from '@/components/ui/misc';
 import {
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
   UnavailableState,
+  isUnavailable,
 } from '@/components/ui/states';
 import { CountNote, ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import { type CsvColumn, exportCsv } from '@/lib/csv';
@@ -178,9 +178,7 @@ export function PluginsScreen() {
           ) : null}
           <div className="flex flex-col">
             {plugins.status === 'loading' && !plugins.data ? <LoadingRows rows={3} /> : null}
-            {plugins.error ? (
-              <ErrorState error={plugins.error} subject="Plugins" onRetry={() => void load()} />
-            ) : null}
+            <LoadError of={plugins} subject="Plugins" onRetry={() => void load()} />
             {plugins.data && rows.length === 0 ? (
               <EmptyState
                 title="No plugins yet"

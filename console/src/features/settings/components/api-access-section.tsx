@@ -10,7 +10,7 @@ import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
 import { MenuButton } from '@/components/ui/menu';
 import { CancelButton, Dialog } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { modelOption } from '@/components/ui/marks';
 import { formatCount, plural } from '@/lib/format';
@@ -341,9 +341,7 @@ function AllowListCard() {
       title="IP allow-list"
       description={`Addresses the apps of the ${org} organization may call the gateway from.`}
     >
-      {organization.error ? (
-        <ErrorState error={organization.error} subject="The organization" size="sm" />
-      ) : null}
+      <LoadError of={organization} subject="The organization" size="sm" />
       {!ready && !organization.error ? <LoadingRows rows={2} /> : null}
       {ready ? (
         <div className="flex flex-col gap-4">
@@ -566,9 +564,7 @@ function LimitsCard() {
         </Button>
       }
     >
-      {organization.error ? (
-        <ErrorState error={organization.error} subject="The organization" size="sm" />
-      ) : null}
+      <LoadError of={organization} subject="The organization" size="sm" />
       {ready && limits.length === 0 ? (
         <EmptyState
           size="sm"

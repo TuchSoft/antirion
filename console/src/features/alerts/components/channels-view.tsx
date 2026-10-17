@@ -10,7 +10,7 @@ import { Icon, type IconName } from '@/components/ui/icon';
 import { Panel } from '@/components/ui/layout';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
-import { EmptyState, ErrorState, isUnavailable, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows, isUnavailable } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { describeError } from '@/lib/api/client';
 import type { AlertChannelResource } from '@/lib/api/types';
@@ -127,6 +127,7 @@ function ChannelsPanel() {
       bodyClassName="px-0 pb-0"
       actions={add}
     >
+      <LoadError of={channels} subject="The channel list" />
       {list.length === 0 ? (
         <div className="px-5 pb-6">
           <EmptyState

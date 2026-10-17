@@ -10,7 +10,7 @@ import { Gate } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
 import { DefinitionGrid, Section } from '@/components/ui/layout';
 import { UpdatedAt } from '@/components/ui/misc';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatBytes, formatCount } from '@/lib/format';
 import { usePolling } from '@/lib/hooks';
@@ -59,9 +59,7 @@ export function HealthSection() {
         actions={<UpdatedAt at={health.at} />}
       >
         {health.status === 'loading' && !h ? <LoadingRows rows={3} /> : null}
-        {health.error ? (
-          <ErrorState error={health.error} subject="Health" onRetry={() => void load()} />
-        ) : null}
+        <LoadError of={health} subject="Health" onRetry={() => void load()} />
         {h ? (
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -132,7 +130,7 @@ export function HealthSection() {
           nodes.data ? `${nodes.data.filter((n) => n.ready).length} of ${nodes.data.length} ready` : undefined
         }
       >
-        {nodes.error ? <ErrorState error={nodes.error} subject="Nodes" /> : null}
+        <LoadError of={nodes} subject="Nodes" />
         {nodes.data ? (
           <Table label="Nodes">
             <thead>
@@ -208,9 +206,7 @@ export function HealthSection() {
         title="Deployments"
         subtitle="A deployment that keeps failing is paused for a while, then tried again."
       >
-        {deployments.error ? (
-          <ErrorState error={deployments.error} subject="Deployment health" size="sm" />
-        ) : null}
+        <LoadError of={deployments} subject="Deployment health" size="sm" />
         {deployments.data?.length === 0 ? <EmptyState size="sm" title="No deployments yet" /> : null}
         {deployments.data && deployments.data.length > 0 ? (
           <Table label="Deployment health">
@@ -271,7 +267,7 @@ export function HealthSection() {
         ) : null}
       </Section>
       <Section title="Provider keys" subtitle="Whether the gateway's key for each provider works.">
-        {providers.error ? <ErrorState error={providers.error} subject="Provider status" size="sm" /> : null}
+        <LoadError of={providers} subject="Provider status" size="sm" />
         {providers.data?.length === 0 ? <EmptyState size="sm" title="No providers yet" /> : null}
         <ul className="flex flex-col gap-1.5">
           {(providers.data ?? []).map((p) => (

@@ -11,7 +11,7 @@ import { Input, Segmented, Switch } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
 import { FilterBar } from '@/components/ui/layout';
 import { ModelMark } from '@/components/ui/marks';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { EmptyAction, EmptyState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
 import { CountNote, Table, Td, Th, Tr } from '@/components/ui/table';
 import type { ModelResource, RouteResource } from '@/lib/api/types';
 import { formatCount, formatMoney, formatPercent, plural } from '@/lib/format';
@@ -285,7 +285,7 @@ export function ModelsTab() {
         </FilterBar>
       ) : null}
       {models.status === 'loading' && !models.data ? <LoadingRows /> : null}
-      {models.error ? <ErrorState error={models.error} subject="Models" onRetry={() => void load()} /> : null}
+      <LoadError of={models} subject="Models" onRetry={() => void load()} />
       {models.data?.length === 0 ? (
         <EmptyState title="No models yet" action={<EmptyAction href={modelsHref}>Add model</EmptyAction>} />
       ) : null}

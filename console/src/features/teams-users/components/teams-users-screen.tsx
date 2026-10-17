@@ -15,7 +15,7 @@ import { MasterDetail, SelectableList } from '@/components/ui/list-detail';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { Avatar, UpdatedAt } from '@/components/ui/misc';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { EmptyAction, EmptyState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
 import { CountNote } from '@/components/ui/table';
 import { downloadCsv } from '@/lib/csv';
 import { formatPercent, plural } from '@/lib/format';
@@ -458,9 +458,7 @@ export function TeamsUsersScreen() {
             </FilterBar>
           ) : null}
           {status === 'loading' && users.length === 0 ? <LoadingRows /> : null}
-          {status === 'error' ? (
-            <ErrorState error={error} subject="Users" onRetry={() => void fetch()} />
-          ) : null}
+          <LoadError of={{ error, loadedAt }} subject="Users" onRetry={() => void fetch()} />
           {status === 'ready' && users.length === 0 ? (
             <EmptyState
               title="No users yet"

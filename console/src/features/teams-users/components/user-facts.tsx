@@ -11,7 +11,7 @@ import { Gate, useCan } from '@/components/ui/gate';
 import { DefinitionGrid } from '@/components/ui/layout';
 import { DetailSection } from '@/components/ui/list-detail';
 import { ColorChip } from '@/components/ui/misc';
-import { Banner, ErrorState, LoadingRows } from '@/components/ui/states';
+import { Banner, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { Anomaly } from '@/lib/api/types';
@@ -240,7 +240,7 @@ export function UsageSection({ view }: { view: UserView }) {
   const usage = slot?.data;
   return (
     <DetailSection title="Usage">
-      {slot?.error ? <ErrorState error={slot.error} subject="Their usage" size="sm" /> : null}
+      <LoadError of={slot} subject="Their usage" size="sm" />
       {!usage && !slot?.error ? <LoadingRows rows={3} /> : null}
       {usage ? (
         <div className="flex flex-col gap-3">
@@ -439,7 +439,7 @@ export function SessionsSection({ view, onSignOut }: { view: UserView; onSignOut
         ) : null
       }
     >
-      {slot?.error ? <ErrorState error={slot.error} subject="Their sessions" size="sm" /> : null}
+      <LoadError of={slot} subject="Their sessions" size="sm" />
       {!sessions && !slot?.error ? <LoadingRows rows={2} /> : null}
       {sessions?.length === 0 ? <p className="text-ui text-muted">Not signed in anywhere.</p> : null}
       {sessions && sessions.length > 0 ? (

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Forbidden, Gate, usePermission } from '@/components/ui/gate';
 import { PageHeader, SummaryStrip, Tabs } from '@/components/ui/layout';
 import { UpdatedAt } from '@/components/ui/misc';
-import { ErrorState, isUnavailable, LoadingRows, UnavailableState } from '@/components/ui/states';
+import { LoadError, LoadingRows, UnavailableState, isUnavailable } from '@/components/ui/states';
 import { ExportCsvButton } from '@/components/ui/table';
 import { exportCsv } from '@/lib/csv';
 import { formatCount } from '@/lib/format';
@@ -165,9 +165,7 @@ export function McpScreen() {
           />
           <div className="flex flex-col">
             {servers.status === 'loading' && !servers.data ? <LoadingRows rows={4} /> : null}
-            {servers.error ? (
-              <ErrorState error={servers.error} subject="MCP servers" onRetry={() => void load()} />
-            ) : null}
+            <LoadError of={servers} subject="MCP servers" onRetry={() => void load()} />
             {servers.data && tab === 'servers' ? (
               <ServersTab onCreate={() => setCreating('server')} onApprove={setApproving} />
             ) : null}

@@ -8,10 +8,10 @@ import { ConfirmDialog } from '@/components/ui/confirm';
 import { Gate } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
-import { ErrorState, LoadingRows } from '@/components/ui/states';
+import { LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { downloadText } from '@/lib/csv';
-import { asApiError, emptySlot, type Slot } from '@/lib/slot';
+import { asApiError, emptySlot, failSlot, type Slot } from '@/lib/slot';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
@@ -104,7 +104,7 @@ function VersionDrawer({
       {opened ? (
         <div className="flex flex-col gap-4">
           <p className="text-ui text-muted">{v?.summary}</p>
-          {opened.doc.error ? <ErrorState error={opened.doc.error} subject="This version" size="sm" /> : null}
+          <LoadError of={opened.doc} subject="This version" size="sm" />
           {opened.doc.status === 'loading' ? <LoadingRows rows={4} /> : null}
           {changes ? (
             <div>
@@ -159,7 +159,7 @@ export function VersionsPanel() {
       const data = await settingsApi.generations();
       setVersions({ data, status: 'ready', error: null, at: Date.now() });
     } catch (e) {
-      setVersions((v) => ({ ...v, status: 'error', error: asApiError(e) }));
+      setVersions((v) => failSlot(v, e));
     }
   }, []);
 
@@ -195,14 +195,7 @@ export function VersionsPanel() {
       subtitle="Every change makes a new version. Open one to see what rolling back to it would change."
     >
       {versions.status === 'loading' && !versions.data ? <LoadingRows rows={4} /> : null}
-      {versions.error ? (
-        <ErrorState
-          error={versions.error}
-          subject="Configuration versions"
-          size="sm"
-          onRetry={() => void load()}
-        />
-      ) : null}
+      <LoadError of={versions} subject="Configuration versions" size="sm" onRetry={() => void load()} />
       {list.length > 0 ? (
         <div className="max-h-[420px] overflow-y-auto">
           <Table label="Configuration versions">

@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Panel } from '@/components/ui/layout';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatCount } from '@/lib/format';
 
@@ -34,14 +34,7 @@ export function SessionsTab() {
         }
       >
         {sessions.status === 'loading' && !sessions.data ? <LoadingRows rows={3} /> : null}
-        {sessions.error ? (
-          <ErrorState
-            error={sessions.error}
-            subject="MCP sessions"
-            onRetry={() => void loadSessions()}
-            size="sm"
-          />
-        ) : null}
+        <LoadError of={sessions} subject="MCP sessions" onRetry={() => void loadSessions()} size="sm" />
         {sessions.data && rows.length === 0 ? (
           <EmptyState size="sm" title="No gateways, so no sessions" />
         ) : null}

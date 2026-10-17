@@ -19,10 +19,10 @@ import {
   Banner,
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
+  isUnavailable,
 } from '@/components/ui/states';
 import { CountNote, ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import type { SafetyEvent } from '@/lib/api/types';
@@ -380,7 +380,7 @@ function RulesPanel({ onEdit }: { onEdit: (target: EditorTarget) => void }) {
         bodyClassName="px-0 pb-0"
       >
         {guardrails.status === 'loading' && !guardrails.data ? <LoadingRows rows={3} /> : null}
-        {guardrails.error ? <ErrorState error={guardrails.error} subject="Guardrails" /> : null}
+        <LoadError of={guardrails} subject="Guardrails" />
         {guardrails.data && list.length === 0 ? (
           <EmptyState
             title="No guardrails yet"
@@ -765,13 +765,11 @@ export function SafetyScreen() {
             </FilterBar>
           ) : null}
           {events.status === 'loading' && !events.data ? <LoadingRows /> : null}
-          {events.error ? (
-            <ErrorState
-              error={events.error}
-              subject="Safety events"
-              onRetry={unavailable ? undefined : () => void load(window.from, window.to)}
-            />
-          ) : null}
+          <LoadError
+            of={events}
+            subject="Safety events"
+            onRetry={unavailable ? undefined : () => void load(window.from, window.to)}
+          />
           {events.data?.length === 0 ? (
             <EmptyState
               title="Nothing to review"

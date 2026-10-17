@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Gate } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
-import { EmptyState, ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { downloadText } from '@/lib/csv';
 import { notify } from '@/stores/ui';
 
@@ -60,13 +60,7 @@ export function ConfigSection() {
         }
       >
         {document.status === 'loading' && !document.data ? <LoadingRows rows={6} /> : null}
-        {document.error ? (
-          <ErrorState
-            error={document.error}
-            subject="The configuration"
-            onRetry={() => void loadDocument()}
-          />
-        ) : null}
+        <LoadError of={document} subject="The configuration" onRetry={() => void loadDocument()} />
         {document.data ? (
           <>
             <label htmlFor="config-editor" className="sr-only">

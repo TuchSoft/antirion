@@ -21,7 +21,9 @@ export interface CollectionApi<T extends Named, C, U> {
 
 export interface CollectionState<T extends Named, C, U> {
   items: T[];
+  /** `error` only when the list never loaded; a refresh that fails after it did stays `ready`. */
   status: LoadStatus;
+  /** The last read's failure, cleared by the next read that succeeds. */
   error: ApiError | null;
   loadedAt: number | null;
   fetch: (options?: { quiet?: boolean }) => Promise<void>;
@@ -62,7 +64,8 @@ export function createCollectionStore<T extends Named, C, U>(
         const items = await client.list();
         set({ items, status: 'ready', error: null, loadedAt: Date.now() });
       } catch (error) {
-        set({ status: 'error', error: toApiError(error) });
+        // A failed refresh keeps the list it had: the status stays `ready`, with the error beside it.
+        set({ status: get().loadedAt !== null ? 'ready' : 'error', error: toApiError(error) });
       }
     },
 

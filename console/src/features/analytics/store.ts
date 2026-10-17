@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import type { UsageBucket } from '@/lib/api/types';
-import { asApiError, emptySlot, type Slot } from '@/lib/slot';
+import { emptySlot, failSlot, type Slot } from '@/lib/slot';
 
 import { analyticsApi, type UsageQuery } from './api';
 
@@ -25,7 +25,7 @@ export const useAnalytics = create<AnalyticsState>()((set, get) => ({
       set((s) => ({
         usage: {
           ...s.usage,
-          [name]: { data: s.usage[name]?.data ?? null, status: 'error', error: asApiError(error), at: null },
+          [name]: failSlot(s.usage[name] ?? previous, error),
         },
       }));
     }

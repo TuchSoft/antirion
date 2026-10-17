@@ -8,7 +8,7 @@ import { Button, IconButton } from '@/components/ui/button';
 import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
 import { Icon, type IconName } from '@/components/ui/icon';
-import { ErrorState } from '@/components/ui/states';
+import { LoadError } from '@/components/ui/states';
 import { TileGrid } from '@/components/ui/layout';
 import { useAlertEditors } from '@/features/alerts/editors';
 import { useAlerts } from '@/features/alerts/store';
@@ -288,11 +288,9 @@ export function ConnectionsSection() {
   return (
     <Card title="Connections" description="Connect alerting, telemetry and secret storage.">
       <div className="flex flex-col gap-5">
-        {channels.error ? <ErrorState error={channels.error} subject="Alert channels" size="sm" /> : null}
-        {observability.error ? (
-          <ErrorState error={observability.error} subject="Telemetry settings" size="sm" />
-        ) : null}
-        {security.error ? <ErrorState error={security.error} subject="Secret stores" size="sm" /> : null}
+        <LoadError of={channels} subject="Alert channels" size="sm" />
+        <LoadError of={observability} subject="Telemetry settings" size="sm" />
+        <LoadError of={security} subject="Secret stores" size="sm" />
         <Group title="Alerts" items={channelItems} />
         {ready ? <Group title="Telemetry and request log" items={telemetry} /> : null}
         {ready ? <Group title="Secret stores" items={secretItems} /> : null}

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Field, Input } from '@/components/ui/form';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
-import { ErrorState, LoadingRows } from '@/components/ui/states';
+import { LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { CodeInput, ErrorStrip, SecretInput } from '@/features/auth/components/parts';
 import { QrCode } from '@/features/auth/components/qr-code';
@@ -413,9 +413,7 @@ function TwoStep() {
       description="Password sign-in always asks for a second step. Keep at least one way to verify."
     >
       {factors.status === 'loading' && !factors.data ? <LoadingRows rows={2} /> : null}
-      {factors.error ? (
-        <ErrorState error={factors.error} subject="two-step verification" onRetry={() => void load()} />
-      ) : null}
+      <LoadError of={factors} subject="two-step verification" onRetry={() => void load()} />
       {factors.data ? (
         <ul className="flex flex-col divide-y divide-line rounded-sm border border-line">
           {items.length === 0 ? (
@@ -519,9 +517,7 @@ function Sessions() {
   return (
     <Block title="Where you're signed in">
       {sessions.status === 'loading' && !sessions.data ? <LoadingRows rows={2} /> : null}
-      {sessions.error ? (
-        <ErrorState error={sessions.error} subject="sessions" onRetry={() => void load()} />
-      ) : null}
+      <LoadError of={sessions} subject="sessions" onRetry={() => void load()} />
       {sessions.data ? (
         <Table label="Your sessions">
           <thead>

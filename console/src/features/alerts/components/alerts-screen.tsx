@@ -13,11 +13,11 @@ import { Drawer } from '@/components/ui/overlay';
 import {
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
   UnavailableState,
+  isUnavailable,
 } from '@/components/ui/states';
 import { CountNote, ExportCsvButton } from '@/components/ui/table';
 import type { Alert } from '@/lib/api/types';
@@ -317,9 +317,7 @@ export function AlertsScreen() {
             </FilterBar>
           ) : null}
           {alerts.status === 'loading' && !alerts.data ? <LoadingRows label="Loading alerts" /> : null}
-          {alerts.error && !alerts.data ? (
-            <ErrorState error={alerts.error} subject="The alert inbox" onRetry={() => void load()} />
-          ) : null}
+          <LoadError of={alerts} subject="The alert inbox" onRetry={() => void load()} />
           {alerts.data?.length === 0 ? (
             <div className="flex min-h-[420px] flex-1 items-center justify-center bg-raised">
               <EmptyState

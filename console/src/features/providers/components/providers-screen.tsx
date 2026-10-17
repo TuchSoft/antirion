@@ -12,7 +12,7 @@ import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
 import { PageHeader, Panel } from '@/components/ui/layout';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyAction, EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import { ApiError, describeError } from '@/lib/api/client';
 import type { ProviderResource } from '@/lib/api/types';
@@ -214,9 +214,7 @@ export function ProvidersScreen() {
             : {})}
         >
           {providers.status === 'loading' && !providers.data ? <LoadingRows rows={3} /> : null}
-          {providers.error ? (
-            <ErrorState error={providers.error} subject="Providers" onRetry={() => void load()} />
-          ) : null}
+          <LoadError of={providers} subject="Providers" onRetry={() => void load()} />
           {providers.data && list.length === 0 ? (
             <EmptyState
               title="No providers yet"

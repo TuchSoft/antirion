@@ -6,7 +6,7 @@ import { useScopedHref } from '@/components/layout/url-sync';
 import { Checkbox, Switch } from '@/components/ui/choice';
 import { Field, Input, MultiSelect, NumberInput, Select } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { formatPercent, plural } from '@/lib/format';
 import type { FieldErrors } from '@/lib/validation';
 import { scopeOrganization, useScope } from '@/stores/scope';
@@ -448,7 +448,7 @@ export function SignInSection() {
       title="Sign-in & sessions"
       description="How people prove who they are, and how long they stay signed in."
     >
-      {auth.error ? <ErrorState error={auth.error} subject="Sign-in settings" size="sm" /> : null}
+      <LoadError of={auth} subject="Sign-in settings" size="sm" />
       {auth.status === 'loading' && !auth.data ? <LoadingRows rows={4} /> : null}
       <div className="flex flex-col gap-5">
         {usersError ? null : <Coverage users={users} />}

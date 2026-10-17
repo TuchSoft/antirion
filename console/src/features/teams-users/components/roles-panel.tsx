@@ -13,7 +13,7 @@ import { Gate, useCan } from '@/components/ui/gate';
 import { Panel, SummaryStrip, type SummaryItem } from '@/components/ui/layout';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { Drawer } from '@/components/ui/overlay';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { Role } from '@/lib/api/types';
@@ -117,7 +117,7 @@ export function RolesPanel({ users }: { users: UserView[] }) {
           </Gate>
         }
       >
-        {roles.error ? <ErrorState error={roles.error} subject="Roles" size="sm" /> : null}
+        <LoadError of={roles} subject="Roles" size="sm" />
         {roles.status === 'loading' && !roles.data ? <LoadingRows rows={4} /> : null}
         {roles.data ? (
           <Table label="Roles">

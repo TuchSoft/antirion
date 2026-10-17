@@ -11,7 +11,7 @@ import { Icon } from '@/components/ui/icon';
 import { Gate, useCan } from '@/components/ui/gate';
 import { CopyButton } from '@/components/ui/misc';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { ErrorState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { formatBytes, formatCount } from '@/lib/format';
 import { formatDate, formatRelative } from '@/lib/time';
 import { serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
@@ -231,7 +231,7 @@ export function GeneralSection() {
         description={scope.kind === 'gateway' ? 'Switch organization at the top to edit another.' : undefined}
       >
         {organization.status === 'loading' && !data ? <LoadingRows rows={3} /> : null}
-        {organization.error ? <ErrorState error={organization.error} subject="The organization" /> : null}
+        <LoadError of={organization} subject="The organization" />
         {data ? (
           <GeneralForm
             key={data.metadata.etag}
@@ -433,7 +433,7 @@ export function ApiAccessSection() {
         )}
       </Card>
       <Card title="Rate limiting" description="How the gateway counts and enforces limits.">
-        {limits.error ? <ErrorState error={limits.error} subject="Rate limiting" size="sm" /> : null}
+        <LoadError of={limits} subject="Rate limiting" size="sm" />
         {limits.data ? (
           <div className="flex flex-col gap-3">
             <Facts
@@ -466,7 +466,7 @@ export function ApiAccessSection() {
         ) : null}
       </Card>
       <Card title="Network" description="Where the gateway may connect, and the largest request it takes.">
-        {security.error ? <ErrorState error={security.error} subject="Security settings" size="sm" /> : null}
+        <LoadError of={security} subject="Security settings" size="sm" />
         {security.data ? (
           <div className="flex flex-col gap-3">
             <Facts

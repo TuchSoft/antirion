@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/ui/confirm';
 import { Checkbox, Field, Input, Select, Switch } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { ErrorState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { API_BASE } from '@/lib/api/client';
 import { usePolling } from '@/lib/hooks';
 import { daysUntil, formatDateTime, formatRelative } from '@/lib/time';
@@ -688,9 +688,7 @@ function TwoPersonCard() {
       title="Two-person rule"
       description="The actions here wait for a second person's approval, who needs the same permission. The request shows in Change requests."
     >
-      {governance.error ? (
-        <ErrorState error={governance.error} subject="The two-person rule" size="sm" />
-      ) : null}
+      <LoadError of={governance} subject="The two-person rule" size="sm" />
       {governance.status === 'loading' && !governance.data ? <LoadingRows rows={3} /> : null}
       {governance.data ? (
         <TwoPersonForm

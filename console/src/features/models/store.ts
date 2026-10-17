@@ -18,7 +18,7 @@ import type {
 import { api } from '@/lib/api/client';
 import { createCollectionStore } from '@/lib/collection-store';
 import { downloadCsv, downloadText } from '@/lib/csv';
-import { asApiError, emptySlot, loadSlot, type Slot } from '@/lib/slot';
+import { asApiError, emptySlot, failSlot, loadSlot, type Slot } from '@/lib/slot';
 
 import {
   type ModelCreateInput,
@@ -372,7 +372,7 @@ export const useModelInsight = create<InsightState>()((set, get) => ({
       set((s) => ({
         slots: {
           ...s.slots,
-          [model]: { ...(s.slots[model] ?? previous), status: 'error', error: asApiError(error) },
+          [model]: failSlot(s.slots[model] ?? previous, error),
         },
       }));
     }

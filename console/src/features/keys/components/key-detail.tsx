@@ -15,7 +15,7 @@ import { DefinitionGrid } from '@/components/ui/layout';
 import { DetailHeader, DetailSection } from '@/components/ui/list-detail';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { CopyButton } from '@/components/ui/misc';
-import { Banner, EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { Banner, EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { auditActionLabel, auditActorBy, auditActorLabel, auditToggle } from '@/lib/audit-words';
 import { useTokenNames } from '@/stores/actors';
 import type { BudgetCounter } from '@/lib/api/types';
@@ -415,7 +415,7 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
 
       <DetailSection title="Budgets">
         {budgets.status === 'loading' ? <LoadingRows rows={2} /> : null}
-        {budgets.error ? <ErrorState error={budgets.error} subject="Budgets" size="sm" /> : null}
+        <LoadError of={budgets} subject="Budgets" size="sm" />
         {budgets.data && applicable.length === 0 ? (
           <EmptyState size="sm" title="No budget applies to this key" />
         ) : null}
@@ -462,7 +462,7 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
 
       <DetailSection title="Activity">
         {!audit || audit.status === 'loading' ? <LoadingRows rows={3} /> : null}
-        {audit?.error ? <ErrorState error={audit.error} subject="The audit log" size="sm" /> : null}
+        <LoadError of={audit} subject="The audit log" size="sm" />
         {audit?.data?.length === 0 ? <EmptyState size="sm" title="No changes recorded yet" /> : null}
         <ol className="flex flex-col">
           {(audit?.data ?? []).map((entry) => (

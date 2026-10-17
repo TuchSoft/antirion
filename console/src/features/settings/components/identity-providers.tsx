@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { useCan } from '@/components/ui/gate';
 import { MenuButton } from '@/components/ui/menu';
-import { EmptyState, ErrorState } from '@/components/ui/states';
+import { EmptyState, LoadError } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { API_BASE } from '@/lib/api/client';
@@ -114,7 +114,7 @@ export function IdentityProvidersSection() {
       description="Let people sign in with your identity provider."
       actions={addMenu}
     >
-      {auth.error ? <ErrorState error={auth.error} subject="Single sign-on" size="sm" /> : null}
+      <LoadError of={auth} subject="Single sign-on" size="sm" />
       {auth.data && rows.length === 0 ? (
         <EmptyState
           size="sm"

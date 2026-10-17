@@ -14,7 +14,7 @@ import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { DefinitionGrid } from '@/components/ui/layout';
 import { DetailHeader, DetailSection } from '@/components/ui/list-detail';
 import { CopyLinkButton } from '@/components/ui/misc';
-import { Banner, ErrorState, LoadingRows } from '@/components/ui/states';
+import { Banner, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatCount, formatMoney, plural } from '@/lib/format';
@@ -696,7 +696,7 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
         {canAudit && (!audit || (audit.status === 'loading' && !audit.data)) ? (
           <LoadingRows rows={3} />
         ) : null}
-        {audit?.error ? <ErrorState error={audit.error} subject="Activity" size="sm" /> : null}
+        <LoadError of={audit} subject="Activity" size="sm" />
         {audit?.data && activity.length === 0 ? (
           <p className="text-ui text-muted">No activity recorded yet.</p>
         ) : null}

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Field, Input, Segmented, Select } from '@/components/ui/form';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
-import { EmptyState, ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatDate, formatRelative } from '@/lib/time';
 import { validate, type FieldErrors } from '@/lib/validation';
@@ -129,9 +129,7 @@ export function TokensSection() {
         </div>
       </form>
       {tokens.status === 'loading' && !tokens.data ? <LoadingRows rows={3} /> : null}
-      {tokens.error ? (
-        <ErrorState error={tokens.error} subject="personal tokens" onRetry={() => void load()} />
-      ) : null}
+      <LoadError of={tokens} subject="personal tokens" onRetry={() => void load()} />
       {tokens.data?.length === 0 ? <EmptyState title="No personal tokens yet" /> : null}
       {tokens.data && tokens.data.length > 0 ? (
         <Table label="Personal tokens">

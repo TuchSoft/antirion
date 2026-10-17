@@ -7,7 +7,8 @@ import { Dot } from '@/components/ui/badge';
 import { Forbidden, useCan } from '@/components/ui/gate';
 import { Input } from '@/components/ui/form';
 import { FilterBar } from '@/components/ui/layout';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows } from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { CountNote, ExportCsvButton } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { usePolling } from '@/lib/hooks';
@@ -32,8 +33,8 @@ export function ActivityPanel({ onUser }: { onUser: (name: string) => void }) {
   }, [canRead, load]);
   usePolling(() => void load({ quiet: true }), canRead);
   if (!canRead) return <Forbidden what="the audit log" />;
-  if (activity.error)
-    return <ErrorState error={activity.error} subject="Activity" onRetry={() => void load()} />;
+  const { failed } = loadFailure(activity);
+  if (failed) return <ErrorState error={failed} subject="Activity" onRetry={() => void load()} />;
   if (!activity.data) return <LoadingRows />;
   const q = query.trim().toLowerCase();
   // One acceptance can be recorded twice in a row (the invitation and the account): show it once.
@@ -54,6 +55,7 @@ export function ActivityPanel({ onUser }: { onUser: (name: string) => void }) {
   );
   return (
     <>
+      <LoadError of={activity} subject="Activity" onRetry={() => void load()} />
       <FilterBar>
         <div className="w-64 max-sm:w-full">
           <Input

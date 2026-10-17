@@ -11,7 +11,7 @@ import { useCan } from '@/components/ui/gate';
 import { FilterBar } from '@/components/ui/layout';
 import { ModelName, modelOption } from '@/components/ui/marks';
 import { MenuButton } from '@/components/ui/menu';
-import { Banner, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { Banner, EmptyState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import type { CacheEntry } from '@/lib/api/types';
 import { formatBytes, formatCount, formatMoney, plural, shortId } from '@/lib/format';
@@ -246,13 +246,7 @@ export function EntriesTab() {
         </div>
       ) : null}
       {entries.status === 'loading' && !page ? <LoadingRows rows={4} /> : null}
-      {entries.error ? (
-        <ErrorState
-          error={entries.error}
-          subject="Cached responses"
-          onRetry={() => void loadEntries(query)}
-        />
-      ) : null}
+      <LoadError of={entries} subject="Cached responses" onRetry={() => void loadEntries(query)} />
       {page && page.enumerable && rows.length === 0 ? (
         active ? (
           <NoMatch

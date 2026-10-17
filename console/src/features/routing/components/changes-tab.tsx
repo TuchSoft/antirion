@@ -9,7 +9,7 @@ import { usePermission } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
 import { Panel } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows } from '@/components/ui/states';
 import type { ChangeRequest } from '@/lib/api/client';
 import { plural } from '@/lib/format';
 import { formatRelative } from '@/lib/time';
@@ -53,7 +53,7 @@ export function PendingChanges() {
         </Link>
       }
     >
-      {list.error ? <ErrorState error={list.error} subject="Change requests" size="sm" /> : null}
+      <LoadError of={list} subject="Change requests" size="sm" />
       {!list.data && !list.error ? <LoadingRows rows={2} /> : null}
       {list.data && pending.length === 0 ? (
         <p className="text-ui text-muted">

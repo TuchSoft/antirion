@@ -12,7 +12,7 @@ import { DefinitionGrid } from '@/components/ui/layout';
 import { DetailHeader, DetailSection } from '@/components/ui/list-detail';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { Avatar } from '@/components/ui/misc';
-import { Banner, EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { Banner, EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useNow } from '@/lib/hooks';
@@ -376,7 +376,7 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
         }
       >
         {tokens?.status === 'loading' && !tokens.data ? <LoadingRows rows={2} /> : null}
-        {tokens?.error ? <ErrorState error={tokens.error} subject="Admin tokens" /> : null}
+        <LoadError of={tokens} subject="Admin tokens" />
         {tokens?.data?.length === 0 ? (
           <p className="text-ui text-muted">None. Admin tokens let scripts use the Admin API as this user.</p>
         ) : null}
@@ -440,7 +440,7 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
 
       <DetailSection title="Activity">
         {audit?.status === 'loading' && !audit.data ? <LoadingRows rows={3} /> : null}
-        {audit?.error ? <ErrorState error={audit.error} subject="The audit log" /> : null}
+        <LoadError of={audit} subject="The audit log" />
         {audit?.data?.length === 0 ? <EmptyState size="sm" title="Nothing recorded yet" /> : null}
         <ol className="flex flex-col">
           {(audit?.data ?? []).slice(0, 20).map((e) => (

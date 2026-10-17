@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Select, Switch } from '@/components/ui/form';
 import { Section } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { auditActionLabel, auditActorKind, auditActorLabel, auditEntryLabel } from '@/lib/audit-words';
 import type { AuditEntry } from '@/lib/api/types';
@@ -168,9 +168,7 @@ export function AuditSection() {
           </Button>
         </form>
         {entries.status === 'loading' && !entries.data ? <LoadingRows rows={8} /> : null}
-        {entries.error ? (
-          <ErrorState error={entries.error} subject="The audit log" onRetry={() => void load()} />
-        ) : null}
+        <LoadError of={entries} subject="The audit log" onRetry={() => void load()} />
         {entries.data?.length === 0 ? <EmptyState title="No entries match these filters" size="sm" /> : null}
         {entries.data && shown.length > 0 ? (
           <>

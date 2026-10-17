@@ -12,7 +12,7 @@ import { Gate, useCan } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
 import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { Dialog } from '@/components/ui/overlay';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatDate } from '@/lib/time';
 import { resourceName, validate, type FieldErrors } from '@/lib/validation';
@@ -200,7 +200,7 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
           }
         >
           {orgs.status === 'loading' && orgs.items.length === 0 ? <LoadingRows rows={2} /> : null}
-          {orgs.error ? <ErrorState error={orgs.error} subject="Organizations" /> : null}
+          <LoadError of={orgs} subject="Organizations" />
           <Table label="Organizations">
             <thead>
               <tr>
@@ -269,7 +269,7 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
             </Gate>
           }
         >
-          {projects.error ? <ErrorState error={projects.error} subject="Projects" /> : null}
+          <LoadError of={projects} subject="Projects" />
           <Table label="Projects">
             <thead>
               <tr>

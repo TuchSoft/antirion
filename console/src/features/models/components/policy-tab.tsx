@@ -14,7 +14,7 @@ import { Gate, useCan } from '@/components/ui/gate';
 import { Panel, TileGrid } from '@/components/ui/layout';
 import { MenuButton } from '@/components/ui/menu';
 import { ProviderMark } from '@/components/ui/marks';
-import { ErrorState, LoadingRows } from '@/components/ui/states';
+import { LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api/client';
@@ -265,7 +265,7 @@ function CatalogPolicy({ views }: { views: ModelView[] }) {
       title="Catalog policy"
       subtitle="what applies to every model unless a narrower level sets it"
     >
-      {routing.error ? <ErrorState error={routing.error} subject="Routing settings" size="sm" /> : null}
+      <LoadError of={routing} subject="Routing settings" size="sm" />
       <dl>
         <PolicyRow
           label="Default models"
@@ -494,7 +494,7 @@ function TiersPanel() {
       }
     >
       {tiers.status === 'loading' && !tiers.data ? <LoadingRows rows={3} /> : null}
-      {tiers.error ? <ErrorState error={tiers.error} subject="Tiers" size="sm" /> : null}
+      <LoadError of={tiers} subject="Tiers" size="sm" />
       {tiers.data ? (
         <Table label="Tiers">
           <thead>
@@ -725,7 +725,7 @@ function HeadroomPanel({ views }: { views: ModelView[] }) {
       }
     >
       {!canStatus ? <p className="text-ui text-muted">Needs access to providers.</p> : null}
-      {status.error ? <ErrorState error={status.error} subject="Provider readings" size="sm" /> : null}
+      <LoadError of={status} subject="Provider readings" size="sm" />
       {canStatus && !status.data && !status.error ? <LoadingRows rows={3} /> : null}
       {status.data ? (
         <ul aria-label="Provider headroom" className="flex flex-col gap-3">

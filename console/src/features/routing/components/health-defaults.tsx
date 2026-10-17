@@ -11,7 +11,7 @@ import { useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
 import { Panel } from '@/components/ui/layout';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import type { DeploymentHealth } from '@/lib/api/types';
 import { formatCount, formatPercent, plural } from '@/lib/format';
 import { formatRelative } from '@/lib/time';
@@ -71,7 +71,7 @@ export function HealthPanel({
   const bindings = state?.[0]?.affinity_bindings ?? null;
   return (
     <Panel title="Health" subtitle="Deployments paused after errors, and load">
-      {health.error ? <ErrorState error={health.error} subject="Deployment health" size="sm" /> : null}
+      <LoadError of={health} subject="Deployment health" size="sm" />
       {!health.data && !health.error ? <LoadingRows rows={2} /> : null}
       {health.data ? (
         list.length === 0 ? (
@@ -321,7 +321,7 @@ export function DefaultsPanel() {
         ) : null
       }
     >
-      {d.policies.error ? <ErrorState error={d.policies.error} subject="Defaults" size="sm" /> : null}
+      <LoadError of={d.policies} subject="Defaults" size="sm" />
       {loading ? <LoadingRows rows={3} /> : null}
       {!loading ? (
         <div className="grid gap-5 sm:grid-cols-2">

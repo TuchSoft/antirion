@@ -9,7 +9,7 @@ import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
 import { Icon } from '@/components/ui/icon';
 import { MenuButton } from '@/components/ui/menu';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { runTest } from '@/features/alerts/components/channels-view';
 import { useAlertEditors } from '@/features/alerts/editors';
@@ -80,7 +80,7 @@ export function WebhooksSection() {
       }
     >
       <div className="flex flex-col gap-4">
-        {webhooks.error ? <ErrorState error={webhooks.error} subject="Webhooks" size="sm" /> : null}
+        <LoadError of={webhooks} subject="Webhooks" size="sm" />
         {!webhooks.data && !webhooks.error ? <LoadingRows rows={2} /> : null}
         {webhooks.data && entries.length === 0 ? (
           <EmptyState

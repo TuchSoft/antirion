@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 
 import { BarList, type ChartTone, Legend, TimeChart } from '@/components/ui/charts';
 import { Panel } from '@/components/ui/layout';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
+import { EmptyState, ErrorState, LoadError, LoadingRows } from '@/components/ui/states';
 import { formatMoney } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 
@@ -82,7 +82,7 @@ export function TeamBurn({ tree }: { tree: BudgetRow[] }) {
       title="Team burn"
       subtitle="The five teams projected to spend the most this month, from request costs"
     >
-      {daily.error ? <ErrorState error={daily.error} subject="Spend per team" size="sm" /> : null}
+      <LoadError of={daily} subject="Spend per team" size="sm" />
       {!daily.data && !daily.error ? <LoadingRows rows={3} /> : null}
       {chart?.length === 0 ? (
         <EmptyState size="sm" title="No team has spent anything this month yet" />

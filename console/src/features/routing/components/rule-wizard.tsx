@@ -9,7 +9,7 @@ import { Field } from '@/components/ui/form';
 import { Drawer } from '@/components/ui/overlay';
 import { ModelMark } from '@/components/ui/marks';
 import { Combobox, Select } from '@/components/ui/select';
-import { ErrorState, InlineError } from '@/components/ui/states';
+import { InlineError, LoadError } from '@/components/ui/states';
 import { isChangeControl } from '@/lib/api/client';
 import { cn } from '@/lib/cn';
 import { formatCount, plural } from '@/lib/format';
@@ -390,7 +390,7 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
               </p>
             </>
           )}
-          {simulation.error ? <ErrorState error={simulation.error} subject="The dry run" size="sm" /> : null}
+          <LoadError of={simulation} subject="The dry run" size="sm" />
           {simulation.data ? (
             <div className="flex flex-col gap-3 text-ui">
               <p className="text-fg">

@@ -14,11 +14,11 @@ import { UpdatedAt } from '@/components/ui/misc';
 import {
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
   UnavailableState,
+  isUnavailable,
 } from '@/components/ui/states';
 import { CountNote, ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
 import { type CsvColumn, exportCsv } from '@/lib/csv';
@@ -138,9 +138,7 @@ export function AgentsScreen() {
           ) : null}
           <div className="flex flex-col">
             {agents.status === 'loading' && !agents.data ? <LoadingRows rows={3} /> : null}
-            {agents.error ? (
-              <ErrorState error={agents.error} subject="Agents" onRetry={() => void load()} />
-            ) : null}
+            <LoadError of={agents} subject="Agents" onRetry={() => void load()} />
             {agents.data && all.length === 0 ? (
               <EmptyState
                 title="No agents yet"

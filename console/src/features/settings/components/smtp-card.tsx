@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/choice';
 import { Field, Input, NumberInput, Select } from '@/components/ui/form';
 import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
-import { ErrorState, InlineError, LoadingRows } from '@/components/ui/states';
+import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { describeError } from '@/lib/api/client';
 import type { FieldErrors } from '@/lib/validation';
 import { useSession } from '@/stores/session';
@@ -279,7 +279,7 @@ export function SmtpCard() {
   }, [load]);
   return (
     <Card title="Email server" description="How the gateway sends email.">
-      {smtp.error ? <ErrorState error={smtp.error} subject="Email server" size="sm" /> : null}
+      <LoadError of={smtp} subject="Email server" size="sm" />
       {!smtp.data && !smtp.error ? <LoadingRows rows={3} /> : null}
       {smtp.data ? <SmtpForm key={smtp.data.metadata.etag} spec={smtp.data.spec} /> : null}
     </Card>

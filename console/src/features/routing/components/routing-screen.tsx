@@ -22,10 +22,10 @@ import {
   Banner,
   EmptyAction,
   EmptyState,
-  ErrorState,
-  isUnavailable,
+  LoadError,
   LoadingRows,
   NoMatch,
+  isUnavailable,
 } from '@/components/ui/states';
 import { CountNote } from '@/components/ui/table';
 import { describeError, isChangeControl } from '@/lib/api/client';
@@ -591,7 +591,7 @@ export function RoutingScreen() {
         </Banner>
       ))}
       {routes.status === 'loading' && !routes.data ? <LoadingRows /> : null}
-      {routes.error ? <ErrorState error={routes.error} subject="Routes" onRetry={() => void load()} /> : null}
+      <LoadError of={routes} subject="Routes" onRetry={() => void load()} />
       {routes.data && !route ? (
         <EmptyState
           title="No routing rules yet"

@@ -8,7 +8,8 @@ import { buttonClass } from '@/components/ui/button';
 import { ChipToggle, Input } from '@/components/ui/form';
 import { Icon } from '@/components/ui/icon';
 import { ProviderMark } from '@/components/ui/marks';
-import { EmptyAction, EmptyState, ErrorState, LoadingRows, NoMatch } from '@/components/ui/states';
+import { EmptyAction, EmptyState, ErrorState, LoadError, LoadingRows, NoMatch } from '@/components/ui/states';
+import { loadFailure } from '@/lib/slot';
 import { Tooltip } from '@/components/ui/tooltip';
 import { formatCount } from '@/lib/format';
 import { encodeFilters } from '@/lib/url-filters';
@@ -187,7 +188,13 @@ export function RecentRequests({ providers, firstRun }: { providers: string[]; f
           </Link>
         </span>
       </div>
-      {logs.error ? (
+      <LoadError
+        of={logs.data ? logs : null}
+        subject="The request log"
+        size="sm"
+        onRetry={() => void loadLogs(query)}
+      />
+      {loadFailure(logs).failed ? (
         <ErrorState
           error={logs.error}
           subject="The request log"

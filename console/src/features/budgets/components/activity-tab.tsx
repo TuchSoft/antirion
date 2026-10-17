@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Gate } from '@/components/ui/gate';
 import { Panel } from '@/components/ui/layout';
-import { EmptyState, ErrorState } from '@/components/ui/states';
+import { EmptyState, LoadError } from '@/components/ui/states';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { BudgetCounter } from '@/lib/api/types';
 
@@ -99,9 +99,7 @@ export function ActivityTab() {
     <div className="grid grid-cols-1 gap-px border-b border-line bg-line xl:grid-cols-2">
       <div className="flex flex-col gap-px">
         <Panel title="Requests to go over a budget">
-          {overage.error ? (
-            <ErrorState error={overage.error} subject="Requests to go over a budget" size="sm" />
-          ) : null}
+          <LoadError of={overage} subject="Requests to go over a budget" size="sm" />
           {overage.data?.length === 0 ? <EmptyState size="sm" title="None waiting" /> : null}
           <ul className="flex flex-col gap-2">
             {(overage.data ?? []).map((o) => (
@@ -149,7 +147,7 @@ export function ActivityTab() {
         <Waivers />
       </div>
       <Panel title="Activity" subtitle="Newest first">
-        {events.error ? <ErrorState error={events.error} subject="Budget activity" size="sm" /> : null}
+        <LoadError of={events} subject="Budget activity" size="sm" />
         {events.data?.length === 0 ? <EmptyState size="sm" title="Nothing happened this period" /> : null}
         <ol className="flex flex-col">
           {(events.data ?? []).slice(0, 30).map((e, i) => (
