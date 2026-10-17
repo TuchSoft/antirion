@@ -26,10 +26,10 @@ import { formatDateTime } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
 
-import { providersApi, type ProviderStatus, type ProviderTestResult } from '../api';
+import { providersApi, type ProviderStatus } from '../api';
 import { AUTH_LABELS, type AuthMethod, specWithKey } from '../form';
 import { useProviders } from '../store';
-import { ageText, providerKeys, providerKeyStatus, rotation } from '../keys';
+import { ageText, type KeyTest, latestTest, providerKeyStatus, rotation } from '../keys';
 import { testFailure, testSummary } from '../test-result';
 import { AddProviderDrawer } from './add-provider-drawer';
 import { ProviderDrawer } from './provider-drawer';
@@ -53,10 +53,10 @@ function credentialTone(state: string | undefined): 'success' | 'error' | 'warn'
 }
 
 /** The key status cell's hint after a test in this session: when, and how it went. */
-function testNote(test: ProviderTestResult | undefined, timeZone: string): string | undefined {
+function testNote(test: KeyTest | null, timeZone: string): string | undefined {
   if (!test) return undefined;
   const at = formatDateTime(test.tested_at, timeZone);
-  return test.ok ? `Tested ${at}: ${testSummary(test)}` : `Tested ${at}: ${testFailure(test)}`;
+  return test.ok ? `Tested ${at}: it answered.` : `Tested ${at}: it failed. ${test.error ?? ''}`.trim();
 }
 
 function RotateDialog({
@@ -177,20 +177,18 @@ export function ProvidersScreen() {
   const providers = useProviders((s) => s.providers);
   const status = useProviders((s) => s.status);
   const deployments = useProviders((s) => s.deployments);
-  const health = useProviders((s) => s.health);
   const load = useProviders((s) => s.load);
   const tests = useProviders((s) => s.tests);
   const runTest = useProviders((s) => s.test);
   const timeZone = usePreferences((s) => s.timeZone);
-  /** "Working" needs evidence: a key that has answered, or a test; until then "Not tested yet". */
-  const keyStatus = (p: ProviderResource) => {
-    const st = status.data?.find((x) => x.name === p.name);
-    return providerKeyStatus(
-      st?.credential.state,
-      providerKeys(p, st, deployments.data, health.data),
+  /** From the latest test, stored by the gateway or run here; until one, "Not tested yet". */
+  const latest = (p: ProviderResource) =>
+    latestTest(
+      status.data?.find((x) => x.name === p.name),
       tests[p.name],
     );
-  };
+  const keyStatus = (p: ProviderResource) =>
+    providerKeyStatus(status.data?.find((x) => x.name === p.name)?.credential.state, latest(p));
   const setEnabled = useProviders((s) => s.setEnabled);
   const remove = useProviders((s) => s.remove);
   const canEdit = useCan('patchProvider');
@@ -368,7 +366,7 @@ export function ProvidersScreen() {
                         </Td>
                         <Td>
                           {st ? (
-                            <Tooltip content={testNote(tests[p.name], timeZone)}>
+                            <Tooltip content={testNote(latest(p), timeZone)}>
                               <span className="flex w-fit items-center gap-1.5">
                                 <Dot tone={credentialTone(keyStatus(p))} />
                                 <span className="max-sm:sr-only">

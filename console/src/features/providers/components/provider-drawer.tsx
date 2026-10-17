@@ -20,7 +20,10 @@ import { notify } from '@/stores/ui';
 
 import { providersApi, type ProviderStatus, type ProviderTestResult } from '../api';
 import {
+  baseUrlChanged,
+  connectionChanged,
   draftErrors,
+  editedSpec,
   fromProvider,
   keyTestSpec,
   mixedUpKeys,
@@ -34,7 +37,7 @@ import {
   toPatch,
   TYPE_BLOCKS,
 } from '../edit';
-import { AUTH_LABELS, type AuthMethod } from '../form';
+import { AUTH_LABELS, type AuthMethod, specWithKey } from '../form';
 import { testFailure, testSummary } from '../test-result';
 import { passed, TestConnection, type TestState } from './test-connection';
 import {
@@ -44,10 +47,9 @@ import {
   type ProviderKeyRow,
   type RateLimits,
   rotation,
-  withTest,
 } from '../keys';
 import { useProviders } from '../store';
-import { api, describeError, isChangeControl } from '@/lib/api/client';
+import { api, ApiError, describeError, isChangeControl } from '@/lib/api/client';
 import { collectLeaves } from '@/features/models/types';
 import { hasGatewayPermission, useSession } from '@/stores/session';
 
@@ -718,6 +720,11 @@ function ProviderEditor({
   const [newTests, setNewTests] = useState<Record<string, TestState>>({});
   const [testingKey, setTestingKey] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  // A test of changed connection settings, with a pasted key when the saved one can't be used.
+  const [settingsTest, setSettingsTest] = useState<TestState | null>(null);
+  const [testingSettings, setTestingSettings] = useState(false);
+  const [testKeyText, setTestKeyText] = useState('');
+  const [redactedRefused, setRedactedRefused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const edited = useEdited(draft, base.metadata.etag);
@@ -741,7 +748,7 @@ function ProviderEditor({
       ),
     [allKeyTests, provider.name],
   );
-  const rows = withTest(providerKeys(provider, status, deployments.data, health.data), test, keyTests);
+  const rows = providerKeys(provider, status, deployments.data, health.data, { test, keyTests });
   const age = rotation(provider, now);
   const errors = showErrors ? draftErrors(provider.spec.type, draft) : {};
   const keys = draft.keys ?? [];
@@ -749,6 +756,13 @@ function ProviderEditor({
   const multi = keys.length > 1 || !draft.single;
   const fingerprint = (k: KeyDraft) => JSON.stringify(keyTestSpec(provider, draft, k.secret));
   const untested = keys.filter((k) => k.saved === null && !passed(newTests[k.id] ?? null, fingerprint(k)));
+  const connChanged = connectionChanged(base, draft);
+  const urlChanged = baseUrlChanged(base, draft);
+  const signsInWithKey = draft.keys !== null;
+  const needKey = signsInWithKey && (urlChanged || redactedRefused);
+  const settingsSpec = needKey ? specWithKey(editedSpec(base, draft), testKeyText) : editedSpec(base, draft);
+  const settingsOf = JSON.stringify(settingsSpec);
+  const settingsPassed = !connChanged || passed(settingsTest, settingsOf);
   const defaultUrl = types?.find((t) => t.type === provider.spec.type)?.default_base_url;
 
   const setKey = (id: string, patch: Partial<KeyDraft>) =>
@@ -769,13 +783,28 @@ function ProviderEditor({
     }
   }
 
+  async function testSettings() {
+    setTestingSettings(true);
+    const of = settingsOf;
+    try {
+      const result = await providersApi.testSpec(provider.name, settingsSpec);
+      setSettingsTest({ of, result, error: null });
+    } catch (e) {
+      // The saved key can't be used for this test (change control): ask for one.
+      if (!needKey && e instanceof ApiError && e.status === 400 && signsInWithKey) setRedactedRefused(true);
+      setSettingsTest({ of, result: null, error: e });
+    } finally {
+      setTestingSettings(false);
+    }
+  }
+
   async function save() {
     const found = draftErrors(provider.spec.type, draft);
     if (Object.keys(found).length > 0) {
       setShowErrors(true);
       return;
     }
-    if (untested.length > 0) return;
+    if (untested.length > 0 || !settingsPassed) return;
     const patch = toPatch(base, draft);
     if (Object.keys(patch).length === 0) return;
     setBusy(true);
@@ -793,6 +822,9 @@ function ProviderEditor({
       setBase(saved);
       setDraft(fromProvider(saved));
       setNewTests({});
+      setSettingsTest(null);
+      setTestKeyText('');
+      setRedactedRefused(false);
       setShowErrors(false);
     } catch (e) {
       // A change request opened or offered instead: the shell says so.
@@ -806,7 +838,9 @@ function ProviderEditor({
     ? 'Nothing changed yet.'
     : untested.length > 0
       ? `Test the new key${untested.length === 1 ? '' : 's'} before you save.`
-      : undefined;
+      : !settingsPassed
+        ? 'Test the new settings before you save.'
+        : undefined;
 
   return (
     <Drawer
@@ -975,6 +1009,36 @@ function ProviderEditor({
             disabled={!canEdit}
             onChange={setSettings}
           />
+          {canEdit && connChanged ? (
+            <div className="flex flex-col gap-3 border-t border-line pt-3">
+              {needKey ? (
+                <>
+                  <p className="text-caption text-muted">
+                    {urlChanged
+                      ? 'The base URL changed, so the gateway won’t send the saved key to the new address. Paste a key to test with.'
+                      : 'This gateway tests changed settings only with a key you paste here, not the saved one.'}
+                  </p>
+                  <Field label="API key for the test" hint="Used for this test only. It isn’t saved.">
+                    <Input
+                      mono
+                      type="password"
+                      autoComplete="off"
+                      value={testKeyText}
+                      onChange={(e) => setTestKeyText(e.target.value)}
+                    />
+                  </Field>
+                </>
+              ) : null}
+              <TestConnection
+                test={settingsTest}
+                of={settingsOf}
+                busy={testingSettings}
+                disabled={needKey && testKeyText.trim() === ''}
+                label="Test these settings"
+                onTest={() => void testSettings()}
+              />
+            </div>
+          ) : null}
         </section>
         <DeploymentList provider={provider.name} />
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />

@@ -221,8 +221,8 @@ export function toPatch(p: ProviderResource, draft: ProviderDraft): Record<strin
   return patch;
 }
 
-/** What a new key's test sends: the provider as edited, with that key alone. */
-export function keyTestSpec(p: ProviderResource, draft: ProviderDraft, secret: string): ProviderSpec {
+/** The provider as edited, with its saved sign-in (secrets as the gateway shows them, `[REDACTED]`). */
+export function editedSpec(p: ProviderResource, draft: ProviderDraft): ProviderSpec {
   const settings = (() => {
     try {
       return settingsSpec(p.spec.type, p.spec, draft.settings);
@@ -233,7 +233,29 @@ export function keyTestSpec(p: ProviderResource, draft: ProviderDraft, secret: s
   const base = Object.fromEntries(
     Object.entries(p.spec).filter(([k]) => !(SETTINGS_KEYS as readonly string[]).includes(k)),
   );
-  return specWithKey({ ...(base as ProviderSpec), ...(settings as Partial<ProviderSpec>) }, secret);
+  return { ...(base as ProviderSpec), ...(settings as Partial<ProviderSpec>) };
+}
+
+/** What a key's test sends: the provider as edited, with that key alone. */
+export function keyTestSpec(p: ProviderResource, draft: ProviderDraft, secret: string): ProviderSpec {
+  return specWithKey(editedSpec(p, draft), secret);
+}
+
+/** The settings that change how the gateway reaches the provider (not the tier or the age warning). */
+const CONNECTION_KEYS = SETTINGS_KEYS.filter(
+  (k) => k !== 'account_tier' && k !== 'credential_rotation_max_age',
+);
+
+/** Whether the draft changes how the gateway reaches the provider: address, headers, parameters, type blocks. */
+export function connectionChanged(p: ProviderResource, draft: ProviderDraft): boolean {
+  const after = editedSpec(p, draft) as Record<string, unknown>;
+  const before = p.spec as Record<string, unknown>;
+  return CONNECTION_KEYS.some((k) => JSON.stringify(after[k]) !== JSON.stringify(before[k]));
+}
+
+/** Whether the base URL changed: the gateway then won't send a saved secret to the new address. */
+export function baseUrlChanged(p: ProviderResource, draft: ProviderDraft): boolean {
+  return draft.settings.baseUrl.trim() !== (p.spec.base_url ?? '');
 }
 
 /** The draft's errors, by field: `keys.<id>.name`, `keys.<id>.weight`, `keys.<id>.secret`, settings by name. */

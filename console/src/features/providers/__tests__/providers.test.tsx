@@ -10,7 +10,7 @@ import { pickOption, signInAs } from '@/test/utils';
 
 import { ProvidersScreen } from '../components/providers-screen';
 import { EMPTY_PROVIDER, providerSchema, suggestName, toProviderSpec } from '../form';
-import { keyState, providerKeyStatus, rotation } from '../keys';
+import { keyState, latestTest, providerKeyStatus, rotation } from '../keys';
 import { useProviderModels } from '../models';
 import { useProviders } from '../store';
 
@@ -362,18 +362,32 @@ describe('provider keys', () => {
     expect(keyState('c', ['d3'], health as never).state).toBe('untested');
   });
 
-  it('reads Working in the table only once a key has answered', () => {
-    const row = (state: 'working' | 'untested') => ({
-      name: 'k',
-      hint: undefined,
-      weight: null,
-      rotatedAt: null,
-      health: { state, reason: null, until: null },
-      readings: null,
+  it('reads the key status from the latest test, stored by the gateway or run here', () => {
+    const t = (ok: boolean, at: string) => ({
+      ok,
+      tested_at: `2026-10-17T${at}:00Z`,
+      error: ok ? null : 'refused',
+      method: 'list_models' as const,
     });
-    expect(providerKeyStatus('valid', [row('untested')])).toBe('untested');
-    expect(providerKeyStatus('valid', [row('working'), row('untested')])).toBe('valid');
-    expect(providerKeyStatus('failed', [row('working')])).toBe('failed');
+    expect(providerKeyStatus('valid', null)).toBe('untested');
+    expect(providerKeyStatus('valid', t(true, '10:00'))).toBe('valid');
+    expect(providerKeyStatus('valid', t(false, '10:00'))).toBe('failed');
+    expect(providerKeyStatus('failed', t(true, '10:00'))).toBe('failed');
+    expect(providerKeyStatus(undefined, null)).toBeUndefined();
+    const status = {
+      name: 'o',
+      type: 'openai',
+      tls_verify: true,
+      credential: {
+        method: 'api_key',
+        state: 'failed' as const,
+        last_test: { key: 'default', ...t(false, '10:00') },
+      },
+      tests: [{ key: 'default', ...t(false, '10:00') }],
+    };
+    expect(latestTest(status, undefined)?.ok).toBe(false);
+    expect(latestTest(status, t(true, '11:00'))?.ok).toBe(true);
+    expect(latestTest(status, t(true, '09:00'))?.ok).toBe(false);
   });
 });
 

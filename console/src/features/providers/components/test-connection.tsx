@@ -87,6 +87,12 @@ export function TestConnection({
               </dd>
               <dt className="text-muted">Test</dt>
               <dd className="text-fg">{TEST_METHOD[result.method]}</dd>
+              {result.upstream_request_id ? (
+                <>
+                  <dt className="text-muted">Provider’s request ID</dt>
+                  <dd className="mono break-all text-fg">{result.upstream_request_id}</dd>
+                </>
+              ) : null}
               {result.error ? (
                 <>
                   <dt className="text-muted">Message</dt>
