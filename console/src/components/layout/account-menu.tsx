@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { Icon, type IconName } from '@/components/ui/icon';
+import { API_BASE } from '@/lib/api/client';
 import { Avatar } from '@/components/ui/misc';
 import { menuKeyHandler, Popover } from '@/components/ui/overlay';
 import { capitalize } from '@/lib/format';
@@ -45,7 +46,7 @@ function sessionLeft(seconds: number): string {
 }
 
 /** The avatar menu: who is signed in, the session's remaining time, account sections, the gateway's
- * settings and sign out. The theme lives in Preferences and the top bar's toggle. */
+ * settings, the Admin API reference and sign out. The theme lives in Preferences and the top bar's toggle. */
 export function AccountMenu() {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -152,6 +153,23 @@ export function AccountMenu() {
               Gateway settings
             </button>
           ) : null}
+          {/* The contract of every admin call, for scripts and integrations; the session cookie reads it. */}
+          <a
+            role="menuitem"
+            href={`${API_BASE}/openapi.json`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left text-ui text-fg hover:bg-hover focus:bg-hover"
+          >
+            <span className="text-muted">
+              <Icon name="book" size={16} />
+            </span>
+            Admin API reference
+            <span className="ml-auto text-dim">
+              <Icon name="external" size={14} />
+            </span>
+          </a>
           <button
             type="button"
             role="menuitem"
