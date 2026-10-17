@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Checkbox, Combobox, Field, Input, Select } from '@/components/ui/form';
 import { CancelButton, Dialog, Drawer } from '@/components/ui/overlay';
 import { InlineError } from '@/components/ui/states';
-import type { TeamResource, TeamSpec, UserResource, UserSpec } from '@/lib/api/types';
-import { money, resourceName, serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
+import type { TeamResource, UserResource, UserSpec } from '@/lib/api/types';
+import { resourceName, serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
 
 import { useDirectory, useOrganizations, useProjects, useTeams, useUsers } from '../store';
+import { TEAM_COLORS, teamSchema, teamValues, type TeamValues, toTeamSpec } from '../form';
 import { ROLE_DESCRIPTIONS, roleLabel } from '../types';
 import { useEdited } from '@/lib/hooks';
 
@@ -225,23 +226,6 @@ export function UserFormDrawer({
   );
 }
 
-const teamSchema = z.object({
-  name: resourceName,
-  displayName: z.string().trim().max(200, 'At most 200 characters'),
-  organization: resourceName,
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'A colour like #3366ff'),
-  lead: z.string(),
-  budget: z
-    .string()
-    .trim()
-    .refine((v) => v === '' || money.safeParse(v).success, 'A monthly amount in USD, or empty'),
-  mode: z.enum(['soft', 'hard']),
-});
-
-type TeamValues = z.input<typeof teamSchema>;
-
-const COLORS = ['#3e72cb', '#2f9e6f', '#c9891a', '#cb3e3e', '#8b5cf6', '#0ea5a4', '#d97757', '#64748b'];
-
 /** Creates or edits a team: display name, colour, lead, organization and a monthly budget. */
 export function TeamFormDrawer({
   editing,
@@ -256,19 +240,7 @@ export function TeamFormDrawer({
   const users = useUsers((s) => s.items);
   const create = useTeams((s) => s.create);
   const update = useTeams((s) => s.update);
-  const monthly = (
-    editing?.spec.policies?.budgets as
-      Record<string, { amount?: string | number; mode?: string } | undefined> | undefined
-  )?.monthly;
-  const [values, setValues] = useState<TeamValues>(() => ({
-    name: editing?.name ?? '',
-    displayName: editing?.spec.display_name ?? '',
-    organization: editing?.spec.organization ?? orgs[0]?.name ?? 'default',
-    color: editing?.spec.color ?? COLORS[0] ?? '#3e72cb',
-    lead: editing?.spec.lead ?? '',
-    budget: monthly?.amount !== undefined ? String(monthly.amount) : '',
-    mode: monthly?.mode === 'hard' ? 'hard' : 'soft',
-  }));
+  const [values, setValues] = useState<TeamValues>(() => teamValues(editing, orgs[0]?.name ?? 'default'));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -286,28 +258,7 @@ export function TeamFormDrawer({
     setBusy(true);
     setError(null);
     const v = result.data;
-    const budgets = { ...((editing?.spec.policies?.budgets ?? {}) as Record<string, unknown>) };
-    if (v.budget)
-      budgets.monthly = {
-        unit: 'usd',
-        amount: v.budget,
-        period: 'monthly',
-        mode: v.mode,
-        alert_at: [0.5, 0.8, 1],
-      };
-    else delete budgets.monthly;
-    const policies = { ...(editing?.spec.policies ?? {}), budgets } as TeamSpec['policies'];
-    const spec: TeamSpec = {
-      ...(editing?.spec ?? {}),
-      organization: v.organization,
-      color: v.color,
-      ...(v.displayName ? { display_name: v.displayName } : {}),
-      ...(v.lead ? { lead: v.lead } : {}),
-      ...(Object.keys(budgets).length > 0 ? { policies } : {}),
-    };
-    if (!v.displayName) delete spec.display_name;
-    if (!v.lead) delete spec.lead;
-    if (Object.keys(budgets).length === 0 && spec.policies) delete spec.policies.budgets;
+    const spec = toTeamSpec(v, editing?.spec);
     try {
       if (editing) await update(editing.name, spec);
       else await create({ name: v.name, spec });
@@ -386,7 +337,7 @@ export function TeamFormDrawer({
         <fieldset>
           <legend className="mb-2 text-ui font-medium text-fg">Colour</legend>
           <div className="flex gap-2" role="radiogroup" aria-label="Team colour">
-            {COLORS.map((c) => (
+            {TEAM_COLORS.map((c) => (
               <button
                 key={c}
                 type="button"
@@ -404,7 +355,7 @@ export function TeamFormDrawer({
         </fieldset>
         <div className="grid grid-cols-2 gap-4">
           <Field
-            label="Monthly budget (USD)"
+            label={`Monthly budget (${values.budgetUnit === 'tokens' ? 'tokens' : 'USD'})`}
             optional
             error={errors.budget}
             hint="Leave blank for no team budget."
@@ -419,10 +370,11 @@ export function TeamFormDrawer({
           <Field label="When the budget is reached">
             <Select
               value={values.mode}
-              onChange={(v) => set('mode', v === 'hard' ? 'hard' : 'soft')}
+              onChange={(v) => set('mode', v === 'hard' ? 'hard' : v === 'kept' ? 'kept' : 'soft')}
               options={[
                 { value: 'soft', label: 'Alert only' },
                 { value: 'hard', label: 'Hard block · requests refused with 402' },
+                ...(values.mode === 'kept' ? [{ value: 'kept', label: 'As set on the Budgets page' }] : []),
               ]}
             />
           </Field>
