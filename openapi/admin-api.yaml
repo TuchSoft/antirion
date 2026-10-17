@@ -21185,6 +21185,23 @@ components:
                 - name
             - type: 'null'
           description: The signed-in user.
+        token_policy:
+          type: object
+          description: The lifetimes a personal admin token may have (`auth.admin.personal_tokens`), so a client offers only
+            what `POST /auth/me/tokens` accepts.
+          properties:
+            max_lifetime:
+              $ref: '#/components/schemas/Duration'
+              description: The longest lifetime; `expires_at` must be within it of now.
+            default_lifetime:
+              description: The lifetime to offer by default; `null` when the gateway sets none and the client chooses
+                one within `max_lifetime`.
+              oneOf:
+                - $ref: '#/components/schemas/Duration'
+                - type: 'null'
+          required:
+            - max_lifetime
+            - default_lifetime
       required:
         - principal
         - bindings

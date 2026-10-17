@@ -126,7 +126,23 @@ fn me_doc(snap: &Snapshot, principal: &AdminPrincipal, session: Option<&Session>
     let session = session.map(|s| {
         json!({"idle_expires_at": s.idle_expires_at.to_rfc3339_seconds(), "expires_at": s.expires_at.to_rfc3339_seconds()})
     });
-    json!({"principal": p, "bindings": bindings, "permissions": permissions, "session": session})
+    json!({
+        "principal": p,
+        "bindings": bindings,
+        "permissions": permissions,
+        "session": session,
+        "token_policy": token_policy(snap),
+    })
+}
+
+/// The lifetimes a personal admin token may have: the limit `POST /auth/me/tokens` enforces, and
+/// the lifetime to offer when the caller picks none (the gateway sets none, so the console chooses).
+fn token_policy(snap: &Snapshot) -> Value {
+    let console = &snap.identity.console;
+    json!({
+        "max_lifetime": antirion_config::scalar::format_duration(console.personal_max_lifetime),
+        "default_lifetime": Value::Null,
+    })
 }
 
 fn json_response(status: StatusCode, body: &Value) -> Response {

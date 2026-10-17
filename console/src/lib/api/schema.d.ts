@@ -5401,6 +5401,10 @@ export interface components {
                 primary_team?: string | null;
                 mfa_methods?: string[];
             } | null;
+            token_policy?: {
+                max_lifetime: components["schemas"]["Duration"];
+                default_lifetime: components["schemas"]["Duration"] | null;
+            };
         };
         MergePatch: {
             spec: Record<string, unknown>;
