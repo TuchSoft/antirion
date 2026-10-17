@@ -3,6 +3,8 @@
 //! - `policy`: forbidden patterns (open-work markers) in the repository's own text (`ci/policy.txt`).
 //! - `layers`: every crate depends only on crates of a lower layer.
 //! - `lints`: every crate inherits the workspace lints; request-path crates deny panics.
+//! - `catalog [--from <file>] [--url <url>]`: refreshes the bundled models.dev snapshot
+//!   (`crates/antirion-catalog/catalog/models-dev.json`) from models.dev, or from a downloaded copy.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,7 +29,10 @@ fn main() -> ExitCode {
         "policy" => policy(),
         "layers" => layers(),
         "lints" => lints(),
-        _ => Err(anyhow::anyhow!("usage: cargo xtask <policy|layers|lints>")),
+        "catalog" => catalog(std::env::args().skip(2).collect()),
+        _ => Err(anyhow::anyhow!(
+            "usage: cargo xtask <policy|layers|lints|catalog [--from <file>] [--url <url>]>"
+        )),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -239,6 +244,49 @@ fn lints() -> anyhow::Result<()> {
     } else {
         bail!("{}", problems.join("\n"))
     }
+}
+
+/// The bundled models.dev snapshot, from the repository root.
+const SNAPSHOT: &str = "crates/antirion-catalog/catalog/models-dev.json";
+
+/// Downloads models.dev's API document (with `curl`) or reads a downloaded copy, trims it to the
+/// provider types the gateway implements and writes the bundled snapshot, dated today (UTC).
+fn catalog(args: Vec<String>) -> anyhow::Result<()> {
+    let mut from = None;
+    let mut url = antirion_catalog::modelsdev::SOURCE_URL.to_owned();
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--from" => from = Some(it.next().context("--from needs a file")?),
+            "--url" => url = it.next().context("--url needs a URL")?,
+            other => bail!("unknown argument {other}"),
+        }
+    }
+    let text = match from {
+        Some(file) => std::fs::read_to_string(&file).with_context(|| format!("cannot read {file}"))?,
+        None => {
+            let out = Command::new("curl")
+                .args(["-fsSL", "--max-time", "60", &url])
+                .output()
+                .context("cannot run curl")?;
+            if !out.status.success() {
+                bail!("curl {url} failed: {}", String::from_utf8_lossy(&out.stderr));
+            }
+            String::from_utf8(out.stdout).context("the answer is not UTF-8")?
+        }
+    };
+    let api: serde_json::Value = serde_json::from_str(&text).context("the document is not JSON")?;
+    let date = jiff::Timestamp::now().strftime("%Y-%m-%d").to_string();
+    let data = antirion_catalog::modelsdev::ModelsDev::from_api(&api, &date)?;
+    let snapshot = data.to_snapshot();
+    let path = root().join(SNAPSHOT);
+    std::fs::write(&path, &snapshot).with_context(|| format!("cannot write {}", path.display()))?;
+    println!(
+        "{SNAPSHOT}: {} models, {} bytes, dated {date}",
+        data.len(),
+        snapshot.len()
+    );
+    Ok(())
 }
 
 /// Just enough manifest reading for the lint check: whether `[lints]` has `workspace = true`.

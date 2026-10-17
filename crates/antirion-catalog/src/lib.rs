@@ -1,13 +1,19 @@
 //! The model catalog: capability values, time-to-first-token hints and prices per model pattern,
-//! from the bundled files and the document's `catalog` block, which extends or replaces them.
+//! from the bundled files and the document's `catalog` block, which extends or replaces them. Below
+//! both, models.dev's data ([`modelsdev`]) gives the prices of the models they do not price, and the
+//! metadata (name, limits, modalities) of each provider type's models.
 
 #![forbid(unsafe_code)]
+
+pub mod modelsdev;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use serde_json::{Map, Value};
+
+use crate::modelsdev::{ModelInfo, ModelPrice, ModelsDev};
 
 /// The bundled prices, `{version, models: {pattern: price}}`.
 pub const BUNDLED_PRICES: &str = include_str!("../catalog/prices.json");
@@ -118,6 +124,9 @@ pub struct Catalog {
     prefixes: Vec<String>,
     pub bundled: Bundled,
     pub runtime: Option<Runtime>,
+    /// models.dev's data, the lowest layer; none when the document's catalog replaces the bundled
+    /// one.
+    extra: Option<Arc<ModelsDev>>,
 }
 
 fn version_of(v: &Value) -> String {
@@ -201,7 +210,101 @@ impl Catalog {
                 version: b.get("version").and_then(Value::as_str).map(str::to_owned),
                 entries: own.map_or(0, Map::len),
             }),
+            extra: (mode == Mode::Extend).then(modelsdev::current),
         }
+    }
+
+    /// The same catalog over another copy of models.dev's data.
+    #[must_use]
+    pub fn with_models_dev(mut self, data: Option<Arc<ModelsDev>>) -> Catalog {
+        if self.extra.is_some() {
+            self.extra = data;
+        }
+        self
+    }
+
+    /// The date of the models.dev data the catalog reads, when it reads any.
+    #[must_use]
+    pub fn models_dev_date(&self) -> Option<&str> {
+        self.extra.as_deref().map(|m| m.date.as_str())
+    }
+
+    /// The price of `base_model` on a `provider_type` provider: the price of the entry
+    /// [`Catalog::lookup`] finds, else models.dev's list price for `<type>/<model>`.
+    #[must_use]
+    pub fn price_of(&self, provider_type: &str, base_model: &str) -> Option<Value> {
+        if let Some(p) = self
+            .lookup(provider_type, base_model)
+            .and_then(|(e, _)| e.price.clone())
+        {
+            return Some(p);
+        }
+        self.extra
+            .as_deref()?
+            .get(provider_type, base_model)?
+            .price
+            .as_ref()
+            .map(ModelPrice::to_catalog_price)
+    }
+
+    /// What the catalog knows of the model `id` of a `provider_type` provider: models.dev's
+    /// metadata (for a generic type, the same id under any type), with the price of an entry of the
+    /// bundled prices or the document in place of models.dev's. `None` when nothing knows it.
+    #[must_use]
+    pub fn model_info(&self, provider_type: &str, id: &str, generic: bool) -> Option<ModelInfo> {
+        let extra = self.extra.as_deref().and_then(|m| {
+            m.get(provider_type, id)
+                .or_else(|| generic.then(|| m.get_any(id)).flatten())
+        });
+        let entry = if generic {
+            self.lookup_any_type(provider_type, id)
+        } else {
+            self.lookup(provider_type, id)
+        }
+        .map(|(e, _)| e);
+        let own_price = entry
+            .and_then(|e| e.price.as_ref())
+            .and_then(ModelPrice::from_catalog_price);
+        let mut info = match (extra, entry) {
+            (Some(m), _) => m.clone(),
+            (None, Some(e)) => ModelInfo {
+                id: id.to_owned(),
+                context_window: e.capabilities.get("context_window").and_then(Value::as_u64),
+                max_output_tokens: e.capabilities.get("max_output_tokens").and_then(Value::as_u64),
+                ..ModelInfo::default()
+            },
+            (None, None) => return None,
+        };
+        info.id = id.to_owned();
+        if own_price.is_some() {
+            info.price = own_price;
+        }
+        Some(info)
+    }
+
+    /// The models the catalog knows for a `provider_type` provider, by id: models.dev's for the
+    /// type and the entries named `<type>/<model>` (without a `*`), each as
+    /// [`Catalog::model_info`] reads it.
+    #[must_use]
+    pub fn models_of_type(&self, provider_type: &str) -> Vec<ModelInfo> {
+        let mut ids: std::collections::BTreeSet<String> = self
+            .extra
+            .as_deref()
+            .into_iter()
+            .flat_map(|m| m.models(provider_type))
+            .map(|m| m.id.clone())
+            .collect();
+        let prefix = format!("{provider_type}/");
+        ids.extend(
+            self.entries
+                .keys()
+                .filter_map(|k| k.strip_prefix(&prefix))
+                .filter(|m| !m.ends_with('*'))
+                .map(str::to_owned),
+        );
+        ids.iter()
+            .filter_map(|id| self.model_info(provider_type, id, false))
+            .collect()
     }
 
     /// The entry of a deployment of a `provider_type` provider serving `base_model`: the exact
@@ -368,5 +471,122 @@ mod tests {
         );
         assert_eq!(window(true, "own"), Some(json!(2)), "the type's own entry first");
         assert_eq!(window(true, "unknown"), None);
+    }
+
+    fn models_dev() -> Option<Arc<ModelsDev>> {
+        let api = json!({
+            "openai": {"models": {
+                "gpt-4o": {"id": "gpt-4o", "name": "GPT-4o", "limit": {"context": 128000, "output": 16384},
+                           "cost": {"input": 9, "output": 9}},
+                "gpt-4o-mini": {"id": "gpt-4o-mini", "name": "GPT-4o mini", "cost": {"input": 0.15, "output": 0.6}},
+                "gpt-new": {"id": "gpt-new", "name": "GPT New", "cost": {"input": 1, "output": 2, "cache_read": 0.1}},
+                "acme-1": {"id": "acme-1", "cost": {"input": 7, "output": 7}}
+            }},
+            "anthropic": {"models": {"claude-z": {"id": "claude-z", "name": "Claude Z",
+                "modalities": {"input": ["text", "image"], "output": ["text"]},
+                "cost": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}}}}
+        });
+        Some(Arc::new(ModelsDev::from_api(&api, "2026-10-17").unwrap()))
+    }
+
+    fn input_price(c: &Catalog, t: &str, m: &str) -> Option<String> {
+        c.price_of(t, m)
+            .and_then(|p| p.get("input").and_then(Value::as_str).map(str::to_owned))
+    }
+
+    #[test]
+    fn models_dev_fills_in_what_the_bundled_prices_and_the_document_do_not_price() {
+        let doc = json!({"catalog": {"models": {
+            "openai/gpt-4o-mini": {"price": {"input": "0.99", "output": "1.99"}},
+            "openai/acme-*": {"price": {"input": "5.00", "output": "5.00"}},
+            "openai/caps-only": {"capabilities": {"context_window": 4096}},
+        }}});
+        let c = Catalog::from_doc(&doc).with_models_dev(models_dev());
+        assert_eq!(c.models_dev_date(), Some("2026-10-17"));
+        assert_eq!(
+            input_price(&c, "openai", "gpt-4o").as_deref(),
+            Some("2.50"),
+            "the bundled price before models.dev's"
+        );
+        assert_eq!(
+            input_price(&c, "openai", "gpt-4o-mini").as_deref(),
+            Some("0.99"),
+            "the document's entry first"
+        );
+        assert_eq!(
+            input_price(&c, "openai", "acme-1").as_deref(),
+            Some("5.00"),
+            "a document prefix before a models.dev exact id"
+        );
+        assert_eq!(input_price(&c, "openai", "gpt-new").as_deref(), Some("1"));
+        let claude = c.price_of("anthropic", "claude-z").unwrap();
+        assert_eq!(claude["cache_write_5m"], json!("3.75"));
+        assert!(c.price_of("openai", "unknown").is_none());
+        assert!(
+            c.price_of("anthropic", "gpt-new").is_none(),
+            "prices keep the type's own lookup"
+        );
+
+        let info = c.model_info("openai", "gpt-4o", false).unwrap();
+        assert_eq!(
+            (info.name.as_deref(), info.context_window),
+            (Some("GPT-4o"), Some(128_000))
+        );
+        assert_eq!(
+            info.price.unwrap().input,
+            "2.50",
+            "metadata from models.dev, the price from the bundled prices"
+        );
+        let caps = c.model_info("openai", "caps-only", false).unwrap();
+        assert_eq!((caps.context_window, caps.price), (Some(4096), None));
+        assert!(c.model_info("openai", "nothing", false).is_none());
+        assert!(c.model_info("openai_compatible", "claude-z", false).is_none());
+        assert_eq!(
+            c.model_info("openai_compatible", "claude-z", true)
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("Claude Z"),
+            "a generic type reads the id under any type"
+        );
+
+        let ids: Vec<String> = c.models_of_type("openai").into_iter().map(|m| m.id).collect();
+        assert_eq!(
+            ids,
+            [
+                "acme-1",
+                "caps-only",
+                "gpt-4.1",
+                "gpt-4.1-mini",
+                "gpt-4.1-nano",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "gpt-5",
+                "gpt-5-mini",
+                "gpt-5-nano",
+                "gpt-new",
+                "o3",
+                "o4-mini",
+                "text-embedding-3-large",
+                "text-embedding-3-small"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_replacing_document_drops_models_dev_too() {
+        let c = Catalog::from_doc(&json!({"catalog": {"mode": "replace", "models": {}}}))
+            .with_models_dev(models_dev());
+        assert!(c.models_dev_date().is_none());
+        assert!(c.price_of("openai", "gpt-new").is_none());
+        assert!(c.models_of_type("openai").is_empty());
+    }
+
+    #[test]
+    fn the_bundled_models_dev_snapshot_prices_models_the_bundled_prices_lack() {
+        let c = Catalog::bundled();
+        assert!(c.models_dev_date().is_some());
+        assert!(c.price_of("anthropic", "claude-sonnet-4-5").is_some());
+        assert!(c.models_of_type("gemini").len() > 5);
     }
 }

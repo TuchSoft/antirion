@@ -9,7 +9,7 @@ use crate::price::Price;
 use crate::settings::PricingSettings;
 
 /// The prices of a model catalog, looked up like its capability values: `"<provider_type>/<model>"`,
-/// then `"<model>"`, then the longest `*` prefix.
+/// then `"<model>"`, then the longest `*` prefix; then models.dev's list price of the model.
 #[derive(Clone, Debug)]
 pub struct PriceCatalog {
     catalog: Catalog,
@@ -39,8 +39,7 @@ impl PriceCatalog {
     }
 
     fn lookup(&self, provider_type: &str, model: &str) -> Option<Price> {
-        let (entry, _) = self.catalog.lookup(provider_type, model)?;
-        Price::parse(entry.price.as_ref()?).ok()
+        Price::parse(&self.catalog.price_of(provider_type, model)?).ok()
     }
 }
 

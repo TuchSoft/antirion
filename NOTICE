@@ -2,3 +2,8 @@ Antirion
 Copyright 2026 Elias Biondo
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product bundles model metadata and list prices from models.dev
+(https://models.dev), Copyright (c) 2025 models.dev, under the MIT License. The
+data and its licence text are in crates/antirion-catalog/catalog/ (models-dev.json
+and THIRD-PARTY-NOTICES.md).
