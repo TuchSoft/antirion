@@ -16,6 +16,8 @@ pub struct Responses {
     /// `message_start` with `content_block_start`, 40 deltas, then the closing events in one frame.
     pub messages_stream: Vec<Bytes>,
     pub embeddings: Bytes,
+    /// The model list, in a shape both OpenAI's and Anthropic's `GET /v1/models` readers accept.
+    pub models: Bytes,
     pub mcp_tool_text: String,
 }
 
@@ -163,6 +165,22 @@ fn embeddings() -> Bytes {
     Bytes::from(out)
 }
 
+/// The models the mock answers for (it answers any model id the same way).
+const MODELS: [(&str, &str); 2] = [("mock-chat", "Mock chat"), ("mock-embed", "Mock embeddings")];
+
+fn models() -> Bytes {
+    let data: Vec<Value> = MODELS
+        .iter()
+        .map(|(id, name)| {
+            json!({"id": id, "object": "model", "created": CREATED, "owned_by": "mock",
+                   "type": "model", "display_name": name, "created_at": "2026-09-21T00:00:00Z"})
+        })
+        .collect();
+    let body = json!({"object": "list", "data": data, "has_more": false,
+                      "first_id": "mock-chat", "last_id": "mock-embed"});
+    Bytes::from(body.to_string())
+}
+
 impl Responses {
     #[must_use]
     pub fn build() -> Self {
@@ -173,6 +191,7 @@ impl Responses {
             messages: messages(1024),
             messages_stream: messages_stream(),
             embeddings: embeddings(),
+            models: models(),
             mcp_tool_text: text(1024, 5),
         }
     }
@@ -196,6 +215,15 @@ mod tests {
         assert_eq!(v["data"][15]["embedding"].as_array().unwrap().len(), 1536);
         let content = r.chat_stream.get(1).unwrap().len();
         assert!((150..260).contains(&content), "{content} B");
+    }
+
+    #[test]
+    fn the_model_list_reads_as_openai_and_anthropic() {
+        let v: Value = serde_json::from_slice(&Responses::build().models).unwrap();
+        assert_eq!(v["data"][0]["id"], "mock-chat");
+        assert_eq!(v["object"], "list");
+        assert_eq!(v["has_more"], false);
+        assert_eq!(v["data"][1]["display_name"], "Mock embeddings");
     }
 
     #[test]

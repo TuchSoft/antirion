@@ -171,6 +171,7 @@ async fn handle(req: Request<Incoming>, state: Arc<State>) -> Result<Response<Bo
         (Method::POST, "/v1/chat/completions") => json_response(r.chat_small.clone()),
         (Method::POST, "/v1/messages") => json_response(r.messages.clone()),
         (Method::POST, "/v1/embeddings") => json_response(r.embeddings.clone()),
+        (Method::GET, "/v1/models") => json_response(r.models.clone()),
         (Method::POST, "/mcp") => mcp(&body, &headers, &state),
         (Method::DELETE, "/mcp") => respond(StatusCode::OK, "text/plain", empty()),
         (Method::GET, "/mcp") => respond(StatusCode::METHOD_NOT_ALLOWED, "text/plain", empty()),
