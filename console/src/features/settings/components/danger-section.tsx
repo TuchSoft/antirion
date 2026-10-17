@@ -22,6 +22,7 @@ import { notify } from '@/stores/ui';
 
 import { settingsApi } from '../api';
 import { type DualAction, heldActionLabel, useDanger } from '../danger-store';
+import { ChangeControlCard } from './change-control-card';
 import { MaintenanceCard } from './maintenance-card';
 import { Card, SaveBar } from './parts';
 
@@ -722,6 +723,7 @@ export function DangerSection() {
       <RotateCard />
       <OrganizationCard />
       <TwoPersonCard />
+      <ChangeControlCard />
       <MaintenanceCard />
       {pending.error ? null : (
         <p className="text-caption text-muted">
