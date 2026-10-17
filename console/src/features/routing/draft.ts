@@ -89,6 +89,15 @@ export interface RuleDraft {
     onError: 'strong' | 'weak' | 'reject';
   };
   sticky: { kind: StickyKind; name: string };
+  /** A provider's model, addressed without a deployment. */
+  providerModel: { provider: string; upstreamModel: string };
+  /** Another shared route this one hands the request to. */
+  routeRef: string;
+  /**
+   * Request parameters the target sets (a JSON object, as text) and removes (dot paths), applied
+   * to every request it serves.
+   */
+  params: { set: string; remove: string[] };
   /** Per-rule resilience; empty strings keep the defaults. */
   limits: { attempt: string; deadline: string; maxAttempts: string };
   triggers: Record<TriggerClass, boolean>;
@@ -152,6 +161,9 @@ export function blankDraft(): RuleDraft {
       onError: 'strong',
     },
     sticky: { kind: '', name: '' },
+    providerModel: { provider: '', upstreamModel: '' },
+    routeRef: '',
+    params: { set: '', remove: [] },
     limits: { attempt: '', deadline: '', maxAttempts: '' },
     triggers: { ...DEFAULT_TRIGGERS },
     hedging: blankHedging(),
@@ -259,6 +271,45 @@ function costQualityOf(
   };
 }
 
+/** A node's request parameters as the wizard edits them. */
+function paramsOf(node: Json): RuleDraft['params'] {
+  const p = isRecord(node) && isRecord(node.params) ? node.params : {};
+  return {
+    set: isRecord(p.set) && Object.keys(p.set).length > 0 ? JSON.stringify(p.set, null, 2) : '',
+    remove: Array.isArray(p.remove) ? p.remove.filter((x): x is string => typeof x === 'string') : [],
+  };
+}
+
+/** The `params` to write, or undefined for none; an unreadable `set` is left out (validation says so). */
+export function paramsTo(draft: RuleDraft): Record<string, Json> | undefined {
+  let set: Json;
+  try {
+    set = draft.params.set.trim() ? (JSON.parse(draft.params.set) as Json) : undefined;
+  } catch {
+    set = undefined;
+  }
+  const out: Record<string, Json> = {
+    ...(isRecord(set) && Object.keys(set).length > 0 ? { set } : {}),
+    ...(draft.params.remove.length > 0 ? { remove: draft.params.remove } : {}),
+  };
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Errors of the request parameters: `set` must be a JSON object, `remove` dot paths. */
+export function paramsErrors(draft: RuleDraft): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (draft.params.set.trim()) {
+    try {
+      if (!isRecord(JSON.parse(draft.params.set) as Json)) throw new Error('not an object');
+    } catch {
+      out['params.set'] = 'A JSON object, such as {"temperature": 0.2}';
+    }
+  }
+  const bad = draft.params.remove.find((p) => !/^[^.\s][^\s]*$/.test(p));
+  if (bad !== undefined) out['params.remove'] = `“${bad}” isn’t a dot path, such as metadata.trace`;
+  return out;
+}
+
 /** Whether the wizard can show a rule's condition; a rule it can't keeps its condition as written. */
 export function conditionEditable(rule: Rule | null): boolean {
   return rule === null || conditionsFrom(rule.when) !== null;
@@ -316,6 +367,12 @@ export function draftFrom(rule: Rule | null): RuleDraft {
     pool: strategy === 'pool' ? poolOf(target) : blank.pool,
     costQuality: strategy === 'cost_quality' ? costQualityOf(target, blank.costQuality) : blank.costQuality,
     sticky: stickyOf(node),
+    providerModel: {
+      provider: typeof target.provider === 'string' ? target.provider : '',
+      upstreamModel: typeof target.upstream_model === 'string' ? target.upstream_model : '',
+    },
+    routeRef: typeof target.route === 'string' ? target.route : '',
+    params: paramsOf(node),
     limits: limitsOf(node),
     hedging: hedgingFrom(resilienceOf(node).hedging),
     predicates: predicatesFrom(
@@ -404,6 +461,10 @@ const MANAGED = new Set([
   'strong_fraction',
   'scorer',
   'on_error',
+  'params',
+  'provider',
+  'upstream_model',
+  'route',
 ]);
 
 function kept(draft: RuleDraft): Record<string, Json> {
@@ -480,14 +541,19 @@ export function toTarget(draft: RuleDraft): Json {
     const policies = policiesOf(draft);
     if (policies) o.policies = policies;
     else delete o.policies;
+    const params = paramsTo(draft);
+    if (params) o.params = params;
+    else delete o.params;
     return o;
   }
   const t = draft.targets.filter((x) => x.deployment);
   const extra = kept(draft);
   const policies = draft.strategy === 'block' ? undefined : policiesOf(draft);
+  const params = draft.strategy === 'block' ? undefined : paramsTo(draft);
   const withPolicies = (node: Record<string, Json>): Json => ({
     ...extra,
     ...node,
+    ...(params ? { params } : {}),
     ...(policies ? { policies } : {}),
   });
   const sticky = stickyBy(draft);
@@ -495,7 +561,8 @@ export function toTarget(draft: RuleDraft): Json {
     case 'single': {
       const first = t[0];
       if (!first) return '';
-      if (!policies && !first.role.trim() && Object.keys(extra).length === 0) return first.deployment;
+      if (!policies && !params && !first.role.trim() && Object.keys(extra).length === 0)
+        return first.deployment;
       return withPolicies({
         ...(first.role.trim() ? { id: first.role.trim() } : {}),
         type: 'deployment',
@@ -627,6 +694,17 @@ export function toTarget(draft: RuleDraft): Json {
         ...(c.onError !== 'strong' ? { on_error: c.onError } : {}),
       });
     }
+    case 'provider_model':
+      return withPolicies({
+        type: 'provider_model',
+        provider: draft.providerModel.provider.trim(),
+        upstream_model: draft.providerModel.upstreamModel.trim(),
+      });
+    case 'route': {
+      // A reference written without its type keeps that shorthand.
+      const typed = !(isRecord(draft.original) && draft.original.type === undefined);
+      return withPolicies({ ...(typed ? { type: 'route' } : {}), route: draft.routeRef.trim() });
+    }
     case 'block':
       return {
         ...extra,
@@ -728,6 +806,12 @@ function draftSentence(d: RuleDraft): string {
           : `prompts the scorer rates at ${c.percent || '…'}% or more`
       } to ${c.strong || '…'} and the rest to ${c.weak || '…'}.`;
     }
+    case 'provider_model':
+      return `${when}, send the request to ${d.providerModel.upstreamModel.trim() || '…'} at ${
+        d.providerModel.provider.trim() || '…'
+      }.`;
+    case 'route':
+      return `${when}, hand the request to route ${d.routeRef.trim() || '…'}.`;
     case 'block':
       return `${when}, block the request.`;
   }

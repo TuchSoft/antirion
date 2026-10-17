@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 
 import { Button, IconButton } from '@/components/ui/button';
 import { Checkbox, RadioGroup } from '@/components/ui/choice';
-import { Field, Input, NumberInput, Segmented } from '@/components/ui/form';
+import { Field, Input, NumberInput, Segmented, Textarea } from '@/components/ui/form';
 import { ModelMark } from '@/components/ui/marks';
 import { Combobox, Select } from '@/components/ui/select';
 import type { DeploymentResource, Tier } from '@/lib/api/types';
@@ -12,6 +12,9 @@ import type { DeploymentResource, Tier } from '@/lib/api/types';
 import { canStick, emptyCondition, movesOn, type RuleDraft, type StickyKind } from '../draft';
 import { type Condition, FIELDS, GUARD_FIELDS, OPERATORS, STRATEGIES, type Target, TRIGGERS } from '../types';
 import { tierLabel } from '@/features/models/types';
+import { ListInput } from '@/features/mcp/components/parts';
+
+import { useRouting } from '../store';
 
 import { AdaptiveFields } from './adaptive-fields';
 import { CostQualityFields, PoolFields } from './pool-fields';
@@ -299,6 +302,41 @@ export function TargetsStep({
     );
 
   if (s === 'block') return <BlockFields draft={draft} set={set} />;
+
+  if (s === 'provider_model')
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Provider"
+          error={errors['providerModel.provider']}
+          hint={
+            deployments.length > 0
+              ? `Such as ${[...new Set(deployments.map((d) => d.spec.provider))].slice(0, 3).join(', ')}.`
+              : 'A provider’s name.'
+          }
+        >
+          <Input
+            mono
+            value={draft.providerModel.provider}
+            onChange={(e) => set('providerModel', { ...draft.providerModel, provider: e.target.value })}
+          />
+        </Field>
+        <Field
+          label="Upstream model"
+          error={errors['providerModel.upstreamModel']}
+          hint="The provider’s id for it; {model} stands for the requested name."
+        >
+          <Input
+            mono
+            value={draft.providerModel.upstreamModel}
+            placeholder="gpt-4o-mini"
+            onChange={(e) => set('providerModel', { ...draft.providerModel, upstreamModel: e.target.value })}
+          />
+        </Field>
+      </div>
+    );
+
+  if (s === 'route') return <RouteRefField draft={draft} set={set} errors={errors} />;
 
   if (s === 'cost_quality')
     return <CostQualityFields draft={draft} set={set} errors={errors} deployments={deployments} />;
@@ -703,61 +741,126 @@ function BlockFields({ draft, set }: { draft: RuleDraft; set: Set }) {
 }
 
 /** Review step: the rule's own timeouts and attempts. */
+/** Another shared route to hand requests to; the route being edited isn't offered. */
+function RouteRefField({ draft, set, errors }: { draft: RuleDraft; set: Set; errors: Errors }) {
+  const routes = useRouting((st) => st.routes.data) ?? [];
+  const options = routes.map((r) => ({ value: r.name, label: `Route ${r.name}` }));
+  if (draft.routeRef && !routes.some((r) => r.name === draft.routeRef))
+    options.unshift({ value: draft.routeRef, label: `Route ${draft.routeRef}` });
+  return (
+    <Field
+      label="Route"
+      error={errors.routeRef}
+      hint="Its rules decide where the request goes. A route can’t lead back to itself."
+    >
+      <Select
+        value={draft.routeRef}
+        placeholder="Choose a route"
+        onChange={(v) => set('routeRef', v)}
+        options={options}
+      />
+    </Field>
+  );
+}
+
+/** Request parameters the target sets and removes, on every request it serves. */
+function ParamsFields({ draft, set, errors }: { draft: RuleDraft; set: Set; errors: Errors }) {
+  return (
+    <fieldset className="flex flex-col gap-3">
+      <Legend>Request parameters</Legend>
+      <p className="-mt-2 text-caption text-muted">
+        Changed on every request this target serves, before it reaches the deployment.
+      </p>
+      <Field
+        label="Set"
+        optional
+        error={errors['params.set']}
+        hint='A JSON object of body fields, such as {"temperature": 0.2}.'
+      >
+        <Textarea
+          mono
+          rows={3}
+          spellCheck={false}
+          value={draft.params.set}
+          placeholder={'{\n  "temperature": 0.2\n}'}
+          onChange={(e) => set('params', { ...draft.params, set: e.target.value })}
+        />
+      </Field>
+      <Field
+        label="Remove"
+        optional
+        error={errors['params.remove']}
+        hint="Dot paths, such as metadata.trace."
+      >
+        <ListInput
+          noun="field"
+          placeholder="metadata.trace"
+          value={draft.params.remove}
+          onChange={(remove) => set('params', { ...draft.params, remove })}
+        />
+      </Field>
+    </fieldset>
+  );
+}
+
 export function LimitsFields({ draft, set, errors }: { draft: RuleDraft; set: Set; errors: Errors }) {
   if (draft.strategy === 'block') return null;
   return (
-    <fieldset className="flex flex-col gap-2">
-      <Legend>Timeouts and retries for this rule</Legend>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field
-          label="Attempt timeout"
-          optional
-          error={errors['limits.attempt']}
-          hint="e.g. 30s; one call to a deployment."
-        >
-          <Input
-            mono
-            value={draft.limits.attempt}
-            placeholder="default"
-            onChange={(e) => set('limits', { ...draft.limits, attempt: e.target.value })}
-          />
-        </Field>
-        <Field
-          label="Time limit"
-          optional
-          error={errors['limits.deadline']}
-          hint="The whole request, retries included."
-        >
-          <Input
-            mono
-            value={draft.limits.deadline}
-            placeholder="default"
-            onChange={(e) => set('limits', { ...draft.limits, deadline: e.target.value })}
-          />
-        </Field>
-        <Field
-          label="Attempts at most"
-          optional
-          error={errors['limits.maxAttempts']}
-          hint="1 to 10, retries and fallbacks included."
-        >
-          <NumberInput
-            min={1}
-            max={10}
-            value={draft.limits.maxAttempts}
-            onChange={(v) => set('limits', { ...draft.limits, maxAttempts: v })}
-          />
-        </Field>
-      </div>
-      <p className="text-caption text-muted">
-        Empty fields use the gateway’s defaults from the Health and defaults tab.
-      </p>
-      {movesOn(draft.strategy) ? (
-        <div className="mt-3 flex flex-col gap-5">
-          <HedgingFields value={draft.hedging} onChange={(v) => set('hedging', v)} errors={errors} />
-          <ResponseChecks value={draft.predicates} onChange={(v) => set('predicates', v)} errors={errors} />
+    <>
+      <ParamsFields draft={draft} set={set} errors={errors} />
+      <fieldset className="flex flex-col gap-2">
+        <Legend>Timeouts and retries for this rule</Legend>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field
+            label="Attempt timeout"
+            optional
+            error={errors['limits.attempt']}
+            hint="e.g. 30s; one call to a deployment."
+          >
+            <Input
+              mono
+              value={draft.limits.attempt}
+              placeholder="default"
+              onChange={(e) => set('limits', { ...draft.limits, attempt: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Time limit"
+            optional
+            error={errors['limits.deadline']}
+            hint="The whole request, retries included."
+          >
+            <Input
+              mono
+              value={draft.limits.deadline}
+              placeholder="default"
+              onChange={(e) => set('limits', { ...draft.limits, deadline: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Attempts at most"
+            optional
+            error={errors['limits.maxAttempts']}
+            hint="1 to 10, retries and fallbacks included."
+          >
+            <NumberInput
+              min={1}
+              max={10}
+              value={draft.limits.maxAttempts}
+              onChange={(v) => set('limits', { ...draft.limits, maxAttempts: v })}
+            />
+          </Field>
         </div>
-      ) : null}
-    </fieldset>
+        <p className="text-caption text-muted">
+          Empty fields use the gateway’s defaults from the Health and defaults tab.
+        </p>
+        {movesOn(draft.strategy) ? (
+          <div className="mt-3 flex flex-col gap-5">
+            <HedgingFields value={draft.hedging} onChange={(v) => set('hedging', v)} errors={errors} />
+            <ResponseChecks value={draft.predicates} onChange={(v) => set('predicates', v)} errors={errors} />
+          </div>
+        ) : null}
+      </fieldset>
+    </>
   );
 }

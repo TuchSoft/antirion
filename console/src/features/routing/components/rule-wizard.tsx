@@ -20,6 +20,7 @@ import {
   describeDraft,
   draftFrom,
   movesOn,
+  paramsErrors,
   type RuleDraft,
   targetsLocked,
   toRule,
@@ -101,6 +102,13 @@ export function validateRule(
         out['shadow.percent'] = 'Enter a percent above 0';
     }
     if (d.strategy === 'tier' && !d.tier.tier) out.tier = 'Choose a tier';
+    if (d.strategy === 'provider_model') {
+      if (!/^\S+$/.test(d.providerModel.provider.trim()))
+        out['providerModel.provider'] = 'The provider’s name';
+      if (!d.providerModel.upstreamModel.trim())
+        out['providerModel.upstreamModel'] = 'The provider’s id for the model';
+    }
+    if (d.strategy === 'route' && !d.routeRef.trim()) out.routeRef = 'Choose the route';
     if (d.strategy === 'pool' && d.pool.picker === 'external') {
       if (!/^https?:\/\/\S+$/.test(d.pool.url.trim()))
         out['pool.url'] = 'The picker’s address, e.g. http://picker.internal:9002';
@@ -149,6 +157,7 @@ export function validateRule(
     if (!r.success) out[`limits.${key}`] = r.error.issues[0]?.message ?? 'Invalid';
   }
   if (movesOn(d.strategy)) Object.assign(out, validateExtras(d.hedging, d.predicates, ''));
+  if (d.strategy !== 'block') Object.assign(out, paramsErrors(d));
   const attempts = d.limits.maxAttempts.trim();
   if (attempts && !(/^\d+$/.test(attempts) && Number(attempts) >= 1 && Number(attempts) <= 10))
     out['limits.maxAttempts'] = 'From 1 to 10';
@@ -170,7 +179,13 @@ export function blockingStep(
 
 function stepOf(key: string): number {
   if (key === 'name' || key === 'sample' || key.startsWith('conditions')) return 0;
-  if (key.startsWith('limits') || key.startsWith('hedging') || key.startsWith('predicates')) return 3;
+  if (
+    key.startsWith('limits') ||
+    key.startsWith('hedging') ||
+    key.startsWith('predicates') ||
+    key.startsWith('params')
+  )
+    return 3;
   return 2;
 }
 

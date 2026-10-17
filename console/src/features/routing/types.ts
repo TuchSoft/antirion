@@ -95,6 +95,8 @@ export type Strategy =
   | 'tier'
   | 'pool'
   | 'cost_quality'
+  | 'provider_model'
+  | 'route'
   | 'block';
 
 export const STRATEGIES: { value: Strategy; label: string; description: string }[] = [
@@ -149,6 +151,17 @@ export const STRATEGIES: { value: Strategy; label: string; description: string }
     label: 'Strong or weak model',
     description:
       'A learned scorer rates each prompt: the ones likely to need it go to the strong model, the rest to a cheaper one.',
+  },
+  {
+    value: 'provider_model',
+    label: 'Provider model',
+    description:
+      'Send straight to a provider’s model by its id, without a deployment, such as for wildcard Models.',
+  },
+  {
+    value: 'route',
+    label: 'Another route',
+    description: 'Hand the request to another shared route, which decides with its own rules.',
   },
   {
     value: 'block',
@@ -304,13 +317,21 @@ export function describePredicate(p: Json): string {
 export function strategyOf(node: Json): Strategy | 'other' {
   if (typeof node === 'string') return 'single';
   if (!isRecord(node)) return 'other';
-  const t = node.type ?? (typeof node.deployment === 'string' ? 'deployment' : undefined);
+  const t =
+    node.type ??
+    (typeof node.deployment === 'string'
+      ? 'deployment'
+      : typeof node.route === 'string'
+        ? 'route'
+        : undefined);
   if (t === 'deployment') return isRecord(node.mirror) ? 'shadow' : 'single';
   if (t === 'weighted')
     return isRecord(node.canary) ? 'canary' : node.algorithm === 'thompson' ? 'adaptive' : 'weighted';
   if (t === 'fallback' || t === 'least_busy' || t === 'least_latency' || t === 'block' || t === 'tier')
     return t;
   if (t === 'pool') return 'pool';
+  if (t === 'provider_model' && typeof node.provider === 'string') return 'provider_model';
+  if (t === 'route' && typeof node.route === 'string') return 'route';
   if (t === 'cost_quality' && leafOf(node.strong) !== null && leafOf(node.weak) !== null)
     return 'cost_quality';
   return 'other';

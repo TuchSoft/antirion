@@ -55,6 +55,18 @@ export function Targets({ node }: { node: Json }) {
         the <Chip>{node.tier}</Chip> tier
       </>
     );
+  if (s === 'provider_model' && isRecord(node))
+    return (
+      <Chip>
+        {String(node.provider)}/{String(node.upstream_model)}
+      </Chip>
+    );
+  if (s === 'route' && isRecord(node))
+    return (
+      <>
+        route <Chip>{String(node.route)}</Chip>
+      </>
+    );
   const targets = targetsOf(node);
   if (targets.length === 0) return <span className="text-muted">{nodeTypeLabel(node).toLowerCase()}</span>;
   const sep = s === 'fallback' ? ', then ' : s === 'weighted' || s === 'canary' ? ' · ' : ' / ';
