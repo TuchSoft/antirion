@@ -8,6 +8,7 @@ import type {
   OrganizationResource,
   OverageRequest,
   ProjectResource,
+  RouteResource,
   TeamResource,
   UserResource,
 } from '@/lib/api/types';
@@ -23,6 +24,9 @@ interface BudgetsState {
   keys: Slot<KeyResource[]>;
   users: Slot<UserResource[]>;
   models: Slot<ModelResource[]>;
+  routes: Slot<RouteResource[]>;
+  /** The gateway's own budgets (`policies.budgets` of the gateway settings). */
+  gateway: Slot<Record<string, unknown>>;
   events: Slot<BudgetEvent[]>;
   overage: Slot<OverageRequest[]>;
   daily: Slot<{ day: string; cost: number }[]>;
@@ -50,6 +54,11 @@ interface BudgetsState {
   ) => Promise<void>;
 }
 
+/** The gateway's budget declarations. */
+async function gatewayBudgets(): Promise<Record<string, unknown>> {
+  return (await budgetsApi.gatewayPolicies()).spec.budgets ?? {};
+}
+
 /**
  * Budget counters with the hierarchy and declarations that place them, people, Models, events,
  * overage requests, and this month's spend (daily, per team, per Model and per person).
@@ -62,6 +71,8 @@ export const useBudgets = create<BudgetsState>()((set, get) => ({
   keys: emptySlot(),
   users: emptySlot(),
   models: emptySlot(),
+  routes: emptySlot(),
+  gateway: emptySlot(),
   events: emptySlot(),
   overage: emptySlot(),
   daily: emptySlot(),
@@ -80,6 +91,8 @@ export const useBudgets = create<BudgetsState>()((set, get) => ({
       loadSlot(set, get, 'events', budgetsApi.events, options),
       loadSlot(set, get, 'overage', budgetsApi.overageRequests, options),
       options?.quiet ? Promise.resolve() : loadSlot(set, get, 'models', budgetsApi.models),
+      options?.quiet ? Promise.resolve() : loadSlot(set, get, 'routes', budgetsApi.routes),
+      loadSlot(set, get, 'gateway', gatewayBudgets, options),
     ]);
   },
 
@@ -133,7 +146,13 @@ export const useBudgets = create<BudgetsState>()((set, get) => ({
           ? loadSlot(set, get, 'teams', budgetsApi.teams, quiet)
           : level === 'project'
             ? loadSlot(set, get, 'projects', budgetsApi.projects, quiet)
-            : loadSlot(set, get, 'keys', budgetsApi.keys, quiet);
+            : level === 'model'
+              ? loadSlot(set, get, 'models', budgetsApi.models, quiet)
+              : level === 'route'
+                ? loadSlot(set, get, 'routes', budgetsApi.routes, quiet)
+                : level === 'gateway'
+                  ? loadSlot(set, get, 'gateway', gatewayBudgets, quiet)
+                  : loadSlot(set, get, 'keys', budgetsApi.keys, quiet);
     await Promise.all([loadSlot(set, get, 'counters', budgetsApi.counters, quiet), owners]);
   },
 }));

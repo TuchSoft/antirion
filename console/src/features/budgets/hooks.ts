@@ -38,6 +38,9 @@ export function useDeclarations(): (
   const teams = useBudgets((s) => s.teams.data);
   const projects = useBudgets((s) => s.projects.data);
   const keys = useBudgets((s) => s.keys.data);
+  const models = useBudgets((s) => s.models.data);
+  const routes = useBudgets((s) => s.routes.data);
+  const gateway = useBudgets((s) => s.gateway.data);
   return useMemo(() => {
     const maps: Record<string, Map<string, Record<string, unknown>>> = {};
     const add = (
@@ -52,11 +55,14 @@ export function useDeclarations(): (
     add('team', teams);
     add('project', projects);
     add('key', keys);
+    add('model', models);
+    add('route', routes);
+    maps.gateway = new Map([['-', gateway ?? {}]]);
     return (level: string, owner: string, name: string) => {
       const d = maps[level]?.get(owner)?.[name];
       return d && typeof d === 'object' ? (d as Record<string, unknown>) : undefined;
     };
-  }, [organizations, teams, projects, keys]);
+  }, [organizations, teams, projects, keys, models, routes, gateway]);
 }
 
 /** People by name. */

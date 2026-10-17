@@ -11,8 +11,15 @@ export type Period = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | '
 /** The rolling windows the drawer offers (any duration is kept as written). */
 export const ROLLING_WINDOWS = ['1h', '24h', '7d', '30d'] as const;
 
+/** Where a budget can be declared: the gateway, a tenancy level, a Model or a route. */
+export const BUDGET_LEVELS = ['gateway', 'organization', 'team', 'project', 'key', 'model', 'route'] as const;
+export type BudgetLevel = (typeof BUDGET_LEVELS)[number];
+
+/** The owner name of the gateway's own budgets. */
+export const GATEWAY_OWNER = '-';
+
 export interface BudgetFormValues {
-  level: 'organization' | 'team' | 'project' | 'key';
+  level: BudgetLevel;
   owner: string;
   name: string;
   /** What the amount counts: dollars, or tokens. */
@@ -74,8 +81,8 @@ const DURATION = /^\d+(ms|s|m|h|d)$/;
 
 export const budgetSchema = z
   .object({
-    level: z.enum(['organization', 'team', 'project', 'key']),
-    owner: resourceName,
+    level: z.enum(BUDGET_LEVELS),
+    owner: z.string().trim().min(1),
     name: z.string().regex(/^[a-z0-9_]{1,64}$/, 'Lowercase letters, digits and _'),
     unit: z.enum(['usd', 'tokens']),
     tokens: z.enum(['total', 'input', 'output', 'weighted']),
@@ -97,6 +104,10 @@ export const budgetSchema = z
     downgradeModel: z.string(),
     downgradeTier: z.string(),
     cacheBypass: z.boolean(),
+  })
+  .refine((v) => v.level !== 'gateway' || v.owner === GATEWAY_OWNER, { path: ['owner'] })
+  .refine((v) => ['gateway', 'model'].includes(v.level) || resourceName.safeParse(v.owner).success, {
+    path: ['owner'],
   })
   .refine((v) => (v.unit === 'tokens' ? /^\d+$/.test(v.amount) : money.safeParse(v.amount).success), {
     path: ['amount'],
@@ -215,6 +226,11 @@ export function isCapTwin(
     cap.period === decl.period &&
     (cap.algorithm ?? null) === (decl.algorithm ?? null)
   );
+}
+
+/** Where a budget sits in the configuration, for placing the gateway's field errors. */
+export function budgetPath(level: string, owner: string, name: string): string {
+  return level === 'gateway' ? `policies.budgets.${name}` : `${level}s.${owner}.policies.budgets.${name}`;
 }
 
 /** An amount as a declaration writes it: a decimal string of dollars, or a whole number of tokens. */

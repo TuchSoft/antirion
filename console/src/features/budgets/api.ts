@@ -8,9 +8,13 @@ import type {
   OrganizationResource,
   OverageRequest,
   ProjectResource,
+  RouteResource,
   TeamResource,
   UserResource,
 } from '@/lib/api/types';
+import type { components } from '@/lib/api/schema';
+
+type PoliciesSettings = components['schemas']['PoliciesSettings'];
 
 function path(c: Pick<BudgetCounter, 'level' | 'owner' | 'name'>) {
   return { level: c.level, owner: c.owner, name: c.name };
@@ -50,6 +54,10 @@ export const budgetsApi = {
     listAll((cursor) => api.get('/users', { query: { limit: 200, cursor } })),
   models: (): Promise<ModelResource[]> =>
     listAll((cursor) => api.get('/models', { query: { limit: 200, cursor } })),
+  routes: (): Promise<RouteResource[]> =>
+    listAll((cursor) => api.get('/routes', { query: { limit: 200, cursor } })),
+  /** The gateway-level policies, whose `budgets` count every request. */
+  gatewayPolicies: (): Promise<PoliciesSettings> => api.get('/settings/policies'),
   events: async (): Promise<BudgetEvent[]> =>
     (await api.get('/runtime/budgets/events', { query: { limit: 50 } })).items,
   overageRequests: async (): Promise<OverageRequest[]> =>
@@ -247,21 +255,30 @@ export const budgetsApi = {
   /** Every deployment, for the tiers deployments set in their own price. */
   deployments: (): Promise<DeploymentResource[]> =>
     listAll((cursor) => api.get('/deployments', { query: { limit: 200, cursor } })),
-  /** Reads the owner's budget declarations, the source of the edit drawer. */
+  /** Reads the owner's budget declarations (`-` is the gateway), the source of the edit drawer. */
   async declaration(
     level: string,
     owner: string,
   ): Promise<{ budgets: Record<string, unknown>; etag: string } | null> {
+    if (level === 'gateway') {
+      const settings = await api.get('/settings/policies');
+      return { budgets: settings.spec.budgets ?? {}, etag: settings.metadata.etag };
+    }
+    const path = { path: { name: owner } };
     const resource =
       level === 'organization'
-        ? await api.get('/organizations/{name}', { path: { name: owner } })
+        ? await api.get('/organizations/{name}', path)
         : level === 'team'
-          ? await api.get('/teams/{name}', { path: { name: owner } })
+          ? await api.get('/teams/{name}', path)
           : level === 'project'
-            ? await api.get('/projects/{name}', { path: { name: owner } })
+            ? await api.get('/projects/{name}', path)
             : level === 'key'
-              ? await api.get('/keys/{name}', { path: { name: owner } })
-              : null;
+              ? await api.get('/keys/{name}', path)
+              : level === 'model'
+                ? await api.get('/models/{name}', path)
+                : level === 'route'
+                  ? await api.get('/routes/{name}', path)
+                  : null;
     if (!resource) return null;
     const budgets: Record<string, unknown> = resource.spec.policies?.budgets ?? {};
     return { budgets, etag: resource.metadata.etag };
@@ -274,12 +291,16 @@ export const budgetsApi = {
     etag: string | undefined,
     reason?: string,
   ) {
+    if (level === 'gateway')
+      return api.patch('/settings/policies', { body: { spec: { budgets } }, ifMatch: etag, reason });
     const body = { spec: { policies: { budgets } } };
     const opts = { path: { name: owner }, body, ifMatch: etag, reason };
     if (level === 'organization') return api.patch('/organizations/{name}', opts);
     if (level === 'team') return api.patch('/teams/{name}', opts);
     if (level === 'project') return api.patch('/projects/{name}', opts);
     if (level === 'key') return api.patch('/keys/{name}', opts);
+    if (level === 'model') return api.patch('/models/{name}', opts);
+    if (level === 'route') return api.patch('/routes/{name}', opts);
     throw new Error(`budgets at level ${level} are edited in the configuration`);
   },
 };

@@ -1,12 +1,18 @@
+import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 
 import type { BudgetCounter } from '@/lib/api/types';
+import { server } from '@/mocks/node';
+
+import { budgetsApi } from '../api';
 
 import { grantExpiry } from '../components/overage-dialog';
 import { recostRange } from '../components/cost-tools';
 import {
+  budgetPath,
   budgetSchema,
   EMPTY_BUDGET,
+  GATEWAY_OWNER,
   fromDeclaration,
   modelsCovered,
   toDeclarations,
@@ -360,5 +366,52 @@ describe('overage, re-costing and people', () => {
     expect(people[0]?.perRequest).toBe(1);
     expect(people.find((p) => p.name === 'b')?.outlier).toBe(false);
     expect(people.find((p) => p.name === 'd')).toMatchObject({ service: true, perRequest: null });
+  });
+});
+
+describe('budgets at the gateway, on a Model and on a route', () => {
+  const meta = { etag: '"e1"', generation: 1, created_at: '', updated_at: '', managed_by: 'api' };
+  it('accepts the gateway, a Model and a route as owners', () => {
+    const base = { ...EMPTY_BUDGET, amount: '100' };
+    expect(budgetSchema.safeParse({ ...base, level: 'gateway', owner: GATEWAY_OWNER }).success).toBe(true);
+    expect(budgetSchema.safeParse({ ...base, level: 'gateway', owner: 'x' }).success).toBe(false);
+    expect(budgetSchema.safeParse({ ...base, level: 'model', owner: 'gpt-4o' }).success).toBe(true);
+    expect(budgetSchema.safeParse({ ...base, level: 'route', owner: 'global' }).success).toBe(true);
+    expect(budgetSchema.safeParse({ ...base, level: 'route', owner: '' }).success).toBe(false);
+  });
+  it('places field errors where each level declares its budgets', () => {
+    expect(budgetPath('gateway', GATEWAY_OWNER, 'monthly')).toBe('policies.budgets.monthly');
+    expect(budgetPath('model', 'gpt-4o', 'monthly')).toBe('models.gpt-4o.policies.budgets.monthly');
+  });
+  it('writes a gateway budget on the gateway policies and a Model budget on the Model', async () => {
+    const seen: { path: string; body: unknown; ifMatch: string | null }[] = [];
+    server.use(
+      http.get('*/admin/v1/settings/policies', () =>
+        HttpResponse.json({ spec: { budgets: { monthly: { unit: 'usd', amount: '9' } } }, metadata: meta }),
+      ),
+      http.patch('*/admin/v1/settings/policies', async ({ request }) => {
+        seen.push({ path: 'gateway', body: await request.json(), ifMatch: request.headers.get('if-match') });
+        return HttpResponse.json({ spec: {}, metadata: meta });
+      }),
+      http.patch('*/admin/v1/models/:name', async ({ request, params }) => {
+        seen.push({ path: `models/${String(params.name)}`, body: await request.json(), ifMatch: null });
+        return HttpResponse.json({ name: params.name, spec: {}, metadata: meta });
+      }),
+      http.patch('*/admin/v1/routes/:name', async ({ request, params }) => {
+        seen.push({ path: `routes/${String(params.name)}`, body: await request.json(), ifMatch: null });
+        return HttpResponse.json({ name: params.name, spec: {}, metadata: meta });
+      }),
+    );
+    const read = await budgetsApi.declaration('gateway', GATEWAY_OWNER);
+    expect(read).toEqual({ budgets: { monthly: { unit: 'usd', amount: '9' } }, etag: '"e1"' });
+    const patch = { monthly: { amount: '10' } };
+    await budgetsApi.declare('gateway', GATEWAY_OWNER, patch, read?.etag);
+    await budgetsApi.declare('model', 'gpt-4o', patch, undefined);
+    await budgetsApi.declare('route', 'global', patch, undefined);
+    expect(seen).toEqual([
+      { path: 'gateway', body: { spec: { budgets: patch } }, ifMatch: '"e1"' },
+      { path: 'models/gpt-4o', body: { spec: { policies: { budgets: patch } } }, ifMatch: null },
+      { path: 'routes/global', body: { spec: { policies: { budgets: patch } } }, ifMatch: null },
+    ]);
   });
 });

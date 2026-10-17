@@ -29,8 +29,10 @@ import {
   type BudgetFormValues,
   type BudgetUnit,
   type Enforcement,
+  budgetPath,
   EMPTY_BUDGET,
   fromDeclaration,
+  GATEWAY_OWNER,
   ROLLING_WINDOWS,
   toDeclarations,
   toOverride,
@@ -89,13 +91,21 @@ function amountLabel(unit: BudgetUnit, noun = 'Amount'): string {
 }
 
 const LEVELS = [
-  { value: 'organization', label: 'Organization' },
-  { value: 'team', label: 'Team' },
-  { value: 'project', label: 'Project' },
-  { value: 'key', label: 'Key' },
+  { value: 'gateway', label: 'The whole gateway' },
+  { value: 'organization', label: 'An organization' },
+  { value: 'team', label: 'A team' },
+  { value: 'project', label: 'A project' },
+  { value: 'key', label: 'A key' },
+  { value: 'model', label: 'A Model' },
+  { value: 'route', label: 'A route' },
 ] as const;
 
 const DAY = 86_400_000;
+
+/** "an" before a vowel sound, else "a". */
+function article(word: string): string {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
 
 function amountText(v: unknown): string {
   return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
@@ -181,6 +191,8 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
   const projects = useBudgets((s) => s.projects.data) ?? [];
   const keys = useBudgets((s) => s.keys.data) ?? [];
   const models = useBudgets((s) => s.models.data) ?? [];
+  const routes = useBudgets((s) => s.routes.data) ?? [];
+  const organizations = useBudgets((s) => s.organizations.data) ?? [];
   const users = useBudgets((s) => s.users.data) ?? [];
   const save = useBudgets((s) => s.saveDeclaration);
   const reset = useBudgets((s) => s.reset);
@@ -207,7 +219,8 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
   const canAdjust = useCan('adjustBudgetCounter');
   const canReset = useCan('resetBudgetCounter');
   const canGrant = useCan('grantBudgetOverage');
-  const editable = row === null || ['organization', 'team', 'project', 'key'].includes(row.level);
+  // Every level but a routing node's own budget, which only the configuration declares.
+  const editable = row?.level !== 'node';
   const partition = row?.kind === 'partition' ? row.partition : null;
   const counted = row !== null && isCounted(row);
   // Amounts read in the budget's unit: the counter's, else the one the form declares.
@@ -308,7 +321,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
       onClose();
     } catch (e) {
       setError(e);
-      setErrors(serverFieldErrors(e, `${values.level}s.${values.owner}.policies.budgets.${values.name}`));
+      setErrors(serverFieldErrors(e, budgetPath(values.level, values.owner, values.name)));
     } finally {
       setBusy(false);
     }
@@ -320,10 +333,16 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
       : values.level === 'project'
         ? projects.map((p) => p.name)
         : values.level === 'organization'
-          ? [...new Set(teams.map((t) => t.spec.organization))]
-          : keys.map((k) => k.name);
+          ? organizations.map((o) => o.name)
+          : values.level === 'model'
+            ? models.map((m) => m.name)
+            : values.level === 'route'
+              ? routes.map((r) => r.name)
+              : keys.map((k) => k.name);
 
-  const levelLabel = LEVELS.find((l) => l.value === values.level)?.label ?? 'Owner';
+  const levelLabel = LEVEL_LABEL[values.level] ?? 'Owner';
+  // "Model" keeps its capital; the other levels read in lower case.
+  const ownerNoun = values.level === 'model' ? levelLabel : levelLabel.toLowerCase();
   const amountError = errors.amount
     ? values.unit === 'tokens'
       ? 'Enter a whole number of tokens, like 1000000'
@@ -381,7 +400,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
             busy={busy}
             disabled={!loaded || !editable}
             disabledReason={
-              !editable ? 'Gateway and model budgets are changed in the configuration' : undefined
+              !editable ? "A routing node's budgets are changed in the configuration" : undefined
             }
             onClick={() => void submit()}
           >
@@ -475,38 +494,53 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
           </section>
         ) : (
           <>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-ui font-medium text-fg">Applies to</span>
-              {row ? (
+            {row ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-ui font-medium text-fg">Applies to</span>
                 <p className="text-ui text-muted">
-                  {levelLabel} <span className="mono text-fg">{values.owner}</span>
+                  {values.level === 'gateway' ? (
+                    'Every request through the gateway'
+                  ) : (
+                    <>
+                      {levelLabel} <span className="mono text-fg">{values.owner}</span>
+                    </>
+                  )}
                   {partitionedBy.length > 0
                     ? ` · each ${partitionedBy.map((a) => partitionNoun(a, 1)).join(' and ')} with its own amount`
                     : ''}
                 </p>
-              ) : (
-                <Segmented<BudgetFormValues['level']>
-                  label="Applies to"
-                  value={values.level}
-                  onChange={(level) => setValues({ ...values, level, owner: '' })}
-                  options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
-                  className="w-fit"
-                />
-              )}
-            </div>
-            {row ? null : (
-              <Field
-                label={levelLabel}
-                error={errors.owner ? `Choose a ${levelLabel.toLowerCase()}` : undefined}
-                required
-              >
-                <Combobox
-                  value={values.owner}
-                  onChange={(v) => set('owner', v)}
-                  placeholder={`Select ${values.level === 'organization' ? 'an' : 'a'} ${levelLabel.toLowerCase()}`}
-                  options={owners.map((o) => ({ value: o, label: o }))}
-                />
-              </Field>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+                <Field label="Applies to">
+                  <Select
+                    value={values.level}
+                    onChange={(v) => {
+                      const level = v as BudgetFormValues['level'];
+                      setValues({ ...values, level, owner: level === 'gateway' ? GATEWAY_OWNER : '' });
+                    }}
+                    options={LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+                  />
+                </Field>
+                {values.level === 'gateway' ? null : (
+                  <Field
+                    label={levelLabel}
+                    error={errors.owner ? `Choose ${article(levelLabel)} ${ownerNoun}` : undefined}
+                    required
+                  >
+                    <Combobox
+                      value={values.owner}
+                      onChange={(v) => set('owner', v)}
+                      placeholder={`Select ${article(levelLabel)} ${ownerNoun}`}
+                      options={
+                        values.level === 'model'
+                          ? models.map((m) => modelOption(m))
+                          : owners.map((o) => ({ value: o, label: o }))
+                      }
+                    />
+                  </Field>
+                )}
+              </div>
             )}
             {row ? null : (
               <div className="flex flex-col gap-1.5">
