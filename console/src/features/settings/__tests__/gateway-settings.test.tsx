@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -7,9 +10,10 @@ import { emptySlot } from '@/lib/slot';
 import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
+import { ApiEndpointsSection, ENDPOINT_GROUPS } from '../components/api-endpoints-section';
 import { ClientAddressCard, RateLimitCard } from '../components/gateway-forms';
 import { ProvisioningSection, SCIM_OVERLAPS } from '../components/org-sections';
-import { useOrgSettings } from '../store';
+import { useGatewaySettings, useOrgSettings } from '../store';
 
 const meta = { etag: '"7"', generation: 7, created_at: null, updated_at: null, managed_by: 'api' };
 const settings = (spec: unknown, extra: Record<string, unknown> = {}) =>
@@ -197,5 +201,88 @@ describe('Endpoints & security forms', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(await screen.findByText(/isn't an IP address or range/)).toBeInTheDocument();
     expect(patches).toEqual([]);
+  });
+});
+
+/** The endpoint ids the configuration schema defines (Vitest runs from the console directory). */
+function schemaEndpointIds(): string[] {
+  const schema = JSON.parse(
+    readFileSync(resolve(process.cwd(), '../schema/antirion-config.schema.json'), 'utf8'),
+  ) as { $defs: { Api: { properties: { endpoints: { properties: Record<string, unknown> } } } } };
+  return Object.keys(schema.$defs.Api.properties.endpoints.properties).sort();
+}
+
+describe('API & endpoints', () => {
+  beforeEach(() => {
+    signInAs(['config:read', 'config:apply']);
+    useGatewaySettings.setState({ api: emptySlot(), streaming: emptySlot() });
+  });
+
+  function serve(spec: Record<string, unknown>) {
+    let stored = spec;
+    const patches: unknown[] = [];
+    server.use(
+      http.get('*/admin/v1/settings/api', () => settings(stored)),
+      http.get('*/admin/v1/settings/streaming', empty),
+      http.patch('*/admin/v1/settings/api', async ({ request }) => {
+        const body = (await request.json()) as { spec: { endpoints?: Record<string, unknown> } };
+        patches.push(body);
+        stored = { ...stored, endpoints: { ...(stored.endpoints as object), ...body.spec.endpoints } };
+        return settings(stored);
+      }),
+    );
+    return patches;
+  }
+
+  it('lists every endpoint of the configuration, on unless turned off', async () => {
+    serve({ endpoints: { embeddings: { enabled: false } } });
+    render(<ApiEndpointsSection />);
+    const ids = ENDPOINT_GROUPS.flatMap((g) => g.rows.map((r) => r.id)).sort();
+    expect(ids).toEqual(schemaEndpointIds());
+    expect(await screen.findByRole('switch', { name: 'Chat completions endpoint' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('switch', { name: 'Embeddings endpoint' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getByText(/1 of 17 turned off/)).toBeInTheDocument();
+    // The built-in values, not blanks.
+    expect(screen.getByLabelText('Kept for', { selector: 'input[value="30d"]' })).toBeInTheDocument();
+  });
+
+  it('turns an endpoint off after naming its path, patching only that endpoint', async () => {
+    const patches = serve({});
+    render(<ApiEndpointsSection />);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Chat completions endpoint' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(dialog).toHaveTextContent('POST /v1/chat/completions');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Turn off' }));
+    await waitFor(() =>
+      expect(patches).toEqual([{ spec: { endpoints: { chat_completions: { enabled: false } } } }]),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Chat completions endpoint' })).toHaveAttribute(
+        'aria-checked',
+        'false',
+      ),
+    );
+  });
+
+  it('turns an endpoint back on without asking', async () => {
+    const patches = serve({ endpoints: { rerank: { enabled: false } } });
+    render(<ApiEndpointsSection />);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Rerank endpoint' }));
+    await waitFor(() => expect(patches).toEqual([{ spec: { endpoints: { rerank: { enabled: true } } } }]));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps Responses over WebSocket off while Responses is off', async () => {
+    serve({ endpoints: { responses: { enabled: false } } });
+    render(<ApiEndpointsSection />);
+    const socket = await screen.findByRole('switch', { name: 'Responses over WebSocket endpoint' });
+    expect(socket).toBeDisabled();
+    expect(socket).toHaveAttribute('aria-checked', 'false');
   });
 });

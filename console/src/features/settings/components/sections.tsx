@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 
 import type { IconName } from '@/components/ui/icon';
 
+import { ApiEndpointsSection } from './api-endpoints-section';
 import { AuditSection } from './audit-section';
 import { ConfigSection } from './config-section';
 import { HealthSection } from './health-section';
@@ -150,6 +151,14 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
             <AdminMcpCard />
           </>
         ),
+      },
+      {
+        id: 'api-endpoints',
+        permission: 'config:read',
+        label: 'API & endpoints',
+        icon: 'plug',
+        description: 'Which endpoints apps may call, how requests and responses are handled, and streaming.',
+        render: () => <ApiEndpointsSection />,
       },
       {
         id: 'configuration',
