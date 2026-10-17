@@ -225,13 +225,16 @@ function KeysSummary({
       sub: trend((h) => h.cost, 'Spend'),
     });
   }
-  const detection = auth?.spec.anomaly_detection?.enabled;
+  // Unset means on: the gateway flags unusual key activity unless it is turned off.
+  const detection = auth ? auth.spec.anomaly_detection?.enabled !== false : undefined;
   if (detection !== undefined)
     items.push({
       label: 'Unusual activity',
       value: detection ? (openFlags ?? 0) : 'Off',
       tone: detection && (openFlags ?? 0) > 0 ? 'warn' : 'neutral',
-      title: detection ? 'Open flags; anomaly detection is on' : 'Anomaly detection is off in Settings',
+      title: detection
+        ? 'Open flags; anomaly detection is on'
+        : 'Turned off in Gateway settings, under API access',
       sub: detection ? 'Detection on' : 'Detection off',
     });
   return <SummaryStrip label="API keys summary" items={items} />;
