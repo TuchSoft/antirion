@@ -6,7 +6,7 @@ import type { RuleSpec } from './api';
 
 /**
  * What the Alerts screen has open over it: a rule, channel or webhook editor, the rule manager,
- * the delivery log (of one target or all) or the maintenance windows.
+ * the delivery log (of one target or all), the maintenance windows or the key-activity flags.
  */
 export type Editor =
   | { kind: 'rule'; name: string | null; draft?: { name?: string; spec: Partial<RuleSpec> } }
@@ -19,7 +19,8 @@ export type Editor =
       targetKind?: 'webhook' | 'channel';
       result?: DeliveryResult | '';
     }
-  | { kind: 'maintenance' };
+  | { kind: 'maintenance' }
+  | { kind: 'anomalies'; key?: string };
 
 interface EditorsState {
   /** Open editors, bottom first; each stays mounted under the one opened over it. */

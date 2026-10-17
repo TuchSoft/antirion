@@ -535,10 +535,23 @@ export const contractHandlers: HttpHandler[] = [
     blocked: 112,
     no_route: 0,
   })),
-  mock('get', '/anomalies', () => ({
-    items: state.anomalies.filter((a) => a.state === 'open'),
-    next_cursor: null,
-  })),
+  mock('get', '/anomalies', ({ query }) => {
+    const kinds = query.getAll('kind').flatMap((k) => k.split(','));
+    return {
+      items: state.anomalies.filter(
+        (a) =>
+          (!query.get('state') || a.state === query.get('state')) &&
+          (!query.get('key') || a.key === query.get('key')) &&
+          (kinds.length === 0 || kinds.includes(a.kind)),
+      ),
+      next_cursor: null,
+    };
+  }),
+  mock('get', '/anomalies/{anomaly_id}', ({ params }) => {
+    const a = state.anomalies.find((x) => x.id === params.anomaly_id);
+    if (!a) throw new Error('no anomaly');
+    return a;
+  }),
   mock('post', '/anomalies/{anomaly_id}:dismiss', ({ params }) => {
     state.anomalies = state.anomalies.map((a) =>
       a.id === params.anomaly_id ? { ...a, state: 'dismissed' } : a,

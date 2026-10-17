@@ -6,10 +6,11 @@ import { useQueryParam, useTabParam } from '@/components/layout/url-sync';
 import { Badge, Dot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Combobox, Input, Select } from '@/components/ui/form';
-import { Gate } from '@/components/ui/gate';
+import { Gate, useCan } from '@/components/ui/gate';
 import { StarredFilter, useFavouriteNames, useStarredFilter } from '@/components/ui/favourite';
 import { Icon } from '@/components/ui/icon';
 import { KeyboardHints } from '@/components/ui/keyboard-hints';
+import { AnomalyHistory } from '@/features/alerts/components/anomaly-flag';
 import { FilterBar, PageHeader, SummaryStrip, type SummaryItem } from '@/components/ui/layout';
 import { MasterDetail, SelectableList } from '@/components/ui/list-detail';
 import { UpdatedAt } from '@/components/ui/misc';
@@ -141,10 +142,13 @@ function KeysSummary({
   views,
   onFilter,
   onRotation,
+  onFlags,
 }: {
   views: KeyView[];
   onFilter: (filters: Partial<KeyFilters>) => void;
   onRotation: () => void;
+  /** Opens every flag, open and dismissed; absent when the principal may not list them. */
+  onFlags?: (() => void) | undefined;
 }) {
   const usage = useKeysContext((s) => s.usage);
   const hourly = useKeysContext((s) => s.hourly.data);
@@ -236,12 +240,13 @@ function KeysSummary({
         ? 'Open flags; anomaly detection is on'
         : 'Turned off in Gateway settings, under API access',
       sub: detection ? 'Detection on' : 'Detection off',
+      ...(onFlags ? { onClick: onFlags } : {}),
     });
   return <SummaryStrip label="API keys summary" items={items} />;
 }
 
 /** Open anomaly flags, as a notice over the list; nothing when there are none or none can be read. */
-function AnomalyNotice() {
+function AnomalyNotice({ onHistory }: { onHistory?: (() => void) | undefined }) {
   const anomalies = useKeysContext((s) => s.anomalies.data);
   const dismiss = useKeysContext((s) => s.dismissAnomaly);
   const shown = usePreferences((s) => s.keyAnomalyNotice);
@@ -277,14 +282,16 @@ function AnomalyNotice() {
             ? plural(keyCount, 'key')
             : `${plural(anomalies.length, 'flag')} on ${plural(keyCount, 'key')}`}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="ml-auto"
-          onClick={() => setPreference({ keyAnomalyNotice: false })}
-        >
-          Hide
-        </Button>
+        <span className="ml-auto flex items-center gap-1">
+          {onHistory ? (
+            <Button size="sm" variant="ghost" icon="history" onClick={onHistory}>
+              History
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={() => setPreference({ keyAnomalyNotice: false })}>
+            Hide
+          </Button>
+        </span>
       </div>
       <ul className="flex flex-col gap-1.5">
         {listed.map((a) => (
@@ -346,6 +353,9 @@ export function KeysScreen() {
   const [selected, setSelected] = useQueryParam('key');
   const [form, setForm] = useState<'new' | 'edit' | null>(null);
   const [secret, setSecret] = useState<{ title: string; value: string; created: boolean } | null>(null);
+  const [flags, setFlags] = useState(false);
+  const canFlags = useCan('listAnomalies');
+  const loadAnomalies = useKeysContext((s) => s.loadAnomalies);
   const [tab, setTab] = useTabParam();
   const view: KeysView = tab === 'teams' || tab === 'rotation' || tab === 'activity' ? tab : 'keys';
   const budgets = useKeysContext((s) => s.budgets.data);
@@ -412,9 +422,19 @@ export function KeysScreen() {
             )
           }
           onRotation={() => setTab('rotation')}
+          onFlags={canFlags ? () => setFlags(true) : undefined}
         />
       ) : null}
-      <AnomalyNotice />
+      <AnomalyNotice onHistory={canFlags ? () => setFlags(true) : undefined} />
+      {flags ? (
+        <AnomalyHistory
+          onClose={() => {
+            setFlags(false);
+            // A flag dismissed in the history leaves the notice.
+            void loadAnomalies();
+          }}
+        />
+      ) : null}
       {views.length > 0 ? (
         <Tabs<KeysView>
           label="Key views"

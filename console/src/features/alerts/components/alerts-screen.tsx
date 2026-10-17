@@ -39,6 +39,7 @@ import { severityTone, useAlerts } from '../store';
 import { AlertDetail, durationOf, snoozed } from './alert-detail';
 import { ChannelDrawer } from './channel-drawer';
 import { ChannelsView } from './channels-view';
+import { AnomalyHistory } from './anomaly-flag';
 import { AlertsHero } from './hero';
 import { MaintenanceDrawer } from './maintenance-drawer';
 import { RuleDrawer } from './rule-drawer';
@@ -127,6 +128,8 @@ function Editors() {
         );
       case 'maintenance':
         return <MaintenanceDrawer key={key} onClose={close} />;
+      case 'anomalies':
+        return <AnomalyHistory key={key} keyName={e.key} onClose={close} />;
     }
   };
   return <>{stack.map(one)}</>;
@@ -175,6 +178,7 @@ export function AlertsScreen() {
   const show = useAlertEditors((s) => s.show);
   const canDeliveries = useCan('listAlertDeliveries');
   const canMaintenance = useCan('getGovernanceSettings');
+  const canAnomalies = useCan('listAnomalies');
   const now = useNow(30_000);
   const wide = !useMediaQuery('(max-width: 1023px)');
   const [viewParam, setView] = useTabParam();
@@ -256,6 +260,15 @@ export function AlertsScreen() {
                       ? undefined
                       : noPermissionReason(permissionOf('getGovernanceSettings')),
                     onSelect: () => show({ kind: 'maintenance' }),
+                  },
+                  {
+                    label: 'Unusual key activity',
+                    icon: 'key',
+                    disabled: !canAnomalies,
+                    disabledReason: canAnomalies
+                      ? undefined
+                      : noPermissionReason(permissionOf('listAnomalies')),
+                    onSelect: () => show({ kind: 'anomalies' }),
                   },
                 ]}
               />

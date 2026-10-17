@@ -34,6 +34,7 @@ import {
   STATUS_WORD,
 } from '../describe';
 import { useAlertEditors } from '../editors';
+import { AnomalyFlag } from './anomaly-flag';
 import { resolveSeconds, ruleStats } from '../stats';
 import { severityTone, useAlerts } from '../store';
 
@@ -299,6 +300,10 @@ export function AlertDetail({ alert, onOpen }: { alert: Alert; onOpen: (id: stri
   const unsnoozeDenied = useDenied('unsnoozeAlert', 'end the snooze of');
   const escalateDenied = useDenied('escalateAlert', 'escalate');
   const noteDenied = useDenied('noteAlert', 'add notes to');
+  const showEditor = useAlertEditors((s) => s.show);
+  const canFlag = useCan('getAnomaly');
+  // An alert raised by unusual key activity names its flag in the scope.
+  const anomaly = alert.scope?.anomaly ?? null;
   useEffect(() => {
     void loadSignal(alert.id);
   }, [alert.id, loadSignal]);
@@ -475,6 +480,14 @@ export function AlertDetail({ alert, onOpen }: { alert: Alert; onOpen: (id: stri
           ]}
         />
       </Section>
+      {anomaly && canFlag ? (
+        <Section title="Flagged key activity">
+          <AnomalyFlag
+            id={anomaly}
+            onHistory={(key) => showEditor({ kind: 'anomalies', key }, { over: true })}
+          />
+        </Section>
+      ) : null}
       <Section
         title="Metric, last 40 min"
         aside={
