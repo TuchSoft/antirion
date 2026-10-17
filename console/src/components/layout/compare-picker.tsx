@@ -56,10 +56,7 @@ export function ComparePicker() {
           className="inline-flex h-7 items-center gap-1.5 rounded-control border border-line bg-canvas px-2 text-ui text-fg hover:border-line-strong hover:bg-hover"
         >
           <Icon name="compare" size={14} className="text-muted" />
-          <span className="whitespace-nowrap max-xl:sr-only">
-            <span className="text-muted">vs </span>
-            {compareTitle(compare)}
-          </span>
+          <span className="whitespace-nowrap max-xl:sr-only">{compareTitle(compare)}</span>
           <Icon name="chevronDown" size={12} className="text-dim" />
         </button>
       </Tooltip>
