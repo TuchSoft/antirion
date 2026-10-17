@@ -13,6 +13,7 @@ import { Panel } from '@/components/ui/layout';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import type { DeploymentHealth } from '@/lib/api/types';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { formatCount, formatPercent, plural } from '@/lib/format';
 import { formatRelative } from '@/lib/time';
 import { notify } from '@/stores/ui';
@@ -185,17 +186,16 @@ interface Item {
   hint?: string;
 }
 
-const ITEMS: Item[] = [
-  { group: 'timeouts', key: 'connect', label: 'Connect', fallback: '10s', kind: 'duration' },
-  { group: 'timeouts', key: 'ttft', label: 'First token', fallback: '300s', kind: 'duration' },
-  { group: 'timeouts', key: 'stream_idle', label: 'Idle stream', fallback: '120s', kind: 'duration' },
-  { group: 'timeouts', key: 'attempt', label: 'Each attempt', fallback: '600s', kind: 'duration' },
-  { group: 'timeouts', key: 'deadline', label: 'Whole request', fallback: '900s', kind: 'duration' },
+const LISTED: Omit<Item, 'fallback'>[] = [
+  { group: 'timeouts', key: 'connect', label: 'Connect', kind: 'duration' },
+  { group: 'timeouts', key: 'ttft', label: 'First token', kind: 'duration' },
+  { group: 'timeouts', key: 'stream_idle', label: 'Idle stream', kind: 'duration' },
+  { group: 'timeouts', key: 'attempt', label: 'Each attempt', kind: 'duration' },
+  { group: 'timeouts', key: 'deadline', label: 'Whole request', kind: 'duration' },
   {
     group: 'retry',
     key: 'max_attempts',
     label: 'Attempts at most',
-    fallback: '5',
     kind: 'int',
     hint: '1 to 10',
   },
@@ -203,19 +203,17 @@ const ITEMS: Item[] = [
     group: 'retry',
     key: 'tier_retries',
     label: 'Retries per step',
-    fallback: '2',
     kind: 'int',
     hint: '0 to 9',
   },
-  { group: 'backoff', key: 'initial', label: 'First wait', fallback: '500ms', kind: 'duration' },
-  { group: 'backoff', key: 'max', label: 'Longest wait', fallback: '8s', kind: 'duration' },
-  { group: 'backoff', key: 'multiplier', label: 'Growth', fallback: '2', kind: 'number', hint: '1 to 10' },
-  { group: 'backoff', key: 'jitter', label: 'Jitter', fallback: '50', kind: 'ratio', hint: 'Percent' },
+  { group: 'backoff', key: 'initial', label: 'First wait', kind: 'duration' },
+  { group: 'backoff', key: 'max', label: 'Longest wait', kind: 'duration' },
+  { group: 'backoff', key: 'multiplier', label: 'Growth', kind: 'number', hint: '1 to 10' },
+  { group: 'backoff', key: 'jitter', label: 'Jitter', kind: 'ratio', hint: 'Percent' },
   {
     group: 'breaker',
     key: 'failure_rate',
     label: 'Pause above',
-    fallback: '50',
     kind: 'ratio',
     hint: 'Percent errors',
   },
@@ -223,25 +221,22 @@ const ITEMS: Item[] = [
     group: 'breaker',
     key: 'min_requests',
     label: 'Out of at least',
-    fallback: '20',
     kind: 'int',
     hint: 'Requests',
   },
-  { group: 'breaker', key: 'window', label: 'Over', fallback: '60s', kind: 'duration' },
+  { group: 'breaker', key: 'window', label: 'Over', kind: 'duration' },
   {
     group: 'breaker',
     key: 'consecutive_failures',
     label: 'Or failures in a row',
-    fallback: '5',
     kind: 'int',
   },
-  { group: 'breaker', key: 'open_duration', label: 'First pause', fallback: '30s', kind: 'duration' },
-  { group: 'breaker', key: 'max_open_duration', label: 'Longest pause', fallback: '300s', kind: 'duration' },
+  { group: 'breaker', key: 'open_duration', label: 'First pause', kind: 'duration' },
+  { group: 'breaker', key: 'max_open_duration', label: 'Longest pause', kind: 'duration' },
   {
     group: 'admission',
     key: 'max_in_flight',
     label: 'In flight at most',
-    fallback: '—',
     kind: 'int',
     hint: 'Per node',
   },
@@ -249,12 +244,30 @@ const ITEMS: Item[] = [
     group: 'admission',
     key: 'max_queue',
     label: 'Waiting at most',
-    fallback: '—',
     kind: 'int',
     hint: 'Per node',
   },
-  { group: 'admission', key: 'queue_timeout', label: 'Longest wait', fallback: '—', kind: 'duration' },
+  { group: 'admission', key: 'queue_timeout', label: 'Longest wait', kind: 'duration' },
 ];
+
+/** The gateway's built-in values, from the configuration schema. */
+const BUILT_IN: Record<Item['group'], Record<string, unknown>> = {
+  timeouts: SETTINGS_DEFAULTS.policies.resilience.timeouts,
+  retry: SETTINGS_DEFAULTS.policies.resilience.retry,
+  backoff: SETTINGS_DEFAULTS.policies.resilience.retry.backoff,
+  breaker: SETTINGS_DEFAULTS.resilience.health.breaker,
+  admission: SETTINGS_DEFAULTS.server.admission,
+};
+
+/** A built-in value as the table shows it (ratios as percents), or "—" when there is none. */
+function builtIn(item: Omit<Item, 'fallback'>): string {
+  const v = BUILT_IN[item.group][item.key];
+  if (v === undefined || v === null) return '—';
+  if (item.kind === 'ratio' && typeof v === 'number') return String(Math.round(v * 100));
+  return typeof v === 'string' || typeof v === 'number' ? String(v) : '—';
+}
+
+const ITEMS: Item[] = LISTED.map((i) => ({ ...i, fallback: builtIn(i) }));
 
 const GROUPS: { id: Item['group'][]; title: string; note: string }[] = [
   {
