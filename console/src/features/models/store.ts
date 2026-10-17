@@ -449,6 +449,17 @@ export async function patchModelSpec(
   return updated;
 }
 
+/** Files a request for access to a Model for a team, project, organization or key (`team/search`). */
+export async function requestAccess(model: string, scope: string, reason?: string): Promise<AccessRequest> {
+  const created = await modelsApi.requestAccess(model, scope, reason);
+  useCatalog.setState((s) => {
+    const slot = s.access[model];
+    if (!slot?.data) return {};
+    return { access: { ...s.access, [model]: { ...slot, data: [created, ...slot.data] } } };
+  });
+  return created;
+}
+
 /** Approves or denies an access request; an approval changes the Model's access list, so it is read again. */
 export async function decideAccess(
   model: string,

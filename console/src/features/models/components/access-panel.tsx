@@ -5,22 +5,23 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
-import { Field, MultiSelect } from '@/components/ui/form';
+import { Field, Input, MultiSelect, Select, Textarea } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { DetailSection } from '@/components/ui/list-detail';
-import { CancelButton, Drawer } from '@/components/ui/overlay';
+import { CancelButton, Dialog, Drawer } from '@/components/ui/overlay';
 import type { SelectOption } from '@/components/ui/select';
 import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { Tooltip } from '@/components/ui/tooltip';
-import { api, listAll } from '@/lib/api/client';
-import type { ModelSpec } from '@/lib/api/types';
+import { api, isChangeControl, listAll } from '@/lib/api/client';
+import type { Me, ModelSpec } from '@/lib/api/types';
 import { plural } from '@/lib/format';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
+import { useSession } from '@/stores/session';
 import { notify } from '@/stores/ui';
 
 import { type AccessRequest, parseScope, SCOPE_NOUN } from '../catalog';
-import { decideAccess, patchModelSpec, useCatalog } from '../store';
+import { decideAccess, patchModelSpec, requestAccess, useCatalog } from '../store';
 import type { ModelView } from '../types';
 import { useEdited } from '@/lib/hooks';
 
@@ -164,6 +165,128 @@ export function AccessDrawer({ view, onClose }: { view: ModelView; onClose: () =
   );
 }
 
+const SCOPE = /^(organization|team|project|key)\/[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/** The scopes a person can ask access for: their own team first, then where their roles apply. */
+export function requestScopes(me: Me | null): string[] {
+  const out: string[] = [];
+  const team = me?.user?.primary_team;
+  if (team) out.push(`team/${team}`);
+  for (const b of me?.bindings ?? []) if (SCOPE.test(b.scope) && !out.includes(b.scope)) out.push(b.scope);
+  return out;
+}
+
+/**
+ * Asks for access to a preview or restricted Model, for one of the person's teams or projects (or
+ * any team, project, organization or key typed in), with a reason; an admin approves or denies it.
+ */
+export function RequestAccessDialog({ model, onClose }: { model: string; onClose: () => void }) {
+  const me = useSession((s) => s.me);
+  const [scopes] = useState(() => requestScopes(me));
+  const [choice, setChoice] = useState(scopes[0] ?? 'other');
+  const [kind, setKind] = useState<'team' | 'project' | 'key' | 'organization'>('team');
+  const [name, setName] = useState('');
+  const [reason, setReason] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const edited = useEdited({ choice, kind, name, reason });
+  const scope = choice === 'other' ? `${kind}/${name.trim()}` : choice;
+
+  async function submit() {
+    if (!SCOPE.test(scope)) {
+      setProblem(`Enter the ${SCOPE_NOUN[kind].toLowerCase()}’s name: letters, digits and . _ -`);
+      return;
+    }
+    if (reason.length > 500) {
+      setProblem('Use at most 500 characters for the reason');
+      return;
+    }
+    setProblem(null);
+    setBusy(true);
+    setError(null);
+    try {
+      await requestAccess(model, scope, reason.trim() || undefined);
+      notify('success', 'Access requested', `${scope}: an admin will approve or deny it`);
+      onClose();
+    } catch (e) {
+      if (isChangeControl(e)) onClose();
+      else setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      dirty={edited}
+      onClose={onClose}
+      title={`Request access to ${model}`}
+      description="An admin approves or denies it. Once approved, apps using that team, project or key can call the model."
+      footer={
+        <>
+          <CancelButton />
+          <Button variant="primary" busy={busy} onClick={() => void submit()}>
+            Request access
+          </Button>
+        </>
+      }
+    >
+      <form
+        noValidate
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <InlineError error={error} />
+        <Field label="For" error={choice !== 'other' ? (problem ?? undefined) : undefined}>
+          <Select
+            value={choice}
+            onChange={setChoice}
+            options={[
+              ...scopes.map((sc) => {
+                const p = parseScope(sc);
+                return {
+                  value: sc,
+                  label: p ? `${SCOPE_NOUN[p.kind]} ${p.name}` : sc,
+                  description: sc === `team/${me?.user?.primary_team ?? ''}` ? 'Your team' : undefined,
+                };
+              }),
+              { value: 'other', label: 'Another team, project or key' },
+            ]}
+          />
+        </Field>
+        {choice === 'other' ? (
+          <div className="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+            <Field label="Kind">
+              <Select
+                value={kind}
+                onChange={(v) => setKind(v as typeof kind)}
+                options={[
+                  { value: 'team', label: 'Team' },
+                  { value: 'project', label: 'Project' },
+                  { value: 'key', label: 'API key' },
+                  { value: 'organization', label: 'Organization' },
+                ]}
+              />
+            </Field>
+            <Field label="Name" error={problem ?? undefined}>
+              <Input mono value={name} onChange={(e) => setName(e.target.value)} data-autofocus />
+            </Field>
+          </div>
+        ) : null}
+        <Field label="Why you need it" optional hint="Shown to the admin who decides.">
+          <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+        <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+      </form>
+    </Dialog>
+  );
+}
+
 function ScopeLabel({ scope }: { scope: string }) {
   const s = parseScope(scope);
   if (!s) return <span className="mono">{scope}</span>;
@@ -186,6 +309,8 @@ export function AccessPanel({ view, onEdit }: { view: ModelView; onEdit: () => v
   const canRead = useCan('listAccessRequests');
   const canDecide = useCan('approveAccessRequest');
   const canEdit = useCan('patchModel');
+  const canRequest = useCan('createAccessRequest');
+  const [requesting, setRequesting] = useState(false);
   const [decision, setDecision] = useState<{ request: AccessRequest; verb: 'approve' | 'deny' } | null>(null);
   const [showDecided, setShowDecided] = useState(false);
   const gated = view.lifecycle === 'preview' || view.lifecycle === 'restricted';
@@ -205,6 +330,10 @@ export function AccessPanel({ view, onEdit }: { view: ModelView; onEdit: () => v
         gated && canEdit ? (
           <Button size="sm" icon="edit" onClick={onEdit}>
             Edit access
+          </Button>
+        ) : gated && canRequest ? (
+          <Button size="sm" icon="lock" onClick={() => setRequesting(true)}>
+            Request access
           </Button>
         ) : null
       }
@@ -240,7 +369,9 @@ export function AccessPanel({ view, onEdit }: { view: ModelView; onEdit: () => v
         <LoadError of={slot} subject="Access requests" size="sm" />
         {slot?.data && open.length === 0 ? (
           <p className="text-ui text-muted">
-            No one is waiting. Teams ask for access from their own tools or the API.
+            {canEdit || !canRequest
+              ? 'No one is waiting. People without access ask for it from this page or the API.'
+              : 'No one is waiting. Use Request access to ask for it.'}
           </p>
         ) : null}
         <ul className="flex flex-col">
@@ -307,6 +438,7 @@ export function AccessPanel({ view, onEdit }: { view: ModelView; onEdit: () => v
           </div>
         ) : null}
       </div>
+      {requesting ? <RequestAccessDialog model={view.name} onClose={() => setRequesting(false)} /> : null}
       {decision ? (
         <ConfirmDialog
           open

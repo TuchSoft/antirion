@@ -171,6 +171,11 @@ export const modelsApi = {
     listAll((cursor) =>
       api.get('/models/{name}/access_requests', { path: { name: model }, query: { limit: 200, cursor } }),
     ),
+  requestAccess: (model: string, scope: string, reason?: string): Promise<AccessRequest> =>
+    api.post('/models/{name}/access_requests', {
+      path: { name: model },
+      body: reason ? { scope, reason } : { scope },
+    }),
   approveAccess: (model: string, id: string, reason?: string): Promise<AccessRequest> =>
     api.post('/models/{name}/access_requests/{request_id}:approve', {
       path: { name: model, request_id: id },
