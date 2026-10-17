@@ -27,7 +27,8 @@
     "e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "api:generate": "node scripts/generate-api.mjs"
+    "api:generate": "node scripts/generate-api.mjs",
+    "settings:defaults": "node scripts/generate-settings-defaults.mjs"
   },
   "dependencies": {
     "@tabler/icons-react": "3.48.0",
