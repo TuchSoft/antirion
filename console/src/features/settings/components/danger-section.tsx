@@ -23,6 +23,7 @@ import { notify } from '@/stores/ui';
 import { settingsApi } from '../api';
 import { type DualAction, heldActionLabel, useDanger } from '../danger-store';
 import { ChangeControlCard } from './change-control-card';
+import { KeyRequirementCard } from './key-requirement-card';
 import { MaintenanceCard } from './maintenance-card';
 import { Card, SaveBar } from './parts';
 
@@ -719,6 +720,7 @@ export function DangerSection() {
       {pending.data && pending.data.length > 0 ? <WaitingCard /> : null}
       <PauseCard />
       <DryRunCard />
+      <KeyRequirementCard />
       <PurgeCard />
       <RotateCard />
       <OrganizationCard />

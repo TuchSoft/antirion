@@ -1,0 +1,32 @@
+import { plural } from '@/lib/format';
+
+const UNIT: Record<string, string> = { ms: 'millisecond', s: 'second', m: 'minute', h: 'hour', d: 'day' };
+
+/** A configuration duration in words: "15m" → "15 minutes", "1h" → "1 hour", "7d" → "7 days". */
+export function durationWords(value: string): string {
+  const m = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(value.trim());
+  if (!m?.[1] || !m[2]) return value;
+  const n = Number(m[1]);
+  if (m[2] === 'd' && n % 365 === 0) return plural(n / 365, 'year');
+  return plural(n, UNIT[m[2]] ?? m[2]);
+}
+
+/** Select options for durations, keeping a stored value the list lacks. */
+export function durationOptions(values: string[], current?: string): { value: string; label: string }[] {
+  const list = current && !values.includes(current) ? [...values, current] : values;
+  return list.map((v) => ({ value: v, label: durationWords(v) }));
+}
+
+/** A whole number from form text, or null when it is not one. */
+export function whole(text: string): number | null {
+  return /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
+}
+
+/** "Enter a number from 1 to 5" unless `text` is a whole number in [min, max]. */
+export function rangeError(text: string, min: number, max?: number): string | undefined {
+  const n = whole(text);
+  if (n !== null && n >= min && (max === undefined || n <= max)) return undefined;
+  return max === undefined
+    ? `Enter a whole number of at least ${min}`
+    : `Enter a number from ${min} to ${max}`;
+}

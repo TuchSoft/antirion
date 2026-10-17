@@ -23,6 +23,7 @@ import { type LimitSimulationResult, settingsApi } from '../api';
 import { type PriorityMode, sharesErrors, sharesFrom, sharesText, sharesTo } from '../priority';
 import { detailErrors, DURATION_RE, NAME_RE, same, splitList } from '../form-errors';
 import { useOrgSettings } from '../store';
+import { KeyProtectionCard } from './key-protection';
 import { Card, SaveBar } from './parts';
 import { PriorityShares } from './priority-shares';
 import { useEdited } from '@/lib/hooks';
@@ -1010,6 +1011,7 @@ export function ApiAccessSettings() {
       <AllowListCard />
       <LimitsCard />
       <KeyLifetimesCard />
+      <KeyProtectionCard />
       <SimulationCard />
     </>
   );
