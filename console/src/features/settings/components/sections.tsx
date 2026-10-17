@@ -23,6 +23,8 @@ import { ApiAccessSection, GeneralSection, ProvisioningSection } from './org-sec
 import { SignInSection } from './sign-in-section';
 import { PrivacySection } from './privacy-section';
 
+export type SectionScope = 'gateway' | 'organization' | 'mixed' | 'follows';
+
 export interface Section {
   id: string;
   label: string;
@@ -35,6 +37,13 @@ export interface Section {
   aliases?: string[];
   /** Listed only for principals holding this permission (or one of these): the page reads nothing without it. */
   permission?: string | readonly string[];
+  /**
+   * Whom the page's settings are for: `organization`, one organization (the default one at gateway
+   * scope); `gateway`, the whole gateway; `mixed`, gateway-wide settings with some for the
+   * organization; `follows`, the whole gateway at gateway scope, else one organization plus some
+   * gateway-wide settings. Gateway pages are `gateway` when unset.
+   */
+  scope?: SectionScope;
   render: () => ReactNode;
 }
 
@@ -49,6 +58,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
     sections: [
       {
         id: 'general',
+        scope: 'organization',
         permission: 'organizations:read',
         label: 'General',
         icon: 'settings',
@@ -57,6 +67,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         id: 'sign-in',
+        scope: 'mixed',
         permission: ['security:read', 'organizations:read'],
         label: 'Sign-in & SSO',
         icon: 'lock',
@@ -72,6 +83,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         id: 'api-access',
+        scope: 'mixed',
         permission: 'organizations:read',
         label: 'API access',
         icon: 'key',
@@ -80,6 +92,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         id: 'privacy',
+        scope: 'follows',
         permission: ['policies:read', 'config:read'],
         label: 'Data & privacy',
         icon: 'list',
@@ -93,6 +106,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
     sections: [
       {
         id: 'notifications',
+        scope: 'gateway',
         permission: ['alerts:read', 'config:read'],
         label: 'Notifications',
         icon: 'bell',
@@ -109,6 +123,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
       },
       {
         id: 'webhooks',
+        scope: 'gateway',
         permission: ['config:read', 'security:read'],
         label: 'Webhooks & audit copies',
         icon: 'webhook',
@@ -237,15 +252,21 @@ export function anySection(allowed: (s: Section) => boolean): boolean {
 export const MOVED_SECTIONS: Record<string, string> = { providers: '/providers/' };
 
 /**
- * Whom the open section's settings are for, under the dialog's title: organization and integration
- * sections edit one organization (the default one while the scope is the whole gateway); gateway
- * sections and the danger zone apply to the whole gateway.
+ * Whom the open section's settings are for, under the dialog's title, from the section's `scope`
+ * and the scope picker: one organization (the default one while the scope is the whole gateway),
+ * the whole gateway, or both.
  */
 export function settingsScopeWords(sectionId: string, scope: { kind: string; name?: string }): string {
-  const group = SETTINGS_GROUPS.find((g) => g.sections.some((s) => s.id === sectionId))?.label;
-  if (group === 'Organization' || group === 'Integrations')
-    return scope.kind === 'gateway'
-      ? 'For the default organization'
-      : `For ${scope.name ?? 'this organization'}`;
-  return 'For the whole gateway';
+  const section = SETTINGS_SECTIONS.find((s) => s.id === sectionId);
+  const org = scope.kind === 'gateway' ? 'the default organization' : (scope.name ?? 'this organization');
+  switch (section?.scope ?? 'gateway') {
+    case 'organization':
+      return `For ${org}`;
+    case 'mixed':
+      return `For the whole gateway and ${org}`;
+    case 'follows':
+      return scope.kind === 'gateway' ? 'For the whole gateway' : `For ${org} and the whole gateway`;
+    default:
+      return 'For the whole gateway';
+  }
 }
