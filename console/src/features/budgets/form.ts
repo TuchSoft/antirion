@@ -120,31 +120,41 @@ export const budgetSchema = z
   });
 
 /**
- * The declaration(s) the form describes: the budget, and a hard twin at the cap when one is set.
- * Members the form turned off are `null`, so the merge patch removes them from the stored budget.
+ * The declaration(s) the form describes, as a merge patch on the owner's budgets: the budget, and
+ * its hard twin at the cap. Members the form turned off are `null`, so the patch removes them.
+ *
+ * With `pristine` (the values as loaded), only what the person changed is written: members of the
+ * declaration the form shows but nobody touched stay exactly as they are stored. The twin is removed
+ * only when the loaded declaration had one, so an unrelated budget named `<name>_cap` is left alone.
  */
-export function toDeclarations(v: BudgetFormValues): Record<string, Record<string, unknown> | null> {
-  const alerts = v.alerts
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => Number(p) / 100);
+export function toDeclarations(
+  v: BudgetFormValues,
+  pristine?: BudgetFormValues,
+): Record<string, Record<string, unknown> | null> {
+  const changed = (...keys: (keyof BudgetFormValues)[]) =>
+    !pristine || keys.some((k) => JSON.stringify(v[k]) !== JSON.stringify(pristine[k]));
   const rolling = v.period === 'rolling';
   const period = rolling ? v.window.trim() : v.period;
   const tokens = v.unit === 'tokens';
-  const base: Record<string, unknown> = {
-    unit: v.unit,
-    amount: amountOf(v.unit, v.amount),
+  const base: Record<string, unknown> = {};
+  if (changed('unit', 'tokens')) {
+    base.unit = v.unit;
     // `tokens` and `weights` only exist on a token budget; the default count is left unwritten.
-    tokens: tokens ? (v.tokens === 'total' ? undefined : v.tokens) : null,
-    ...(tokens ? {} : { weights: null }),
-    period,
-    algorithm: rolling ? 'sliding_window' : null,
-    ...(rolling ? {} : { precision: null }),
-    mode: v.enforcement === 'approval' ? 'approval' : v.enforcement === 'hard' ? 'hard' : 'soft',
-    alert_at: alerts.length > 0 ? alerts : null,
-    owner: v.budgetOwner ? v.budgetOwner : null,
-    downgrade:
+    if (!tokens) Object.assign(base, { tokens: null, weights: null });
+    else if (v.tokens !== 'total' || (pristine && pristine.tokens !== 'total')) base.tokens = v.tokens;
+  }
+  if (changed('unit', 'amount')) base.amount = amountOf(v.unit, v.amount);
+  if (changed('period', 'window')) {
+    base.period = period;
+    base.algorithm = rolling ? 'sliding_window' : null;
+    if (!rolling) base.precision = null;
+    // A time zone belongs to calendar periods, a week start to weekly ones.
+    if (rolling || v.period === 'lifetime') base.timezone = null;
+    if (v.period !== 'weekly') base.week_start = null;
+  }
+  if (changed('enforcement', 'downgradeAt', 'downgradeTo', 'downgradeModel', 'downgradeTier')) {
+    base.mode = v.enforcement === 'approval' ? 'approval' : v.enforcement === 'hard' ? 'hard' : 'soft';
+    base.downgrade =
       v.enforcement === 'downgrade'
         ? {
             at: Number(v.downgradeAt) / 100,
@@ -152,26 +162,59 @@ export function toDeclarations(v: BudgetFormValues): Record<string, Record<strin
               ? { to_model: v.downgradeModel, to_tier: null }
               : { to_tier: v.downgradeTier, to_model: null }),
           }
-        : null,
-    cache_hits_bypass_budgets: v.cacheBypass ? true : null,
-  };
-  if (base.tokens === undefined) delete base.tokens;
+        : null;
+  }
+  if (changed('alerts')) {
+    const alerts = v.alerts
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => Number(p) / 100);
+    base.alert_at = alerts.length > 0 ? alerts : null;
+  }
+  if (changed('budgetOwner')) base.owner = v.budgetOwner ? v.budgetOwner : null;
+  if (changed('cacheBypass')) base.cache_hits_bypass_budgets = v.cacheBypass ? true : null;
   const out: Record<string, Record<string, unknown> | null> = { [v.name]: base };
-  const capName = `${v.name}_cap`.slice(0, 64);
+  const capName = capNameOf(v.name);
   if (v.hardCap) {
-    const capAmount = (Number(v.amount) * Number(v.hardCap)) / 100;
-    out[capName] = {
-      unit: v.unit,
-      amount: tokens ? Math.round(capAmount) : String(capAmount),
-      ...(tokens && v.tokens !== 'total' ? { tokens: v.tokens } : {}),
-      period,
-      algorithm: rolling ? 'sliding_window' : null,
-      mode: 'hard',
-    };
-  } else {
+    if (changed('hardCap', 'amount', 'unit', 'tokens', 'period', 'window')) {
+      const capAmount = (Number(v.amount) * Number(v.hardCap)) / 100;
+      out[capName] = {
+        unit: v.unit,
+        amount: tokens ? Math.round(capAmount) : String(capAmount),
+        tokens: tokens && v.tokens !== 'total' ? v.tokens : null,
+        ...(tokens ? {} : { weights: null }),
+        period,
+        algorithm: rolling ? 'sliding_window' : null,
+        mode: 'hard',
+      };
+    }
+  } else if (pristine?.hardCap) {
     out[capName] = null;
   }
   return out;
+}
+
+/** The name of a budget's hard twin. */
+export function capNameOf(name: string): string {
+  return `${name}_cap`.slice(0, 64);
+}
+
+/**
+ * Whether `cap` is the hard twin the drawer writes for `decl`: blocking, in the same unit and over
+ * the same period. Another budget that happens to be named `<name>_cap` is not.
+ */
+export function isCapTwin(
+  decl: Record<string, unknown> | undefined,
+  cap: Record<string, unknown> | undefined,
+): boolean {
+  if (!decl || !cap) return false;
+  return (
+    (cap.mode === undefined || cap.mode === 'hard') &&
+    unitOf(cap) === unitOf(decl) &&
+    cap.period === decl.period &&
+    (cap.algorithm ?? null) === (decl.algorithm ?? null)
+  );
 }
 
 /** An amount as a declaration writes it: a decimal string of dollars, or a whole number of tokens. */
@@ -214,8 +257,9 @@ export function fromDeclaration(
     ? (d.alert_at as unknown[]).map((a) => String(Math.round(Number(a) * 100))).join(', ')
     : '';
   const amount = typeof d.amount === 'string' || typeof d.amount === 'number' ? String(d.amount) : '';
+  const twin = isCapTwin(decl, cap) ? cap : undefined;
   const capAmount =
-    cap && (typeof cap.amount === 'string' || typeof cap.amount === 'number') ? Number(cap.amount) : null;
+    twin && (typeof twin.amount === 'string' || typeof twin.amount === 'number') ? Number(twin.amount) : null;
   const period = typeof d.period === 'string' ? d.period : 'monthly';
   const rolling = d.algorithm === 'sliding_window' || !PERIODS.includes(period);
   return {

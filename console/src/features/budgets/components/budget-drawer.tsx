@@ -25,6 +25,7 @@ import { notify } from '@/stores/ui';
 
 import {
   budgetSchema,
+  capNameOf,
   type BudgetFormValues,
   type BudgetUnit,
   type Enforcement,
@@ -188,6 +189,8 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
   const [values, setValues] = useState<BudgetFormValues>(EMPTY_BUDGET);
   // The values as loaded, to tell unsaved edits apart.
   const [pristine, setPristine] = useState<BudgetFormValues>(EMPTY_BUDGET);
+  // The values as stored: a save writes only what differs from them.
+  const [stored, setStored] = useState<BudgetFormValues | undefined>(undefined);
   const [decl, setDecl] = useState<Record<string, unknown> | undefined>(undefined);
   const [loaded, setLoaded] = useState(row === null);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -220,10 +223,11 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
       .then((d) => {
         if (cancelled) return;
         const found = d?.budgets[row.name] as Record<string, unknown> | undefined;
-        const cap = d?.budgets[`${row.name}_cap`] as Record<string, unknown> | undefined;
+        const cap = d?.budgets[capNameOf(row.name)] as Record<string, unknown> | undefined;
         const v = fromDeclaration(row.level as BudgetFormValues['level'], row.owner, row.name, found, cap);
         setValues(enforcement ? { ...v, enforcement } : v);
         setPristine(enforcement ? { ...v, enforcement } : v);
+        setStored(found ? v : undefined);
         setDecl(found);
         if (row.partition) {
           const overrides = (found?.overrides ?? {}) as Record<string, string | number>;
@@ -299,7 +303,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
     setBusy(true);
     setError(null);
     try {
-      await save(values.level, values.owner, toDeclarations(values));
+      await save(values.level, values.owner, toDeclarations(values, row ? stored : undefined));
       notify('success', 'Budget saved', `${values.owner} · ${values.name}`);
       onClose();
     } catch (e) {
@@ -788,7 +792,12 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
             withReason
             effect="Spend stops being checked against this budget. Its history stays in the audit log."
             onConfirm={async (reason) => {
-              await save(row.level, row.owner, { [row.name]: null, [`${row.name}_cap`]: null }, reason);
+              await save(
+                row.level,
+                row.owner,
+                { [row.name]: null, ...(stored?.hardCap ? { [capNameOf(row.name)]: null } : {}) },
+                reason,
+              );
               notify('success', 'Budget deleted', row.owner);
               onClose();
             }}

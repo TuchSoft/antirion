@@ -54,6 +54,19 @@ const FORECAST = {
   basis_to: '2026-06-16T00:00:00Z',
 };
 
+/** Applies a JSON merge patch the way the gateway does. */
+function mergePatch(target: unknown, patch: unknown): unknown {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out = new Map<string, unknown>(
+    target !== null && typeof target === 'object' && !Array.isArray(target) ? Object.entries(target) : [],
+  );
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) out.delete(k);
+    else out.set(k, mergePatch(out.get(k), v));
+  }
+  return Object.fromEntries(out);
+}
+
 describe('budget forecasts', () => {
   it('projects linearly over the period', () => {
     const { projected, elapsed } = project(counter('team', 't', '50'), NOW);
@@ -116,8 +129,50 @@ describe('budget form', () => {
   it('writes a token override as a whole number', () => {
     expect(toOverride('seats', 'ada', '1000', 'tokens')).toEqual({ seats: { overrides: { ada: 1000 } } });
   });
-  it('removes the cap twin when no cap is set', () => {
-    expect(toDeclarations({ ...EMPTY_BUDGET, owner: 'core', amount: '500' }).monthly_cap).toBeNull();
+  it('removes the cap twin when the cap is cleared', () => {
+    const decl = { unit: 'usd', amount: '500', period: 'monthly', mode: 'soft' };
+    const cap = { unit: 'usd', amount: '550', period: 'monthly', mode: 'hard' };
+    const stored = fromDeclaration('team', 'core', 'monthly', decl, cap);
+    expect(stored.hardCap).toBe('110');
+    expect(toDeclarations({ ...stored, hardCap: '' }, stored).monthly_cap).toBeNull();
+  });
+  it('leaves an unrelated budget named like the twin alone', () => {
+    expect(toDeclarations({ ...EMPTY_BUDGET, owner: 'core', amount: '500' })).not.toHaveProperty(
+      'monthly_cap',
+    );
+    const decl = { unit: 'usd', amount: '500', period: 'monthly', mode: 'soft' };
+    const other = { unit: 'usd', amount: '50', period: 'daily', mode: 'soft' };
+    const stored = fromDeclaration('team', 'core', 'monthly', decl, other);
+    expect(stored.hardCap).toBe('');
+    expect(toDeclarations({ ...stored, amount: '600' }, stored)).not.toHaveProperty('monthly_cap');
+  });
+  it('writes only what changed, so a saved budget keeps every member as stored', () => {
+    const decl = {
+      unit: 'tokens',
+      amount: 1_000_000,
+      period: 'weekly',
+      week_start: 'sunday',
+      timezone: 'Europe/Lisbon',
+      mode: 'approval',
+      alert_at: [0.333, 0.9],
+      tokens: 'weighted',
+      weights: { output_text: '4' },
+      match: { models: ['gpt-*'], tags: ['env:prod'] },
+      exclude: { models: ['gpt-4o-mini'] },
+      partition_by: ['user'],
+      on_missing: 'skip',
+      overrides: { ada: 2_000_000 },
+      owner: 'ada',
+      on_store_unavailable: 'local_share',
+      allow_above_parent: true,
+    };
+    const stored = fromDeclaration('team', 'core', 'weekly', decl, undefined);
+    const patch = toDeclarations(stored, stored);
+    expect(patch).toEqual({ weekly: {} });
+    expect(mergePatch({ weekly: decl }, patch)).toEqual({ weekly: decl });
+    expect(toDeclarations({ ...stored, amount: '1500000' }, stored)).toEqual({
+      weekly: { amount: 1_500_000 },
+    });
   });
   it('rejects decreasing thresholds and a cap on a hard budget', () => {
     expect(
