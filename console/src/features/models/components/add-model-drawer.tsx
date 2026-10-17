@@ -28,10 +28,11 @@ import {
   deploymentNameFor,
   EMPTY_ADD_MODEL,
   toModelSpec,
+  unusedDeployments,
 } from '../form';
 import { fromPerMillion, toPerMillion } from '../catalog';
 import { useEffectivePrice } from '../hooks';
-import { addModel, useCatalog } from '../store';
+import { addModel, useCatalog, useModels } from '../store';
 import { BUILTIN_TIERS, rate, tierLabel } from '../types';
 
 const TIER_HINTS: Record<string, string> = {
@@ -115,7 +116,18 @@ export function AddModelDrawer({
   const providersSlot = useCatalog((s) => s.providers);
   const providers = providersSlot.data ?? [];
   const loadProviders = useCatalog((s) => s.loadProviders);
-  const deployments = useCatalog((s) => s.deployments.data) ?? [];
+  const deploymentsData = useCatalog((s) => s.deployments.data);
+  const deployments = useMemo(() => deploymentsData ?? [], [deploymentsData]);
+  const routes = useCatalog((s) => s.routes.data);
+  const models = useModels((s) => s.items);
+  const modelsLoaded = useModels((s) => s.loadedAt !== null);
+  // "Unused deployment" only when some deployment serves no Model; the path stays "New from a provider".
+  const unused = useMemo(
+    () => (modelsLoaded && routes ? unusedDeployments(deployments, models, routes) : []),
+    [deployments, models, routes, modelsLoaded],
+  );
+  if (values.deploymentMode === 'existing' && unused.length === 0)
+    setValues((v) => ({ ...v, deploymentMode: 'new', existingDeployment: '' }));
   const tiers = useCatalog((s) => s.tiers.data);
   const canAddProvider = useCan('createProvider');
   const tierOptions = (tiers?.map((t) => t.name) ?? [...BUILTIN_TIERS]).map((t) => {
@@ -291,14 +303,14 @@ export function AddModelDrawer({
         >
           <InlineError error={error} />
           <Section title="Source">
-            {deployments.length > 0 ? (
+            {unused.length > 0 ? (
               <Segmented<'new' | 'existing'>
                 label="Source"
                 value={values.deploymentMode}
                 onChange={(m) => set('deploymentMode', m)}
                 options={[
                   { value: 'new', label: 'New from a provider' },
-                  { value: 'existing', label: 'An existing deployment' },
+                  { value: 'existing', label: `Unused deployment (${String(unused.length)})` },
                 ]}
               />
             ) : null}
@@ -398,18 +410,26 @@ export function AddModelDrawer({
                 ) : null}
               </div>
             ) : (
-              <Field label="Deployment" error={errors.existingDeployment} required>
+              <Field
+                label="Deployment"
+                error={errors.existingDeployment}
+                required
+                hint="A deployment set up in the configuration or left after its Model was deleted."
+              >
                 <Combobox
                   value={values.existingDeployment}
                   onChange={(v) => pickDeployment(v)}
                   placeholder="Select a deployment"
-                  options={deployments.map((d) => ({
+                  options={unused.map((d) => ({
                     value: d.name,
                     label: `${d.name} · ${d.spec.provider}/${d.spec.model}`,
                   }))}
                 />
               </Field>
             )}
+            <p className="text-caption text-muted">
+              To call a model you already offer by another name, add an alias on that Model instead.
+            </p>
           </Section>
           <Section title="Name">
             <div className="grid gap-4 sm:grid-cols-2">

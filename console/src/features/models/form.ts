@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
-import type { ModelSpec } from '@/lib/api/types';
+import type { DeploymentResource, ModelResource, ModelSpec, RouteResource } from '@/lib/api/types';
 import { resourceName, splitList } from '@/lib/validation';
+
+import { collectLeaves } from './types';
 
 export interface AddModelValues {
   name: string;
@@ -101,6 +103,26 @@ export const addModelSchema = z
         });
     }
   });
+
+/**
+ * The deployments no Model routes to (its target or route, followed into shared routes): set up
+ * in the configuration, or left after their Model was deleted.
+ */
+export function unusedDeployments(
+  deployments: DeploymentResource[],
+  models: ModelResource[],
+  routes: RouteResource[],
+): DeploymentResource[] {
+  const map = new Map(routes.map((r) => [r.name, r]));
+  const used = new Set<string>();
+  for (const m of models) {
+    const tree = (m.spec.target ?? (m.spec.route ? { route: m.spec.route } : null)) as Parameters<
+      typeof collectLeaves
+    >[0];
+    for (const leaf of collectLeaves(tree, map)) used.add(leaf);
+  }
+  return deployments.filter((d) => !used.has(d.name));
+}
 
 /** A deployment name for a provider and upstream model: `openai-gpt-4o`. */
 export function deploymentNameFor(provider: string, upstream: string): string {
