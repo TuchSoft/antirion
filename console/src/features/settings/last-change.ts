@@ -1,7 +1,7 @@
 import type { AuditEntry } from '@/lib/api/types';
 
 import { same } from './form-errors';
-import { auditActorBy } from '@/lib/audit-words';
+import { auditActorBy, auditChangeList } from '@/lib/audit-words';
 
 function dig(value: unknown, path: string[]): unknown {
   let v = value;
@@ -18,10 +18,8 @@ function dig(value: unknown, path: string[]): unknown {
  * inside it, or is a broader change whose before and after differ there.
  */
 export function touches(entry: AuditEntry, target: string): boolean {
-  // Defensive: some audit entries carry their changes in another shape; only a list of changes counts.
-  const changes: unknown = entry.changes;
-  if (!Array.isArray(changes)) return false;
-  for (const c of changes as { path?: unknown; before?: unknown; after?: unknown }[]) {
+  // Some audit entries carry their changes in another shape; each is read as the changes it holds.
+  for (const c of auditChangeList(entry.changes)) {
     if (typeof c.path !== 'string') continue;
     const path = c.path;
     if (path === target || path.startsWith(`${target}.`)) return true;

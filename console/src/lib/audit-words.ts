@@ -52,6 +52,7 @@ const EXACT: Record<string, string> = {
   'keys.anomaly_flagged': 'Unusual key activity flagged',
   'keys.anomaly_dismissed': 'Unusual key activity dismissed',
   'config.apply': 'Configuration applied',
+  'logs.export': 'Request log exported',
   'config.rollback': 'Configuration rolled back',
 };
 
@@ -243,6 +244,11 @@ export function auditEntryLabel(entry: {
     const attached = attachmentWords(entry.changes);
     if (attached) return attached;
   }
+  if (entry.action === 'logs.export') {
+    const after = auditChangeList(entry.changes)[0]?.after;
+    const format = isRecord(after) && typeof after.format === 'string' ? after.format : null;
+    if (format) return `Request log exported as ${format.toUpperCase()}`;
+  }
   const edit = /^([a-z0-9_.]+)\.(update|patch|replace)$/.exec(entry.action);
   const toggled = edit ? auditToggle(entry.changes) : null;
   const name = entry.resource?.split('/').slice(1).join('/');
@@ -251,4 +257,56 @@ export function auditEntryLabel(entry: {
     return sentence(`${subject} ${name} turned ${toggled ? 'on' : 'off'}`);
   }
   return auditActionLabel(entry.action);
+}
+
+/** One change of an audit entry: where, and the value before and after. */
+export interface AuditChange {
+  path?: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * An entry's `changes` as a list of changes, whatever shape the gateway recorded: the list itself,
+ * one change object on its own, or any other value (such as an export's filters) as the `after`
+ * of one change. No change gives an empty list.
+ */
+export function auditChangeList(changes: unknown): AuditChange[] {
+  if (changes === null || changes === undefined) return [];
+  if (Array.isArray(changes))
+    return changes.map((c) =>
+      isRecord(c) && ('path' in c || 'before' in c || 'after' in c) ? c : { after: c },
+    );
+  if (isRecord(changes) && ('path' in changes || 'before' in changes || 'after' in changes)) return [changes];
+  if (isRecord(changes) && Object.keys(changes).length === 0) return [];
+  return [{ after: changes }];
+}
+
+/**
+ * What an entry recorded when it is not a list of changes (an export's filters and format, say),
+ * as label and value pairs to show; null for a list of changes or for nothing recorded.
+ */
+export function auditRecordedFacts(changes: unknown): { label: string; value: string }[] | null {
+  if (changes === null || changes === undefined || Array.isArray(changes)) return null;
+  if (!isRecord(changes)) return [{ label: 'Value', value: JSON.stringify(changes) }];
+  if ('path' in changes || 'before' in changes || 'after' in changes) return null;
+  const facts = Object.entries(changes)
+    .filter(([, v]) => v !== null && v !== undefined && !(isRecord(v) && Object.keys(v).length === 0))
+    .map(([k, v]) => ({
+      label: sentence(k.replace(/_/g, ' ')),
+      value: isRecord(v)
+        ? Object.entries(v)
+            .map(
+              ([kk, vv]) => `${kk.replace(/_/g, ' ')}: ${typeof vv === 'string' ? vv : JSON.stringify(vv)}`,
+            )
+            .join(' · ')
+        : typeof v === 'string'
+          ? v
+          : JSON.stringify(v),
+    }));
+  return facts.length > 0 ? facts : null;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,14 @@ import { Section } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
 import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
-import { auditActionLabel, auditActorKind, auditActorLabel, auditEntryLabel } from '@/lib/audit-words';
+import {
+  auditActionLabel,
+  auditActorKind,
+  auditActorLabel,
+  auditChangeList,
+  auditEntryLabel,
+  auditRecordedFacts,
+} from '@/lib/audit-words';
 import type { AuditEntry } from '@/lib/api/types';
 import { downloadCsv } from '@/lib/csv';
 import { formatDuration, parseDuration } from '@/lib/format';
@@ -50,6 +57,40 @@ function exportAudit(entries: AuditEntry[]) {
       e.request_id,
       e.source_ip,
     ]),
+  );
+}
+
+/**
+ * What an entry changed: its list of changes, or what it recorded in another shape (an export's
+ * filters and format) as facts, so no entry reads as having recorded nothing.
+ */
+function EntryChanges({ changes }: { changes: unknown }) {
+  const facts = auditRecordedFacts(changes);
+  if (facts)
+    return (
+      <>
+        <div className="text-ui font-medium text-fg">Recorded with this action</div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-ui">
+          {facts.map((f) => (
+            <Fragment key={f.label}>
+              <dt className="text-muted">{f.label}</dt>
+              <dd className="mono break-all text-fg">{f.value}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      </>
+    );
+  return (
+    <>
+      <div className="text-ui font-medium text-fg">Changes</div>
+      {auditChangeList(changes).length > 0 ? (
+        <pre className="mono max-h-[60vh] overflow-auto rounded-sm border border-line bg-sunken p-3 text-caption whitespace-pre-wrap text-fg">
+          {JSON.stringify(changes, null, 2)}
+        </pre>
+      ) : (
+        <p className="text-ui text-muted">Nothing was changed by this action.</p>
+      )}
+    </>
   );
 }
 
@@ -279,14 +320,7 @@ export function AuditSection() {
                 {open.generation_before ?? '—'} → {open.generation_after ?? '—'}
               </dd>
             </dl>
-            <div className="text-ui font-medium text-fg">Changes</div>
-            {open.changes && open.changes.length > 0 ? (
-              <pre className="mono max-h-[60vh] overflow-auto rounded-sm border border-line bg-sunken p-3 text-caption whitespace-pre-wrap text-fg">
-                {JSON.stringify(open.changes, null, 2)}
-              </pre>
-            ) : (
-              <p className="text-ui text-muted">Nothing was changed by this action.</p>
-            )}
+            <EntryChanges changes={open.changes} />
           </div>
         ) : null}
       </Drawer>
