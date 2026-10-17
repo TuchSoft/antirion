@@ -6,8 +6,8 @@ import { ConfirmDialog } from '@/components/ui/confirm';
 import { Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
-import { FALLBACKS } from '../fallbacks';
 import { useOrgSettings } from '../store';
 import { Card } from './parts';
 
@@ -26,7 +26,7 @@ export function KeyRequirementCard() {
     if (canRead && auth.status === 'idle') void loadSettings();
   }, [canRead, auth.status, loadSettings]);
   if (!canRead) return null;
-  const required = (auth.data?.spec.mode ?? FALLBACKS.auth_mode) === 'required';
+  const required = (auth.data?.spec.mode ?? SETTINGS_DEFAULTS.auth.mode) === 'required';
   return (
     <Card
       danger

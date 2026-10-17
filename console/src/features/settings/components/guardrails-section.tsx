@@ -7,10 +7,10 @@ import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { settingsApi } from '../api';
 import { rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card, Facts } from './parts';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
@@ -29,11 +29,10 @@ export interface GuardBehaviourValues {
 
 export function guardBehaviourValues(
   spec: S['GuardrailsSettings']['spec'] | undefined,
-  defaults: typeof FALLBACKS.guardrails = FALLBACKS.guardrails,
 ): GuardBehaviourValues {
   return {
-    expose: spec?.expose_results ?? defaults.expose_results,
-    uninspectable: spec?.on_uninspectable ?? (defaults.on_uninspectable as Uninspectable),
+    expose: spec?.expose_results ?? SETTINGS_DEFAULTS.guardrails.expose_results,
+    uninspectable: spec?.on_uninspectable ?? SETTINGS_DEFAULTS.guardrails.on_uninspectable,
   };
 }
 
@@ -120,18 +119,17 @@ export interface GuardPolicyValues {
   onBlock: OnBlock;
 }
 
-export function guardPolicyValues(
-  g: GuardPolicy | undefined,
-  defaults: typeof FALLBACKS.guardrail_policy = FALLBACKS.guardrail_policy,
-): GuardPolicyValues {
+const GD = SETTINGS_DEFAULTS.policies.guardrails;
+
+export function guardPolicyValues(g: GuardPolicy | undefined): GuardPolicyValues {
   return {
     mcpInput: g?.mcp_input ?? [],
     mcpOutput: g?.mcp_output ?? [],
     selectable: g?.request_selectable ?? [],
-    order: g?.execution_order ?? (defaults.execution_order as Order),
-    streamMode: g?.streaming?.mode ?? (defaults.streaming_mode as StreamMode),
-    holdback: String(g?.streaming?.holdback_chars ?? defaults.holdback_chars),
-    onBlock: g?.streaming?.on_block ?? (defaults.on_block as OnBlock),
+    order: g?.execution_order ?? GD.execution_order,
+    streamMode: g?.streaming?.mode ?? GD.streaming.mode,
+    holdback: String(g?.streaming?.holdback_chars ?? GD.streaming.holdback_chars),
+    onBlock: g?.streaming?.on_block ?? GD.streaming.on_block,
   };
 }
 

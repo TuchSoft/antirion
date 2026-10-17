@@ -3,9 +3,9 @@
 import { Button, IconButton } from '@/components/ui/button';
 import { Checkbox, Field, Input, Select, Switch } from '@/components/ui/form';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { durationOptions } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { URL_RE } from '../form-errors';
 import { Advanced, Hint } from './settings-form';
 
@@ -44,24 +44,22 @@ export interface TraceOptions {
   keyFile: string;
 }
 
-export function traceOptions(
-  traces: unknown,
-  defaults: typeof FALLBACKS.traces = FALLBACKS.traces,
-): TraceOptions {
+export function traceOptions(traces: unknown): TraceOptions {
+  const defaults = SETTINGS_DEFAULTS.observability.traces;
   const t = obj(traces);
   const exporter = obj(t.exporter);
   const tls = obj(exporter.tls);
   return {
     serviceName: text(t.service_name, defaults.service_name),
     attributes: pairs(t.resource_attributes),
-    sampler: text(obj(t.sampler).type, defaults.sampler) as Sampler,
+    sampler: text(obj(t.sampler).type, defaults.sampler.type) as Sampler,
     propagate:
       typeof t.propagate_to_upstream === 'boolean' ? t.propagate_to_upstream : defaults.propagate_to_upstream,
     endUser: typeof t.include_end_user === 'boolean' ? t.include_end_user : defaults.include_end_user,
     headerAttributes: pairs(t.header_attributes),
     viewerUrl: text(t.viewer_url),
-    timeout: text(exporter.timeout, defaults.timeout),
-    compression: text(exporter.compression, defaults.compression),
+    timeout: text(exporter.timeout, defaults.exporter.timeout),
+    compression: text(exporter.compression, defaults.exporter.compression),
     tlsVerify: tls.verify !== false,
     caFile: text(tls.ca_file),
     serverName: text(tls.server_name),

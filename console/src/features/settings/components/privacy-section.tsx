@@ -17,6 +17,7 @@ import { parseDuration, plural } from '@/lib/format';
 import { duration, validate, type FieldErrors } from '@/lib/validation';
 import { scopeOrganization, useScope } from '@/stores/scope';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { type GovernanceSettings, type GuardrailResource, settingsApi } from '../api';
 import { type PolicyLevel, usePrivacy, type ZdrLevel } from '../privacy-store';
@@ -367,8 +368,10 @@ function RetentionCard() {
           key={`${observability.data.metadata.etag}-${governance.data?.metadata.etag ?? ''}`}
           governance={governance.data}
           initial={{
-            retention: store?.retention ?? '30d',
-            contentRetention: store?.content_retention ?? '7d',
+            retention: store?.retention ?? SETTINGS_DEFAULTS.observability.request_logs.sinks.store.retention,
+            contentRetention:
+              store?.content_retention ??
+              SETTINGS_DEFAULTS.observability.request_logs.sinks.store.content_retention,
           }}
         />
       ) : null}

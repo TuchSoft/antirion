@@ -7,9 +7,9 @@ import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { durationOptions, rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
@@ -40,21 +40,20 @@ export interface StorageValues {
   vectorLookup: string;
 }
 
-export function storageValues(
-  spec: CacheSpec | undefined,
-  defaults = { backend: FALLBACKS.cache_backend, semantic: FALLBACKS.semantic_store },
-): StorageValues {
+const CD = SETTINGS_DEFAULTS.cache;
+
+export function storageValues(spec: CacheSpec | undefined): StorageValues {
   const b = spec?.backend;
   const sem = spec?.semantic_store;
   return {
     backend: b?.type ?? 'auto',
-    maxSize: b?.memory?.max_size ?? defaults.backend.max_size,
+    maxSize: b?.memory?.max_size ?? CD.backend.memory.max_size,
     redisUrl: '',
-    prefix: b?.redis?.key_prefix ?? defaults.backend.key_prefix,
-    lookup: b?.lookup_timeout ?? defaults.backend.lookup_timeout,
-    write: b?.write_timeout ?? defaults.backend.write_timeout,
-    vectors: String(sem?.memory?.max_entries ?? defaults.semantic.max_entries),
-    vectorLookup: sem?.lookup_timeout ?? defaults.semantic.lookup_timeout,
+    prefix: b?.redis?.key_prefix ?? CD.backend.redis.key_prefix,
+    lookup: b?.lookup_timeout ?? CD.backend.lookup_timeout,
+    write: b?.write_timeout ?? CD.backend.write_timeout,
+    vectors: String(sem?.memory?.max_entries ?? CD.semantic_store.memory.max_entries),
+    vectorLookup: sem?.lookup_timeout ?? CD.semantic_store.lookup_timeout,
   };
 }
 
@@ -252,20 +251,18 @@ export interface DefaultCacheValues {
   coalesce: boolean;
 }
 
-export function defaultCacheValues(
-  c: CachePolicy | undefined,
-  defaults: typeof FALLBACKS.cache_policy = FALLBACKS.cache_policy,
-): DefaultCacheValues {
+export function defaultCacheValues(c: CachePolicy | undefined): DefaultCacheValues {
+  const defaults = SETTINGS_DEFAULTS.policies.cache;
   return {
     enabled: c?.enabled ?? defaults.enabled,
-    activation: c?.activation ?? (defaults.activation as Activation),
-    scope: c?.scope ?? (defaults.scope as Scope),
+    activation: c?.activation ?? defaults.activation,
+    scope: c?.scope ?? defaults.scope,
     ttl: c?.ttl ?? defaults.ttl,
     maxTtl: c?.max_ttl ?? defaults.max_ttl,
     maxEntry: c?.max_entry_size ?? defaults.max_entry_size,
     failClosed: (c?.fail_mode ?? defaults.fail_mode) === 'closed',
     afterFallback: c?.store_after_fallback ?? defaults.store_after_fallback,
-    coalesce: c?.coalesce?.enabled ?? false,
+    coalesce: c?.coalesce?.enabled ?? defaults.coalesce.enabled,
   };
 }
 

@@ -7,9 +7,9 @@ import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { durationOptions, rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
@@ -43,24 +43,26 @@ export interface HealthValues {
   maxDeadKey: string;
 }
 
-export function healthValues(
-  h: Health | undefined,
-  defaults = { breaker: FALLBACKS.breaker, health: FALLBACKS.health, checks: FALLBACKS.active_checks },
-): HealthValues {
+export function healthValues(h: Health | undefined): HealthValues {
+  const defaults = {
+    breaker: SETTINGS_DEFAULTS.resilience.health.breaker,
+    health: SETTINGS_DEFAULTS.resilience.health,
+    checks: SETTINGS_DEFAULTS.resilience.health.active_checks,
+  };
   const b = h?.breaker;
   const a = h?.active_checks;
   return {
     breaker: b?.enabled ?? defaults.breaker.enabled,
-    allUnhealthy: h?.all_unhealthy ?? (defaults.health.all_unhealthy as AllUnhealthy),
+    allUnhealthy: h?.all_unhealthy ?? defaults.health.all_unhealthy,
     checks: a?.enabled ?? defaults.checks.enabled,
     checkInterval: a?.interval ?? defaults.checks.interval,
     checkTimeout: a?.timeout ?? defaults.checks.timeout,
-    checkRequest: a?.request ?? (defaults.checks.request as CheckRequest),
-    checkWhen: a?.when ?? (defaults.checks.when as CheckWhen),
+    checkRequest: a?.request ?? defaults.checks.request,
+    checkWhen: a?.when ?? defaults.checks.when,
     buckets: String(b?.buckets ?? defaults.breaker.buckets),
     probes: String(b?.half_open_probes ?? defaults.breaker.half_open_probes),
     successes: String(b?.success_threshold ?? defaults.breaker.success_threshold),
-    probeScope: b?.probe_scope ?? (defaults.breaker.probe_scope as ProbeScope),
+    probeScope: b?.probe_scope ?? defaults.breaker.probe_scope,
     maxCooldown: h?.max_cooldown ?? defaults.health.max_cooldown,
     rateLimitCooldown: h?.rate_limit_cooldown ?? defaults.health.rate_limit_cooldown,
     cooldownBuffer: h?.cooldown_buffer ?? defaults.health.cooldown_buffer,
@@ -362,7 +364,7 @@ function AdmissionCard() {
         <SettingsForm<AdmissionValues>
           key={serverSettings.data.metadata.etag}
           initial={{
-            fairness: admission?.fairness ?? (FALLBACKS.admission.fairness as Fairness),
+            fairness: admission?.fairness ?? SETTINGS_DEFAULTS.server.admission.fairness,
             high: watermarkText(admission?.memory_high_watermark),
             low: watermarkText(admission?.memory_low_watermark),
           }}
@@ -456,15 +458,13 @@ export interface RoutingValues {
   metadataSize: string;
 }
 
-export function routingValues(
-  r: Routing | undefined,
-  defaults: typeof FALLBACKS.routing = FALLBACKS.routing,
-): RoutingValues {
+export function routingValues(r: Routing | undefined): RoutingValues {
+  const defaults = SETTINGS_DEFAULTS.routing;
   return {
-    addressing: r?.provider_addressing?.enabled ?? defaults.provider_addressing,
+    addressing: r?.provider_addressing?.enabled ?? defaults.provider_addressing.enabled,
     exposePath: r?.expose_route_path ?? defaults.expose_route_path,
-    affinityTtl: r?.affinity?.ttl ?? defaults.affinity_ttl,
-    affinityEntries: String(r?.affinity?.max_entries ?? defaults.affinity_max_entries),
+    affinityTtl: r?.affinity?.ttl ?? defaults.affinity.ttl,
+    affinityEntries: String(r?.affinity?.max_entries ?? defaults.affinity.max_entries),
     outputEstimate: String(r?.cost_output_estimate ?? defaults.cost_output_estimate),
     metadataSize: r?.metadata_max_size ?? defaults.metadata_max_size,
   };
@@ -598,10 +598,8 @@ export interface PassValues {
   fanOutMax: string;
 }
 
-export function passValues(
-  p: Policies | undefined,
-  defaults = { headers: FALLBACKS.headers, translation: FALLBACKS.translation },
-): PassValues {
+export function passValues(p: Policies | undefined): PassValues {
+  const defaults = SETTINGS_DEFAULTS.policies;
   const h = p?.headers;
   const t = p?.translation;
   return {
@@ -609,11 +607,11 @@ export function passValues(
     deny: h?.deny ?? [],
     responseForward: h?.response_forward ?? [],
     exposeIdentity: h?.expose_upstream_identity ?? defaults.headers.expose_upstream_identity,
-    onLossy: t?.on_lossy ?? (defaults.translation.on_lossy as OnLossy),
+    onLossy: t?.on_lossy ?? defaults.translation.on_lossy,
     unknownFields: t?.forward_unknown_fields ?? defaults.translation.forward_unknown_fields,
     completionsToChat: t?.completions_to_chat ?? defaults.translation.completions_to_chat,
-    fanOut: t?.n_fan_out?.enabled ?? false,
-    fanOutMax: String(t?.n_fan_out?.max ?? 8),
+    fanOut: t?.n_fan_out?.enabled ?? defaults.translation.n_fan_out.enabled,
+    fanOutMax: String(t?.n_fan_out?.max ?? defaults.translation.n_fan_out.max),
   };
 }
 

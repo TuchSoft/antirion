@@ -8,9 +8,9 @@ import { Icon } from '@/components/ui/icon';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { durationOptions, rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { URL_RE } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Card } from './parts';
@@ -38,6 +38,9 @@ function useAdmin() {
   };
 }
 
+/** The built-in values of the sign-in settings on this page. */
+const PD = SETTINGS_DEFAULTS.auth.admin;
+
 /* ---------------------------------------------------------------- Personal tokens */
 
 const TOKEN_LIFETIMES = ['1d', '7d', '30d', '60d', '90d', '180d', '365d'];
@@ -47,13 +50,10 @@ export interface TokenRuleValues {
   maxLifetime: string;
 }
 
-export function tokenRuleValues(
-  admin: Admin,
-  defaults: { enabled: boolean; max_lifetime: string } = FALLBACKS.personal_tokens,
-): TokenRuleValues {
+export function tokenRuleValues(admin: Admin): TokenRuleValues {
   return {
-    enabled: admin.personal_tokens?.enabled ?? defaults.enabled,
-    maxLifetime: admin.personal_tokens?.max_lifetime ?? defaults.max_lifetime,
+    enabled: admin.personal_tokens?.enabled ?? PD.personal_tokens.enabled,
+    maxLifetime: admin.personal_tokens?.max_lifetime ?? PD.personal_tokens.max_lifetime,
   };
 }
 
@@ -114,17 +114,14 @@ export interface CliValues {
   starts: string;
 }
 
-export function cliValues(
-  admin: Admin,
-  defaults: typeof FALLBACKS.device_authorization = FALLBACKS.device_authorization,
-): CliValues {
+export function cliValues(admin: Admin): CliValues {
   const d = admin.device_authorization;
   return {
-    enabled: d?.enabled ?? defaults.enabled,
-    tokenTtl: d?.token_ttl ?? defaults.token_ttl,
-    codeTtl: d?.code_ttl ?? defaults.code_ttl,
-    poll: d?.poll_interval ?? defaults.poll_interval,
-    starts: String(d?.max_starts_per_minute ?? defaults.max_starts_per_minute),
+    enabled: d?.enabled ?? PD.device_authorization.enabled,
+    tokenTtl: d?.token_ttl ?? PD.device_authorization.token_ttl,
+    codeTtl: d?.code_ttl ?? PD.device_authorization.code_ttl,
+    poll: d?.poll_interval ?? PD.device_authorization.poll_interval,
+    starts: String(d?.max_starts_per_minute ?? PD.device_authorization.max_starts_per_minute),
   };
 }
 
@@ -241,14 +238,11 @@ export interface PlaygroundValues {
   requests: string;
 }
 
-export function playgroundValues(
-  admin: Admin,
-  defaults: typeof FALLBACKS.playground = FALLBACKS.playground,
-): PlaygroundValues {
+export function playgroundValues(admin: Admin): PlaygroundValues {
   return {
-    enabled: admin.playground?.enabled ?? defaults.enabled,
-    keyTtl: admin.playground?.key_ttl ?? defaults.key_ttl,
-    requests: String(admin.playground?.max_requests_per_key ?? defaults.max_requests_per_key),
+    enabled: admin.playground?.enabled ?? PD.playground.enabled,
+    keyTtl: admin.playground?.key_ttl ?? PD.playground.key_ttl,
+    requests: String(admin.playground?.max_requests_per_key ?? PD.playground.max_requests_per_key),
   };
 }
 

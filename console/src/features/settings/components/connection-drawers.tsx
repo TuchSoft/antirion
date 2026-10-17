@@ -16,6 +16,7 @@ import { notify } from '@/stores/ui';
 import { detailErrors, str, mergePatch, NAME_RE, URL_RE } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { useEdited } from '@/lib/hooks';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { deepMerge } from '../choices';
 import {
@@ -196,7 +197,11 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
     metrics: metrics.enabled === true,
     interval: str(metrics.interval, '15s'),
     traces: traces.enabled === true,
-    ratio: String(Math.round(Number(obj(traces.sampler).ratio ?? 1) * 100)),
+    ratio: String(
+      Math.round(
+        Number(obj(traces.sampler).ratio ?? SETTINGS_DEFAULTS.observability.traces.sampler.ratio) * 100,
+      ),
+    ),
     logs: logSpec !== undefined,
     logSink: logName,
     logContent: log.include_content === true,

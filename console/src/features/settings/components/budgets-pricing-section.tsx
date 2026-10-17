@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import { Field, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { settingsApi } from '../api';
-import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
 import { Choice, Hint, lock, SettingsForm } from './settings-form';
@@ -23,12 +23,11 @@ export interface PricingValues {
 
 export function pricingValues(
   spec: { on_unpriced?: OnUnpriced; catalog?: Catalog; report_in_body?: boolean } | undefined,
-  defaults: { on_unpriced: string; catalog: string; report_in_body: boolean } = FALLBACKS.pricing,
 ): PricingValues {
   return {
-    onUnpriced: spec?.on_unpriced ?? (defaults.on_unpriced as OnUnpriced),
-    catalog: spec?.catalog ?? (defaults.catalog as Catalog),
-    inBody: spec?.report_in_body ?? defaults.report_in_body,
+    onUnpriced: spec?.on_unpriced ?? SETTINGS_DEFAULTS.pricing.on_unpriced,
+    catalog: spec?.catalog ?? SETTINGS_DEFAULTS.pricing.catalog,
+    inBody: spec?.report_in_body ?? SETTINGS_DEFAULTS.pricing.report_in_body,
   };
 }
 
@@ -137,16 +136,11 @@ export function budgetValues(
         alerts?: { sink?: string };
       }
     | undefined,
-  defaults: {
-    on_store_unavailable: string;
-    expose_headers: boolean;
-    charge_auxiliary: boolean;
-  } = FALLBACKS.budgets,
 ): BudgetValues {
   return {
-    onStore: spec?.on_store_unavailable ?? (defaults.on_store_unavailable as OnStore),
-    headers: spec?.expose_headers ?? defaults.expose_headers,
-    auxiliary: spec?.charge_auxiliary ?? defaults.charge_auxiliary,
+    onStore: spec?.on_store_unavailable ?? SETTINGS_DEFAULTS.budgets.on_store_unavailable,
+    headers: spec?.expose_headers ?? SETTINGS_DEFAULTS.budgets.expose_headers,
+    auxiliary: spec?.charge_auxiliary ?? SETTINGS_DEFAULTS.budgets.charge_auxiliary,
     sink: spec?.alerts?.sink ?? NO_SINK,
   };
 }

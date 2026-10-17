@@ -8,9 +8,9 @@ import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { durationOptions, rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { useOrgSettings } from '../store';
 import { Card, Facts } from './parts';
 import { Advanced, Hint, SettingsForm } from './settings-form';
@@ -29,15 +29,10 @@ export interface KeyProtectionValues {
   window: string;
 }
 
-type Defaults = { anomaly: typeof FALLBACKS.anomaly; throttle: typeof FALLBACKS.failed_auth_throttle };
-
-export function keyProtectionValues(
-  spec: AuthSpec | undefined,
-  defaults: Defaults = { anomaly: FALLBACKS.anomaly, throttle: FALLBACKS.failed_auth_throttle },
-): KeyProtectionValues {
+export function keyProtectionValues(spec: AuthSpec | undefined): KeyProtectionValues {
   const a = spec?.anomaly_detection;
   const t = spec?.failed_auth_throttle;
-  const d = defaults.anomaly;
+  const d = SETTINGS_DEFAULTS.auth.anomaly_detection;
   return {
     enabled: a?.enabled ?? d.enabled,
     network: a?.new_network ?? d.new_network,
@@ -46,8 +41,8 @@ export function keyProtectionValues(
     baseline: a?.baseline ?? d.baseline,
     spike: String(a?.spike_factor ?? d.spike_factor),
     minRequests: String(a?.min_requests ?? d.min_requests),
-    maxFailures: String(t?.max_failures ?? defaults.throttle.max_failures),
-    window: t?.window ?? defaults.throttle.window,
+    maxFailures: String(t?.max_failures ?? SETTINGS_DEFAULTS.auth.failed_auth_throttle.max_failures),
+    window: t?.window ?? SETTINGS_DEFAULTS.auth.failed_auth_throttle.window,
   };
 }
 
@@ -107,7 +102,7 @@ export function KeyProtectionCard() {
               {
                 label: 'Apps must send a key',
                 value:
-                  (spec?.mode ?? FALLBACKS.auth_mode) === 'required' ? (
+                  (spec?.mode ?? SETTINGS_DEFAULTS.auth.mode) === 'required' ? (
                     'Yes'
                   ) : (
                     <Badge tone="error">No: every request is let in without one</Badge>

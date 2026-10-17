@@ -12,8 +12,8 @@ import { InlineError } from '@/components/ui/states';
 import { useEdited } from '@/lib/hooks';
 import type { FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
-import { FALLBACKS } from '../fallbacks';
 import { detailErrors, mergePatch } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Hint } from './settings-form';
@@ -30,10 +30,8 @@ export interface PrometheusValues {
   tenantLabels: TenantLabel[];
 }
 
-export function prometheusValues(
-  metrics: unknown,
-  defaults: typeof FALLBACKS.metrics = FALLBACKS.metrics,
-): PrometheusValues {
+export function prometheusValues(metrics: unknown): PrometheusValues {
+  const defaults = SETTINGS_DEFAULTS.observability.metrics;
   const m = obj(metrics);
   return {
     enabled: typeof m.enabled === 'boolean' ? m.enabled : defaults.enabled,

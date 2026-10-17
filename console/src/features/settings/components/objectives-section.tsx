@@ -58,6 +58,9 @@ export interface SloForm {
 }
 
 const WINDOWS = ['1d', '7d', '14d', '28d', '30d', '90d'];
+/** `observability.slos.<name>.window` when unset. */
+// A per-entry default, which the generated defaults leave out: they hold fixed paths only.
+const WINDOW_DEFAULT = '30d';
 
 /** 0.999 → "99.9", without the float noise. */
 export function toPercent(ratio: number): string {
@@ -70,7 +73,7 @@ export function sloForm(name: string | null, spec: SloSpec | undefined): SloForm
     kind: spec?.kind ?? 'availability',
     percent: spec ? toPercent(spec.objective) : '99.9',
     thresholdMs: spec?.latency_threshold_ms !== undefined ? String(spec.latency_threshold_ms) : '',
-    window: spec?.window ?? '30d',
+    window: spec?.window ?? WINDOW_DEFAULT,
     scope: Object.entries(spec?.scope ?? {}).flatMap(([key, value]) =>
       typeof value === 'string' ? [{ key: key as ScopeKey, value }] : [],
     ),
@@ -418,7 +421,7 @@ export function ObjectivesSection() {
               const spec = defined[n];
               const live = byName.get(n);
               const kind = spec?.kind ?? live?.kind ?? 'availability';
-              const window = spec?.window ?? live?.window ?? '30d';
+              const window = spec?.window ?? live?.window ?? WINDOW_DEFAULT;
               const objective = spec?.objective ?? live?.objective;
               const missed =
                 live?.attained !== null && live?.attained !== undefined && objective !== undefined

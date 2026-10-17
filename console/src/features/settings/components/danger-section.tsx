@@ -19,6 +19,7 @@ import { usePreferences } from '@/stores/preferences';
 import { scopeOrganization, useScope } from '@/stores/scope';
 import { useShell } from '@/stores/shell';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { settingsApi } from '../api';
 import { type DualAction, heldActionLabel, useDanger } from '../danger-store';
@@ -700,7 +701,10 @@ function TwoPersonCard() {
       {governance.data ? (
         <TwoPersonForm
           key={governance.data.metadata.etag}
-          initial={{ actions: dual?.actions ?? [], ttl: dual?.approval_ttl ?? '1h' }}
+          initial={{
+            actions: dual?.actions ?? [],
+            ttl: dual?.approval_ttl ?? SETTINGS_DEFAULTS.governance.dual_control.approval_ttl,
+          }}
         />
       ) : null}
     </Card>

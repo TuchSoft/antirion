@@ -11,10 +11,10 @@ import { formatPercent, plural } from '@/lib/format';
 import type { FieldErrors } from '@/lib/validation';
 import { scopeOrganization, useScope } from '@/stores/scope';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { settingsApi, type UserResource } from '../api';
 import { deepMerge, durationOptions, rangeError } from '../choices';
-import { FALLBACKS } from '../fallbacks';
 import { detailErrors, DURATION_RE, mergePatch, same } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Card, SaveBar } from './parts';
@@ -561,8 +561,8 @@ export function SignInSection() {
       local: local?.enabled ?? false,
       orgLocal: organization.data.spec.local_login ?? true,
       factors: local?.mfa?.factors ?? ['totp', 'webauthn'],
-      minLength: String(policy?.min_length ?? 12),
-      history: String(policy?.history ?? 5),
+      minLength: String(policy?.min_length ?? SETTINGS_DEFAULTS.auth.admin.local.password_policy.min_length),
+      history: String(policy?.history ?? SETTINGS_DEFAULTS.auth.admin.local.password_policy.history),
       maxAge: policy?.max_age ?? 'none',
       denyCommon: policy?.deny_common ?? true,
       domains: local?.sso_required_domains ?? [],
@@ -570,13 +570,19 @@ export function SignInSection() {
       trustedMaxAge: admin.session?.trusted_device?.max_age ?? '30d',
       idle: admin.session?.idle_timeout ?? '1h',
       absolute: admin.session?.absolute_timeout ?? '12h',
-      trustedIdle: admin.session?.trusted_device?.idle_timeout ?? FALLBACKS.trusted_device_idle,
-      lockFailures: String(local?.lockout?.max_failures ?? FALLBACKS.lockout.max_failures),
-      lockWindow: local?.lockout?.window ?? FALLBACKS.lockout.window,
-      lockDuration: local?.lockout?.duration ?? FALLBACKS.lockout.duration,
-      throttleFailures: String(admin.login_throttle?.max_failures ?? FALLBACKS.login_throttle.max_failures),
-      throttleWindow: admin.login_throttle?.window ?? FALLBACKS.login_throttle.window,
-      inviteTtl: admin.invitations?.ttl ?? FALLBACKS.invitations.ttl,
+      trustedIdle:
+        admin.session?.trusted_device?.idle_timeout ??
+        SETTINGS_DEFAULTS.auth.admin.session.trusted_device.idle_timeout,
+      lockFailures: String(
+        local?.lockout?.max_failures ?? SETTINGS_DEFAULTS.auth.admin.local.lockout.max_failures,
+      ),
+      lockWindow: local?.lockout?.window ?? SETTINGS_DEFAULTS.auth.admin.local.lockout.window,
+      lockDuration: local?.lockout?.duration ?? SETTINGS_DEFAULTS.auth.admin.local.lockout.duration,
+      throttleFailures: String(
+        admin.login_throttle?.max_failures ?? SETTINGS_DEFAULTS.auth.admin.login_throttle.max_failures,
+      ),
+      throttleWindow: admin.login_throttle?.window ?? SETTINGS_DEFAULTS.auth.admin.login_throttle.window,
+      inviteTtl: admin.invitations?.ttl ?? SETTINGS_DEFAULTS.auth.admin.invitations.ttl,
     };
   }, [admin, organization.data, org]);
   return (

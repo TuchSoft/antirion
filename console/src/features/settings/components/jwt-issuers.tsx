@@ -93,6 +93,7 @@ export function jwtForm(name: string | null, spec: JwtSpec | undefined): JwtForm
       };
     }),
     endUserClaim: spec?.end_user_claim ?? '',
+    // Per-entry defaults of `auth.jwt.<name>`, which the generated defaults leave out (fixed paths only).
     clockSkew: spec?.clock_skew ?? '60s',
     maxLifetime: spec?.max_token_lifetime ?? '',
     refresh: spec?.jwks_refresh_interval ?? '5m',

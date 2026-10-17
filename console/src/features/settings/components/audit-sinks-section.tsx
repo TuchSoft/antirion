@@ -45,8 +45,12 @@ const RETRY = [
   { value: '30d', label: '30 days' },
 ];
 
+/** `governance.audit_sinks.<name>.max_retry_duration` when unset. */
+// A per-entry default, which the generated defaults leave out: they hold fixed paths only.
+const RETRY_DEFAULT = '72h';
+
 function retryWords(v: string | undefined): string {
-  return RETRY.find((r) => r.value === (v ?? '72h'))?.label ?? v ?? '3 days';
+  return RETRY.find((r) => r.value === (v ?? RETRY_DEFAULT))?.label ?? v ?? RETRY_DEFAULT;
 }
 
 function SinkEditor({
@@ -66,7 +70,7 @@ function SinkEditor({
     name: name ?? '',
     url: sink?.url ?? '',
     format: sink?.format ?? 'ndjson',
-    retry: sink?.max_retry_duration ?? '72h',
+    retry: sink?.max_retry_duration ?? RETRY_DEFAULT,
     enabled: sink?.enabled ?? true,
     headers: headerRows(sink?.headers),
   });

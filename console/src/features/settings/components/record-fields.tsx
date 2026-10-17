@@ -7,8 +7,8 @@ import { Icon } from '@/components/ui/icon';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
-import { FALLBACKS } from '../fallbacks';
 import { useOrgSettings } from '../store';
 import { Card } from './parts';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
@@ -29,20 +29,18 @@ export interface RecordValues {
   errorBodyMax: string;
 }
 
-export function recordValues(
-  logs: RequestLogs | undefined,
-  defaults: typeof FALLBACKS.request_logs = FALLBACKS.request_logs,
-): RecordValues {
+export function recordValues(logs: RequestLogs | undefined): RecordValues {
+  const defaults = SETTINGS_DEFAULTS.observability.request_logs;
   return {
     enabled: logs?.enabled ?? defaults.enabled,
     unauthenticated: logs?.include_unauthenticated ?? defaults.include_unauthenticated,
-    clientIp: logs?.client_ip ?? (defaults.client_ip as ClientIp),
+    clientIp: logs?.client_ip ?? defaults.client_ip,
     userAgent: logs?.user_agent ?? defaults.user_agent,
     requestHeaders: logs?.headers?.request ?? [],
     responseHeaders: logs?.headers?.response ?? [],
-    maxBody: logs?.content?.max_body_bytes ?? defaults.max_body_bytes,
-    errorBodies: logs?.content?.log_upstream_error_bodies ?? defaults.log_upstream_error_bodies,
-    errorBodyMax: logs?.content?.upstream_error_body_max ?? defaults.upstream_error_body_max,
+    maxBody: logs?.content?.max_body_bytes ?? defaults.content.max_body_bytes,
+    errorBodies: logs?.content?.log_upstream_error_bodies ?? defaults.content.log_upstream_error_bodies,
+    errorBodyMax: logs?.content?.upstream_error_body_max ?? defaults.content.upstream_error_body_max,
   };
 }
 
