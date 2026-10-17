@@ -6,9 +6,16 @@ const UNIT: Record<string, string> = { ms: 'millisecond', s: 'second', m: 'minut
 export function durationWords(value: string): string {
   const m = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(value.trim());
   if (!m?.[1] || !m[2]) return value;
-  const n = Number(m[1]);
-  if (m[2] === 'd' && n % 365 === 0) return plural(n / 365, 'year');
-  return plural(n, UNIT[m[2]] ?? m[2]);
+  let n = Number(m[1]);
+  let unit = m[2];
+  // The largest whole unit: 300s reads "5 minutes", 24h "1 day".
+  const up: Record<string, [number, string]> = { s: [60, 'm'], m: [60, 'h'], h: [24, 'd'] };
+  for (let step = up[unit]; step && n >= step[0] && n % step[0] === 0; step = up[unit]) {
+    n /= step[0];
+    unit = step[1];
+  }
+  if (unit === 'd' && n % 365 === 0) return plural(n / 365, 'year');
+  return plural(n, UNIT[unit] ?? unit);
 }
 
 /** Select options for durations, keeping a stored value the list lacks. */

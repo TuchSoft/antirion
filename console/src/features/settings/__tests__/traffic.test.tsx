@@ -8,6 +8,14 @@ import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
 import { BudgetsPricingSection, pricingValues } from '../components/budgets-pricing-section';
+import { CacheSection } from '../components/cache-section';
+import { GuardrailsSection } from '../components/guardrails-section';
+import {
+  RoutingResilienceSection,
+  watermarkText,
+  watermarkValue,
+} from '../components/routing-resilience-section';
+import { durationWords } from '../choices';
 import { useTraffic } from '../traffic-store';
 
 const meta = {
@@ -110,5 +118,148 @@ describe('Budgets & pricing', () => {
     render(<BudgetsPricingSection />);
     expect(await screen.findByRole('radio', { name: /Count them as free/ })).toBeDisabled();
     expect(within(section('Prices')).getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+});
+
+describe('duration words', () => {
+  it('reads each duration in its largest whole unit', () => {
+    expect(durationWords('300s')).toBe('5 minutes');
+    expect(durationWords('24h')).toBe('1 day');
+    expect(durationWords('90s')).toBe('90 seconds');
+    expect(durationWords('365d')).toBe('1 year');
+    expect(durationWords('50ms')).toBe('50 milliseconds');
+  });
+});
+
+describe('Cache', () => {
+  beforeEach(() => {
+    resetTraffic();
+    signInAs(['policies:read', 'policies:write']);
+  });
+
+  it('turns caching on for every Model and keeps answers longer', async () => {
+    const policies = settings('policies', {});
+    settings('cache', {});
+    render(<CacheSection />);
+    const card = await waitFor(() => section('Default for every Model'));
+    await userEvent.click(within(card).getByRole('switch', { name: 'Cache answers' }));
+    await pickOption(within(card).getByRole('combobox', { name: 'Keep answers for' }), '6 hours');
+    await userEvent.click(within(card).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(policies).toEqual([{ spec: { cache: { enabled: true, ttl: '6h' } } }]));
+  });
+
+  it('asks for the Redis address before keeping answers in Redis', async () => {
+    settings('policies', {});
+    const cache = settings('cache', {});
+    render(<CacheSection />);
+    const card = await waitFor(() => section('Storage'));
+    await userEvent.click(within(card).getByRole('radio', { name: /Redis/ }));
+    await userEvent.click(within(card).getByRole('button', { name: 'Save changes' }));
+    expect(await within(card).findByText('Enter the Redis address')).toBeInTheDocument();
+    await userEvent.type(within(card).getByLabelText(/Redis address/), 'redis://cache:6379');
+    await userEvent.click(within(card).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(cache).toEqual([{ spec: { backend: { type: 'redis', redis: { url: 'redis://cache:6379' } } } }]),
+    );
+  });
+});
+
+describe('Guardrails', () => {
+  beforeEach(() => {
+    resetTraffic();
+    signInAs(['policies:read', 'policies:write']);
+    server.use(
+      http.get('*/admin/v1/guardrails', () =>
+        HttpResponse.json({
+          items: [{ name: 'pii', spec: { type: 'pii', action: 'redact' }, metadata: meta }],
+          next_cursor: null,
+        }),
+      ),
+    );
+  });
+
+  it('refuses what guardrails cannot read and checks streamed answers as they stream', async () => {
+    const guardrails = settings('guardrails', {});
+    const policies = settings('policies', {});
+    render(<GuardrailsSection />);
+    const behaviour = await waitFor(() => section('Guardrail behaviour'));
+    await userEvent.click(within(behaviour).getByRole('radio', { name: /Refuse it/ }));
+    await userEvent.click(within(behaviour).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(guardrails).toEqual([{ spec: { on_uninspectable: 'block' } }]));
+
+    const policy = section('Default for every request');
+    await userEvent.click(within(policy).getByText('Streamed answers'));
+    await userEvent.click(within(policy).getByRole('radio', { name: /Check as it streams/ }));
+    await pickOption(
+      within(policy).getByRole('combobox', { name: 'Check tool calls to MCP servers' }),
+      'pii',
+    );
+    await userEvent.click(within(policy).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(policies).toEqual([
+        { spec: { guardrails: { mcp_input: ['pii'], streaming: { mode: 'window' } } } },
+      ]),
+    );
+  });
+});
+
+describe('Routing & resilience', () => {
+  beforeEach(() => {
+    resetTraffic();
+    signInAs([
+      'policies:read',
+      'policies:write',
+      'models:read',
+      'models:write',
+      'config:read',
+      'config:apply',
+    ]);
+  });
+
+  it('reads and writes memory limits as a size or a share', () => {
+    expect(watermarkText(0.8)).toBe('80%');
+    expect(watermarkText('6GiB')).toBe('6GiB');
+    expect(watermarkText(null)).toBe('');
+    expect(watermarkValue('85 %')).toBe(0.85);
+    expect(watermarkValue('6GiB')).toBe('6GiB');
+    expect(watermarkValue('')).toBeNull();
+  });
+
+  it('writes each card to its own settings', async () => {
+    const resilience = settings('resilience', {});
+    const routing = settings('routing', {});
+    const server = settings('server', { admission: { max_in_flight: 100 } });
+    const policies = settings('policies', {});
+    render(<RoutingResilienceSection />);
+
+    const health = await waitFor(() => section('Unhealthy deployments'));
+    await userEvent.click(within(health).getByRole('radio', { name: /Try them anyway/ }));
+    await userEvent.click(
+      within(health).getByRole('switch', { name: /Check deployments in the background/ }),
+    );
+    await userEvent.click(within(health).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(resilience).toEqual([
+        { spec: { health: { all_unhealthy: 'ignore_health', active_checks: { enabled: true } } } },
+      ]),
+    );
+
+    const behaviour = section('Routing behaviour');
+    await userEvent.click(within(behaviour).getByRole('switch', { name: /name a provider/ }));
+    await userEvent.click(within(behaviour).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(routing).toEqual([{ spec: { provider_addressing: { enabled: false } } }]));
+
+    const pass = section('Headers and translation');
+    await userEvent.click(within(pass).getByRole('radio', { name: /Refuse it/ }));
+    await userEvent.click(within(pass).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(policies).toEqual([{ spec: { translation: { on_lossy: 'reject' } } }]));
+
+    const admission = section('Admission');
+    await userEvent.click(within(admission).getByRole('radio', { name: /Take turns between projects/ }));
+    await userEvent.type(within(admission).getByLabelText(/Stop letting requests in above/), '80%');
+    await userEvent.click(within(admission).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(server).toEqual([{ spec: { admission: { fairness: 'project', memory_high_watermark: 0.8 } } }]),
+    );
   });
 });
