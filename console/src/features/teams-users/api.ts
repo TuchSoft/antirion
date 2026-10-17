@@ -136,6 +136,13 @@ export const directoryApi = {
       ifMatch: etag,
       reason,
     }),
+  setTeamEnabled: (
+    name: string,
+    enabled: boolean,
+    etag: string | undefined,
+    reason?: string,
+  ): Promise<TeamResource> =>
+    api.patch('/teams/{name}', { path: { name }, body: { spec: { enabled } }, ifMatch: etag, reason }),
   setProjectEnabled: (
     name: string,
     enabled: boolean,

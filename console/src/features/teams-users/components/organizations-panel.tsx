@@ -21,6 +21,7 @@ import { notify } from '@/stores/ui';
 
 import { directoryApi } from '../api';
 import { setLevelEnabled, useDirectory, useOrganizations, useProjects, useTeams } from '../store';
+import { OrganizationAccessDrawer, ProjectFormDrawer } from './forms';
 import { cascadeOf, cascadeText, disableEffect, TenancyDrawer } from './tenancy-detail';
 
 type Kind = 'organization' | 'project';
@@ -124,7 +125,9 @@ function RowMenu({
   enabled,
   canToggle,
   canDelete,
+  editLabel,
   onOpen,
+  onEdit,
   onToggle,
   onDelete,
 }: {
@@ -132,11 +135,15 @@ function RowMenu({
   enabled: boolean;
   canToggle: boolean;
   canDelete: boolean;
+  /** "Edit" or "Edit access"; absent when the viewer can't edit. */
+  editLabel: string | null;
   onOpen: () => void;
+  onEdit: () => void;
   onToggle: () => void;
   onDelete: () => void;
 }) {
   const items: MenuItem[] = [{ label: 'Open details', icon: 'eye', onSelect: onOpen }];
+  if (editLabel) items.push({ label: editLabel, icon: 'edit', onSelect: onEdit });
   if (canToggle)
     items.push({
       label: enabled ? 'Disable' : 'Enable',
@@ -169,6 +176,13 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
   const canDeleteOrg = useCan('deleteOrganization');
   const canPatchProject = useCan('patchProject');
   const canDeleteProject = useCan('deleteProject');
+  const canEditOrg = useCan('replaceOrganization');
+  const canEditProject = useCan('replaceProject');
+  const [editing, setEditing] = useState<{ kind: Kind; name: string } | null>(null);
+  const editingOrg =
+    editing?.kind === 'organization' ? orgs.items.find((o) => o.name === editing.name) : undefined;
+  const editingProject =
+    editing?.kind === 'project' ? projects.items.find((p) => p.name === editing.name) : undefined;
   // `org` is the scope of every page, so the open level is `detail`.
   const [detail, setDetail] = useQueryParam('detail');
   const open: { kind: Kind; name: string } | null = detail
@@ -244,7 +258,9 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
                       enabled={o.spec.enabled !== false}
                       canToggle={canPatchOrg}
                       canDelete={canDeleteOrg}
+                      editLabel={canEditOrg ? 'Edit access' : null}
                       onOpen={() => openLevel('organization', o.name)}
+                      onEdit={() => setEditing({ kind: 'organization', name: o.name })}
                       onToggle={() =>
                         setToggling({ kind: 'organization', name: o.name, enabled: o.spec.enabled !== false })
                       }
@@ -315,7 +331,9 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
                       enabled={p.spec.enabled !== false}
                       canToggle={canPatchProject}
                       canDelete={canDeleteProject}
+                      editLabel={canEditProject ? 'Edit' : null}
                       onOpen={() => openLevel('project', p.name)}
+                      onEdit={() => setEditing({ kind: 'project', name: p.name })}
                       onToggle={() =>
                         setToggling({ kind: 'project', name: p.name, enabled: p.spec.enabled !== false })
                       }
@@ -329,6 +347,12 @@ export function OrganizationsPanel({ show }: { show: 'organizations' | 'projects
         </Section>
       )}
       {creating ? <CreateDialog kind={creating} onClose={() => setCreating(null)} /> : null}
+      {editingOrg ? (
+        <OrganizationAccessDrawer organization={editingOrg} onClose={() => setEditing(null)} />
+      ) : null}
+      {editingProject ? (
+        <ProjectFormDrawer project={editingProject} onClose={() => setEditing(null)} />
+      ) : null}
       {open ? (
         <TenancyDrawer
           kind={open.kind}

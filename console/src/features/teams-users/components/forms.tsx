@@ -7,12 +7,34 @@ import { Button } from '@/components/ui/button';
 import { Checkbox, Combobox, Field, Input, Select } from '@/components/ui/form';
 import { CancelButton, Dialog, Drawer } from '@/components/ui/overlay';
 import { InlineError } from '@/components/ui/states';
-import type { TeamResource, UserResource, UserSpec } from '@/lib/api/types';
+import type {
+  OrganizationResource,
+  ProjectResource,
+  TeamResource,
+  UserResource,
+  UserSpec,
+} from '@/lib/api/types';
 import { resourceName, serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
 
 import { useDirectory, useOrganizations, useProjects, useTeams, useUsers } from '../store';
-import { TEAM_COLORS, teamSchema, teamValues, type TeamValues, toTeamSpec } from '../form';
+import {
+  inheritedKeyPolicy,
+  projectSchema,
+  projectValues,
+  type ProjectValues,
+  TEAM_COLORS,
+  teamSchema,
+  teamValues,
+  type TeamValues,
+  tenantSchema,
+  tenantSpec,
+  tenantValues,
+  type TenantValues,
+  toProjectSpec,
+  toTeamSpec,
+} from '../form';
+import { TenantSections } from './tenant-fields';
 import { ROLE_DESCRIPTIONS, roleLabel } from '../types';
 import { useEdited } from '@/lib/hooks';
 
@@ -247,6 +269,8 @@ export function TeamFormDrawer({
   const edited = useEdited(values);
   const set = <K extends keyof TeamValues>(key: K, value: TeamValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
+  const change = useChange(setValues, setErrors);
+  const org = orgs.find((o) => o.name === values.organization);
 
   async function submit() {
     const result = validate(teamSchema, values);
@@ -280,6 +304,7 @@ export function TeamFormDrawer({
       open
       onClose={onClose}
       title={editing ? `Edit ${editing.name}` : 'Create team'}
+      width="lg"
       footer={
         <>
           <CancelButton />
@@ -379,10 +404,201 @@ export function TeamFormDrawer({
             />
           </Field>
         </div>
+        <TenantSections
+          values={values}
+          change={change}
+          errors={errors}
+          level="team"
+          inherited={inheritedKeyPolicy([{ label: `organization ${values.organization}`, spec: org?.spec }])}
+        />
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>
   );
+}
+
+/** Edits a project: its team, whether it is on, its access, labels, key lifetimes and limits. */
+export function ProjectFormDrawer({ project, onClose }: { project: ProjectResource; onClose: () => void }) {
+  const teams = useTeams((s) => s.items);
+  const orgs = useOrganizations((s) => s.items);
+  const update = useProjects((s) => s.update);
+  const [values, setValues] = useState<ProjectValues>(() => projectValues(project));
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const edited = useEdited(values);
+  const change = useChange(setValues, setErrors);
+  const team = teams.find((t) => t.name === values.team);
+  const org = orgs.find((o) => o.name === team?.spec.organization);
+
+  async function submit() {
+    const result = validate(projectSchema, values);
+    if (!result.ok) {
+      setErrors(result.errors);
+      return;
+    }
+    setErrors({});
+    setBusy(true);
+    setError(null);
+    try {
+      await update(project.name, toProjectSpec(values, project.spec));
+      notify('success', 'Project saved', project.name);
+      onClose();
+    } catch (e) {
+      setError(e);
+      setErrors(serverFieldErrors(e, `projects.${project.name}`));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Drawer
+      dirty={edited}
+      open
+      onClose={onClose}
+      title={`Edit ${project.name}`}
+      subtitle="Changes apply right away and are recorded in the audit log."
+      width="lg"
+      footer={
+        <>
+          <CancelButton />
+          <Button variant="primary" busy={busy} onClick={() => void submit()}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <form
+        noValidate
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <InlineError error={error} />
+        <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+          <Field label="Name" hint="A project's name can't be changed.">
+            <Input mono value={project.name} readOnly />
+          </Field>
+          <Field
+            label="Team"
+            error={errors.team}
+            required
+            hint={team ? `In organization ${team.spec.organization}` : undefined}
+          >
+            <Combobox
+              value={values.team}
+              onChange={(v) => change({ team: v })}
+              options={teams.map((t) => ({ value: t.name, label: t.spec.display_name ?? t.name }))}
+            />
+          </Field>
+        </div>
+        <Checkbox
+          label="Enabled"
+          description="A disabled project refuses the requests of its keys until it is enabled again."
+          checked={values.enabled}
+          onChange={(v) => change({ enabled: v })}
+        />
+        <TenantSections
+          values={values}
+          change={change}
+          errors={errors}
+          level="project"
+          inherited={inheritedKeyPolicy([
+            { label: `team ${values.team}`, spec: team?.spec },
+            { label: `organization ${team?.spec.organization ?? ''}`, spec: org?.spec },
+          ])}
+        />
+        <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+      </form>
+    </Drawer>
+  );
+}
+
+/**
+ * Edits who may call through an organization and its labels. Its key lifetimes, default limits and
+ * allow-list are also in Settings › API access.
+ */
+export function OrganizationAccessDrawer({
+  organization,
+  onClose,
+}: {
+  organization: OrganizationResource;
+  onClose: () => void;
+}) {
+  const update = useOrganizations((s) => s.update);
+  const [values, setValues] = useState<TenantValues>(() => tenantValues(organization.spec));
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const edited = useEdited(values);
+  const change = useChange(setValues, setErrors);
+
+  async function submit() {
+    const result = validate(tenantSchema, values);
+    if (!result.ok) {
+      setErrors(result.errors);
+      return;
+    }
+    setErrors({});
+    setBusy(true);
+    setError(null);
+    try {
+      await update(organization.name, tenantSpec(values, organization.spec));
+      notify('success', 'Organization saved', organization.name);
+      onClose();
+    } catch (e) {
+      setError(e);
+      setErrors(serverFieldErrors(e, `organizations.${organization.name}`));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Drawer
+      dirty={edited}
+      open
+      onClose={onClose}
+      title={`Access for ${organization.spec.display_name ?? organization.name}`}
+      subtitle="Key lifetimes and default rate limits are in Settings › API access."
+      width="lg"
+      footer={
+        <>
+          <CancelButton />
+          <Button variant="primary" busy={busy} onClick={() => void submit()}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <form
+        noValidate
+        className="flex flex-col gap-4 [&>section:first-of-type]:border-t-0 [&>section:first-of-type]:pt-0"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <InlineError error={error} />
+        <TenantSections values={values} change={change} errors={errors} level="organization" />
+        <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+      </form>
+    </Drawer>
+  );
+}
+
+/** A setter that merges changed members into a form's values and clears their errors. */
+function useChange<T>(
+  setValues: (f: (v: T) => T) => void,
+  setErrors: (f: (e: FieldErrors) => FieldErrors) => void,
+): (patch: Partial<T>) => void {
+  return (patch) => {
+    setValues((v) => ({ ...v, ...patch }));
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !(k in patch))));
+  };
 }
 
 const bindingSchema = z.object({

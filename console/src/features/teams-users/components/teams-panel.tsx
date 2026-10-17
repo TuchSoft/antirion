@@ -26,9 +26,10 @@ import { formatDate } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
 
-import { useDirectory, useTeams } from '../store';
+import { setLevelEnabled, useDirectory, useProjects, useTeams } from '../store';
 import type { TeamView } from '../types';
 import { TeamFormDrawer } from './forms';
+import { cascadeOf, disableEffect } from './tenancy-detail';
 
 function useTeamSpend(): Map<string, BudgetCounter> {
   const rows = useDirectory((s) => s.teamSpend.data);
@@ -144,6 +145,10 @@ export function TeamsPanel({
   const spend = useTeamSpend();
   const [editing, setEditing] = useState<TeamView | null>(null);
   const [deleting, setDeleting] = useState<TeamView | null>(null);
+  const [toggling, setToggling] = useState<TeamView | null>(null);
+  const projects = useProjects((s) => s.items);
+  const keys = useDirectory((s) => s.keys.data) ?? [];
+  const togglingOn = toggling?.team.spec.enabled !== false;
 
   if (all.length === 0) {
     return (
@@ -276,6 +281,17 @@ export function TeamsPanel({
                         Edit
                       </Button>
                     </Gate>
+                    <Gate operation="patchTeam" mode="hide">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={t.team.spec.enabled === false ? 'play' : 'pause'}
+                        onClick={() => setToggling(t)}
+                        aria-label={`${t.team.spec.enabled === false ? 'Enable' : 'Disable'} ${t.name}`}
+                      >
+                        {t.team.spec.enabled === false ? 'Enable' : 'Disable'}
+                      </Button>
+                    </Gate>
                     <Gate operation="deleteTeam" mode="hide">
                       <Button
                         size="sm"
@@ -297,6 +313,24 @@ export function TeamsPanel({
       {editing ? (
         <TeamFormDrawer editing={editing.team} onClose={() => setEditing(null)} onSaved={() => undefined} />
       ) : null}
+      <ConfirmDialog
+        open={toggling !== null}
+        onClose={() => setToggling(null)}
+        title={toggling ? `${togglingOn ? 'Disable' : 'Enable'} team ${toggling.name}?` : ''}
+        tone="primary"
+        confirmLabel={togglingOn ? 'Disable team' : 'Enable team'}
+        withReason
+        effect={
+          toggling && togglingOn
+            ? disableEffect('team', cascadeOf('team', toggling.name, [], projects, keys))
+            : 'Requests through it are accepted again, and its keys work as before.'
+        }
+        onConfirm={async (reason) => {
+          if (!toggling) return;
+          await setLevelEnabled('team', toggling.name, !togglingOn, reason);
+          notify('success', togglingOn ? 'Team disabled' : 'Team enabled', toggling.name);
+        }}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,10 +16,12 @@ import { plural } from '@/lib/format';
 import { formatDate } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 
+import { tenantFacts } from '../form';
 import { useDirectory, useOrganizations, useProjects, useTeams, useUsers } from '../store';
 import { roleLabel } from '../types';
+import { OrganizationAccessDrawer, ProjectFormDrawer } from './forms';
 
-export type Level = 'organization' | 'project';
+export type Level = 'organization' | 'team' | 'project';
 
 export interface Cascade {
   teams: string[];
@@ -39,11 +42,13 @@ export function cascadeOf(
   const projectNames =
     kind === 'organization'
       ? projects.filter((p) => teamNames.includes(p.spec.team)).map((p) => p.name)
-      : [name];
+      : kind === 'team'
+        ? projects.filter((p) => p.spec.team === name).map((p) => p.name)
+        : [name];
   const keyNames = keys.filter((k) => projectNames.includes(k.spec.project ?? 'default')).map((k) => k.name);
   return {
     teams: teamNames,
-    projects: kind === 'organization' ? projectNames : [],
+    projects: kind === 'project' ? [] : projectNames,
     keys: keyNames,
   };
 }
@@ -64,7 +69,13 @@ export function disableEffect(kind: Level, c: Cascade): string {
   const keys = c.keys.length
     ? `Apps using its ${plural(c.keys.length, 'key')} are refused with "${kind} disabled"`
     : 'Requests through it are refused';
-  return `${keys} until you enable it again${kind === 'organization' && c.teams.length ? `, across ${plural(c.teams.length, 'team')}` : ''}. Nothing is deleted, and people can still sign in to the console.`;
+  const across =
+    kind === 'organization' && c.teams.length
+      ? `, across ${plural(c.teams.length, 'team')}`
+      : kind === 'team' && c.projects.length
+        ? `, across ${plural(c.projects.length, 'project')}`
+        : '';
+  return `${keys} until you enable it again${across}. Nothing is deleted, and people can still sign in to the console.`;
 }
 
 function NameList({ names, href }: { names: string[]; href: (n: string) => string }) {
@@ -89,7 +100,7 @@ export function TenancyDrawer({
   onToggle,
   onDelete,
 }: {
-  kind: Level;
+  kind: Exclude<Level, 'team'>;
   name: string;
   onClose: () => void;
   onToggle: () => void;
@@ -115,6 +126,8 @@ export function TenancyDrawer({
       : null;
   const title =
     kind === 'organization' ? `Organization ${org?.spec.display_name ?? name}` : `Project ${name}`;
+  const [editing, setEditing] = useState(false);
+  const facts = resource ? tenantFacts(resource.spec) : [];
 
   return (
     <Drawer
@@ -152,6 +165,11 @@ export function TenancyDrawer({
           <Gate operation={kind === 'organization' ? 'patchOrganization' : 'patchProject'} mode="hide">
             <Button variant="secondary" icon={enabled ? 'pause' : 'play'} onClick={onToggle}>
               {enabled ? `Disable ${kind}` : `Enable ${kind}`}
+            </Button>
+          </Gate>
+          <Gate operation={kind === 'organization' ? 'replaceOrganization' : 'replaceProject'} mode="hide">
+            <Button variant="primary" icon="edit" disabled={!resource} onClick={() => setEditing(true)}>
+              {kind === 'organization' ? 'Edit access' : 'Edit'}
             </Button>
           </Gate>
         </>
@@ -221,6 +239,16 @@ export function TenancyDrawer({
               <NameList names={cascade.keys} href={(n) => `/keys/?key=${encodeURIComponent(n)}`} />
             )}
           </DetailSection>
+          <DetailSection title="Access and limits">
+            {facts.length === 0 ? (
+              <p className="text-ui text-muted">
+                Nothing set here: {kind === 'organization' ? 'the gateway' : 'the levels above'} and each key
+                decide.
+              </p>
+            ) : (
+              <DefinitionGrid columns={2} items={facts.map((f) => ({ label: f.label, value: f.value }))} />
+            )}
+          </DetailSection>
           <DetailSection title="Roles given here">
             {holders.length === 0 ? (
               <p className="text-ui text-muted">Nobody holds a role on this {kind}.</p>
@@ -256,6 +284,12 @@ export function TenancyDrawer({
           </DetailSection>
         </div>
       )}
+      {editing && project && kind === 'project' ? (
+        <ProjectFormDrawer project={project} onClose={() => setEditing(false)} />
+      ) : null}
+      {editing && org && kind === 'organization' ? (
+        <OrganizationAccessDrawer organization={org} onClose={() => setEditing(false)} />
+      ) : null}
     </Drawer>
   );
 }

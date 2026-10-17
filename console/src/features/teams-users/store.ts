@@ -314,12 +314,16 @@ export const userActions = {
 
 /** Disabling or enabling a level of the hierarchy, as a merge patch of `enabled`. */
 export async function setLevelEnabled(
-  kind: 'organization' | 'project',
+  kind: 'organization' | 'team' | 'project',
   name: string,
   enabled: boolean,
   reason?: string,
 ): Promise<void> {
-  if (kind === 'organization') {
+  if (kind === 'team') {
+    const current = useTeams.getState().byName(name);
+    const updated = await directoryApi.setTeamEnabled(name, enabled, current?.metadata.etag, reason);
+    useTeams.setState((s) => ({ items: s.items.map((t) => (t.name === name ? updated : t)) }));
+  } else if (kind === 'organization') {
     const current = useOrganizations.getState().byName(name);
     const updated = await directoryApi.setOrganizationEnabled(name, enabled, current?.metadata.etag, reason);
     useOrganizations.setState((s) => ({ items: s.items.map((o) => (o.name === name ? updated : o)) }));
