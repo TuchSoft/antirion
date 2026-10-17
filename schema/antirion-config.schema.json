@@ -16605,7 +16605,7 @@
     },
     "Catalog": {
       "type": "object",
-      "description": "The runtime catalog. `extend` lays its entries over the bundled catalog (an entry replaces a bundled entry of the same pattern); `replace` uses its entries alone.",
+      "description": "The runtime catalog. `extend` lays its entries over the bundled catalog (an entry replaces a bundled entry of the same pattern); `replace` uses its entries alone. Below both, models.dev's data prices the models nothing else prices (not with `replace`).",
       "properties": {
         "mode": {
           "enum": [
@@ -16640,6 +16640,34 @@
           },
           "maxProperties": 10000,
           "default": {}
+        },
+        "remote": {
+          "type": "object",
+          "description": "Fetches models.dev's model data (prices, limits, names) periodically, through the egress policy, in place of the snapshot bundled with the gateway. Off by default. A fetch that fails keeps the data in use; the bundled prices and `models` still come first wherever they define a model.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://[^\\s]+$",
+              "maxLength": 2048,
+              "default": "https://models.dev/api.json",
+              "description": "A document in models.dev's `api.json` shape."
+            },
+            "refresh": {
+              "$ref": "#/$defs/Duration",
+              "x-range": {
+                "min": "1h",
+                "max": "30d"
+              },
+              "default": "24h",
+              "description": "How often the document is fetched."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

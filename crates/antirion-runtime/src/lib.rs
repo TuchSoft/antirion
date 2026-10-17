@@ -11,6 +11,7 @@ pub mod atrest;
 pub mod bandits;
 pub mod budgets;
 pub mod cache_console;
+pub mod catalog_remote;
 pub mod changes;
 pub mod checks;
 pub mod client_ip;

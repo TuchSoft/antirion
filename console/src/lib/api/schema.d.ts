@@ -8581,6 +8581,11 @@ export interface components {
             models?: {
                 [key: string]: components["schemas"]["CatalogEntry"];
             };
+            remote?: {
+                enabled?: boolean;
+                url?: string;
+                refresh?: components["schemas"]["$defs-Duration"];
+            };
         };
         Cache: {
             backend?: {
@@ -11635,6 +11640,11 @@ export interface components {
                     version?: string | null;
                     models?: {
                         [key: string]: components["schemas"]["CatalogEntry"];
+                    };
+                    remote?: {
+                        enabled?: boolean;
+                        url?: string;
+                        refresh?: components["schemas"]["$defs-Duration"];
                     };
                 };
                 CatalogEntry: {

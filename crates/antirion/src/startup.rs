@@ -630,6 +630,8 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     rt.tasks.spawn(antirion_runtime::pools::run(Arc::clone(&rt)));
     rt.tasks.spawn(antirion_runtime::bandits::run(Arc::clone(&rt)));
     rt.tasks
+        .spawn(antirion_runtime::catalog_remote::run(Arc::clone(&rt)));
+    rt.tasks
         .spawn(Arc::clone(&rt.admission).watch_memory(rt.shutdown.clone()));
     rt.tasks.spawn(antirion_runtime::wasm::clock(Arc::clone(&rt)));
     antirion_runtime::alerting::spawn(&rt);

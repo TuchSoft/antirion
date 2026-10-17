@@ -55,12 +55,13 @@ fn dechunk(mut s: &str) -> String {
 /// An upstream that lists two models to the good key, refuses any other, and fails Anthropic's
 /// listing; it counts the listings it answers.
 async fn upstream(listener: TcpListener, listings: Arc<AtomicUsize>) {
+    let mut connections = JoinSet::new();
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             return;
         };
         let listings = Arc::clone(&listings);
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let mut seen: Vec<u8> = Vec::new();
             let mut buf = [0u8; 4096];
             loop {
@@ -90,7 +91,13 @@ async fn upstream(listener: TcpListener, listings: Arc<AtomicUsize>) {
                 let consumed = head.len() + 4 + len;
                 seen.drain(..consumed);
                 let path = head.split(' ').nth(1).unwrap_or_default().to_owned();
-                let (status, reply) = if path.starts_with("/anthropic/") {
+                let (status, reply) = if path == "/models-dev/api.json" {
+                    (
+                        200,
+                        json!({"anthropic": {"models": {"claude-remote-1": {"id": "claude-remote-1",
+                            "name": "Claude Remote", "cost": {"input": 1.5, "output": 7.5}}}}}),
+                    )
+                } else if path.starts_with("/anthropic/") {
                     (
                         500,
                         json!({"error": {"type": "api_error", "message": "listing is down"}}),
@@ -140,7 +147,8 @@ async fn tests_lists_and_status_of_providers() {
     let mock = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mock_addr = mock.local_addr().unwrap();
     let listings = Arc::new(AtomicUsize::new(0));
-    tokio::spawn(upstream(mock, Arc::clone(&listings)));
+    let mut mock_task = JoinSet::new();
+    mock_task.spawn(upstream(mock, Arc::clone(&listings)));
     let base = format!("http://{mock_addr}/v1");
     let config = json!({
         "version": 1,
@@ -366,6 +374,52 @@ async fn tests_lists_and_status_of_providers() {
     assert!(text.contains("providers/draft"));
     assert!(!text.contains(GOOD) && !text.contains(BAD));
 
+    // `catalog.remote` puts a fetched models.dev document in place of the bundled snapshot.
+    let remote = json!({"spec": {"remote": {"enabled": true, "refresh": "1h",
+                        "url": format!("http://{mock_addr}/models-dev/api.json")}}});
+    let (status, e) = admin(addr, "PATCH", "/admin/v1/settings/catalog", Some(&remote)).await;
+    assert_eq!(status, 200, "{e}");
+    let mut seen = Value::Null;
+    for _ in 0..100 {
+        let (_, m) = admin(
+            addr,
+            "GET",
+            "/admin/v1/providers/a/models?id=claude-remote-1",
+            None,
+        )
+        .await;
+        if m["items"].as_array().is_some_and(|i| !i.is_empty()) {
+            seen = m;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert_eq!(seen["items"][0]["price"]["input"], "1.5", "{seen}");
+    assert_eq!(seen["items"][0]["name"], "Claude Remote");
+    let bad = json!({"spec": {"remote": {"enabled": true, "refresh": "1m"}}});
+    let (status, _) = admin(addr, "PATCH", "/admin/v1/settings/catalog", Some(&bad)).await;
+    assert_eq!(status, 400, "a refresh under an hour is refused");
+    let off = json!({"spec": {"remote": {"enabled": false}}});
+    let (status, _) = admin(addr, "PATCH", "/admin/v1/settings/catalog", Some(&off)).await;
+    assert_eq!(status, 200);
+    let mut back = false;
+    for _ in 0..100 {
+        let (_, m) = admin(
+            addr,
+            "GET",
+            "/admin/v1/providers/a/models?id=claude-remote-1",
+            None,
+        )
+        .await;
+        if m["items"] == json!([]) {
+            back = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(back, "turning it off goes back to the bundled snapshot");
+
     shutdown.cancel();
     while tasks.join_next().await.is_some() {}
+    mock_task.abort_all();
 }
