@@ -106,4 +106,4 @@ export const FALLBACKS = {
   },
   translation: { on_lossy: 'warn', forward_unknown_fields: false, completions_to_chat: false },
   headers: { expose_upstream_identity: true },
-} as const;
+};

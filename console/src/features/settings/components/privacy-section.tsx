@@ -22,6 +22,7 @@ import { type GovernanceSettings, type GuardrailResource, settingsApi } from '..
 import { type PolicyLevel, usePrivacy, type ZdrLevel } from '../privacy-store';
 import { useOrgSettings } from '../store';
 import { Card, Facts, SaveBar } from './parts';
+import { RecordFieldsCard } from './record-fields';
 
 type OnPii = 'mask' | 'hash' | 'drop_content';
 
@@ -688,6 +689,7 @@ export function PrivacySection() {
   return (
     <>
       <ContentCard />
+      <RecordFieldsCard />
       <RetentionCard />
       <EntitiesCard />
     </>
