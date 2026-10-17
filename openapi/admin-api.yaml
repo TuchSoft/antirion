@@ -3196,9 +3196,14 @@ paths:
         - Sessions
       parameters:
         - $ref: '#/components/parameters/OauthProvider'
+        - $ref: '#/components/parameters/OidcCode'
+        - $ref: '#/components/parameters/OidcState'
+        - $ref: '#/components/parameters/SsoProviderError'
       responses:
         '302':
-          description: Redirect.
+          description: 'Session started; redirect to `return_to`. A failed sign-in also answers 302, to
+            `<console>/login?error=<code>&message=<text>` (codes in `SsoFailureCode`; the message is short and carries
+            no secret); a client that sends `Accept: application/json` without `text/html` gets the JSON error instead.'
           headers:
             x-antirion-version:
               $ref: '#/components/headers/XAntirionVersion'
@@ -3222,9 +3227,12 @@ paths:
         - Sessions
       parameters:
         - $ref: '#/components/parameters/OauthProvider'
+        - $ref: '#/components/parameters/ReturnTo'
       responses:
         '302':
-          description: Redirect.
+          description: 'Redirect to GitHub. A failed sign-in also answers 302, to `<console>/login?error=<code>&message=<text>`
+            (codes in `SsoFailureCode`; the message is short and carries no secret); a client that sends `Accept:
+            application/json` without `text/html` gets the JSON error instead.'
           headers:
             x-antirion-version:
               $ref: '#/components/headers/XAntirionVersion'
@@ -3250,6 +3258,7 @@ paths:
         - $ref: '#/components/parameters/OidcProvider'
         - $ref: '#/components/parameters/OidcCode'
         - $ref: '#/components/parameters/OidcState'
+        - $ref: '#/components/parameters/SsoProviderError'
       responses:
         '200':
           description: The callback of a test sign-in reports what a sign-in would do; no session starts and nobody is provisioned.
@@ -3261,7 +3270,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/SsoTestResult'
         '302':
-          description: Session started; redirect to `return_to`.
+          description: 'Session started; redirect to `return_to`. A failed sign-in also answers 302, to
+            `<console>/login?error=<code>&message=<text>`, or, for a test sign-in, to its `return_to` (else
+            `<console>/settings?section=sign-in`) with the same parameters (codes in `SsoFailureCode`; the message is
+            short and carries no secret); a client that sends `Accept: application/json` without `text/html` gets the
+            JSON error instead.'
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -3307,7 +3320,11 @@ paths:
             type: boolean
       responses:
         '302':
-          description: Redirect to the IdP (authorization code + PKCE S256, single-use `state`, `nonce`).
+          description: 'Redirect to the IdP (authorization code + PKCE S256, single-use `state`, `nonce`). A failed sign-in also
+            answers 302, to `<console>/login?error=<code>&message=<text>`, or, for a test sign-in, to its `return_to`
+            (else `<console>/settings?section=sign-in`) with the same parameters (codes in `SsoFailureCode`; the message
+            is short and carries no secret); a client that sends `Accept: application/json` without `text/html` gets the
+            JSON error instead.'
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -3440,7 +3457,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/SsoTestResult'
         '302':
-          description: Session started; redirect to `return_to`.
+          description: 'Session started; redirect to `return_to`. A failed sign-in also answers 302, to
+            `<console>/login?error=<code>&message=<text>`, or, for a test sign-in, to its `return_to` (else
+            `<console>/settings?section=sign-in`) with the same parameters (codes in `SsoFailureCode`; the message is
+            short and carries no secret); a client that sends `Accept: application/json` without `text/html` gets the
+            JSON error instead.'
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -3489,7 +3510,11 @@ paths:
             type: boolean
       responses:
         '302':
-          description: Redirect to the identity provider.
+          description: 'Redirect to the identity provider. A failed sign-in also answers 302, to
+            `<console>/login?error=<code>&message=<text>`, or, for a test sign-in, to its `return_to` (else
+            `<console>/settings?section=sign-in`) with the same parameters (codes in `SsoFailureCode`; the message is
+            short and carries no secret); a client that sends `Accept: application/json` without `text/html` gets the
+            JSON error instead.'
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -21436,6 +21461,22 @@ components:
         - name_id_format
         - allow_idp_initiated
         - idp
+    SsoFailureCode:
+      type: string
+      description: 'The `error` a failed sign-in redirects with. `sso_state_invalid`: the sign-in is unknown, used, expired
+        or was started by another browser, or the assertion was used already. `sso_denied`: the identity provider or the
+        gateway refused this user. `sso_response_invalid`: what the identity provider sent does not verify or cannot be
+        read. `sso_provider_error`: the identity provider could not be reached or answered with an error.
+        `sso_provider_unknown`: no such identity provider. `sso_rate_limited`: too many attempts. `sso_error`: the
+        gateway failed.'
+      enum:
+        - sso_state_invalid
+        - sso_denied
+        - sso_response_invalid
+        - sso_provider_error
+        - sso_provider_unknown
+        - sso_rate_limited
+        - sso_error
     SsoTestResult:
       type: object
       description: What a test sign-in found; secrets and the raw tokens removed.
@@ -25391,6 +25432,14 @@ components:
       description: Audit sink name (`governance.audit_sinks`).
       schema:
         $ref: ../schema/antirion-config.schema.json#/$defs/Name
+    SsoProviderError:
+      name: error
+      in: query
+      required: false
+      description: The error the identity provider sent instead of a code. `access_denied` lands as `sso_denied`, any
+        other as `sso_provider_error`; only a plain error code is repeated, never the provider's description.
+      schema:
+        type: string
     TeamName:
       name: name
       in: path

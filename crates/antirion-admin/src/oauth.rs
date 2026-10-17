@@ -17,9 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::error::AdminError;
 use crate::oidc::{
-    SignedIn, bad_state, bind, bound, fetch_cx, own_origin, query, redirect, refused, safe_return,
-    unavailable,
+    SignedIn, bind, code_of, fetch_cx, own_origin, pending, query, redirect, refused, return_to, unavailable,
 };
+use crate::sso::{Landing, settle};
 
 const STATE_LIFETIME: Duration = Duration::from_secs(600);
 const SCOPES: &str = "read:user user:email read:org";
@@ -36,8 +36,19 @@ fn provider(rt: &Runtime, name: &str) -> Result<OauthProviderRt, AdminError> {
         .ok_or_else(AdminError::not_found)
 }
 
-/// `GET /admin/v1/auth/oauth/{provider}/login?return_to=<path>`.
+/// `GET /admin/v1/auth/oauth/{provider}/login?return_to=<path>`. A failure sends the browser back
+/// to the console's sign-in page.
 pub(crate) async fn login(
+    rt: &Runtime,
+    name: &str,
+    params: &[(String, String)],
+    headers: &HeaderMap,
+) -> Result<Response, AdminError> {
+    let result = start(rt, name, params, headers);
+    settle(rt, headers, &Landing::SignIn, result.await)
+}
+
+async fn start(
     rt: &Runtime,
     name: &str,
     params: &[(String, String)],
@@ -50,10 +61,6 @@ pub(crate) async fn login(
     };
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let redirect_uri = format!("{}/admin/v1/auth/oauth/{name}/callback", own_origin(rt, headers));
-    let return_to = params
-        .iter()
-        .find(|(k, _)| k == "return_to")
-        .map_or("/", |(_, v)| v.as_str());
     let q = query(&[
         ("response_type", "code"),
         ("client_id", &p.client_id),
@@ -68,7 +75,7 @@ pub(crate) async fn login(
         nonce: String::new(),
         verifier,
         redirect_uri,
-        return_to: safe_return(return_to),
+        return_to: return_to(params),
         started: rt.now(),
         test: false,
         trust_device: false,
@@ -117,23 +124,27 @@ fn verified_email(v: &Value) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
-/// `GET /admin/v1/auth/oauth/{provider}/callback?code=…&state=…`.
+/// `GET /admin/v1/auth/oauth/{provider}/callback?code=…&state=…` (or `error=…` from the
+/// provider). A failure sends the browser back to the console's sign-in page.
 pub(crate) async fn callback(
     rt: &Runtime,
     name: &str,
     params: &[(String, String)],
     headers: &HeaderMap,
 ) -> Result<Response, AdminError> {
-    let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-    let state = get("state").ok_or_else(bad_state)?;
-    if !bound(headers, &state) {
-        return Err(bad_state());
-    }
-    let login = rt.take_login(&state).await.ok_or_else(bad_state)?;
-    if login.provider != format!("{KIND}{name}") || rt.now().since(login.started) > STATE_LIFETIME {
-        return Err(bad_state());
-    }
-    let code = get("code").ok_or_else(|| AdminError::invalid_parameter("code is required"))?;
+    let result = Box::pin(finish(rt, name, params, headers)).await;
+    settle(rt, headers, &Landing::SignIn, result)
+}
+
+async fn finish(
+    rt: &Runtime,
+    name: &str,
+    params: &[(String, String)],
+    headers: &HeaderMap,
+) -> Result<Response, AdminError> {
+    let kind = format!("{KIND}{name}");
+    let login = pending(rt, params, headers, |l| l.provider == kind, STATE_LIFETIME).await?;
+    let code = code_of(params)?;
     let p = provider(rt, name)?;
     let (tls, policy) = fetch_cx(rt).ok_or_else(unavailable)?;
     let cx = FetchCx {

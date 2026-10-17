@@ -119,7 +119,7 @@ fn lane<'a>(
         }
         return Ok(Box::pin(async move {
             if step == "login" {
-                oidc::login(rt, &name, &params, &parts.headers, false).await
+                oidc::login_page(rt, &name, &params, &parts.headers).await
             } else {
                 oidc::callback(rt, &name, &params, &parts.headers)
                     .await

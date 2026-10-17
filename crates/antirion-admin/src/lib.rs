@@ -90,6 +90,7 @@ mod settings;
 mod signin_facts;
 mod simulate;
 mod spend;
+mod sso;
 mod tail;
 mod tenancy;
 mod testmode;

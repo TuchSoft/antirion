@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::AdminError;
+use crate::sso::{Landing, settle};
 
 const STATE_LIFETIME: Duration = Duration::from_secs(600);
 
@@ -173,13 +174,41 @@ pub(crate) async fn login_test(call: &crate::call::Call, name: &str) -> Result<R
     if call.method != Method::GET {
         return Err(AdminError::method_not_allowed("GET"));
     }
-    call.allow_params(&["test", "return_to"])?;
-    call.require("security:write", &[antirion_identity::rbac::Scope::Gateway])?;
-    login(&call.rt, name, &call.query, &call.headers, true).await
+    let landing = Landing::of(true, &return_to(&call.query));
+    let result = match call
+        .allow_params(&["test", "return_to"])
+        .and_then(|()| call.require("security:write", &[antirion_identity::rbac::Scope::Gateway]))
+    {
+        Ok(()) => login(&call.rt, name, &call.query, &call.headers, true).await,
+        Err(e) => Err(e),
+    };
+    settle(&call.rt, &call.headers, &landing, result)
 }
 
-/// `GET /admin/v1/auth/oidc/{provider}/login?return_to=<path>`.
-pub(crate) async fn login(
+/// The `return_to` of a sign-in, kept on this site (`/` when none was given).
+pub(crate) fn return_to(params: &[(String, String)]) -> String {
+    safe_return(
+        params
+            .iter()
+            .find(|(k, _)| k == "return_to")
+            .map_or("/", |(_, v)| v.as_str()),
+    )
+}
+
+/// `GET /admin/v1/auth/oidc/{provider}/login?return_to=<path>`, a browser's sign-in: a failure
+/// sends it back to the console's sign-in page.
+pub(crate) async fn login_page(
+    rt: &Runtime,
+    name: &str,
+    params: &[(String, String)],
+    headers: &HeaderMap,
+) -> Result<Response, AdminError> {
+    let result = login(rt, name, params, headers, false).await;
+    settle(rt, headers, &Landing::SignIn, result)
+}
+
+/// Starts a sign-in (`test`: a test sign-in) and redirects to the identity provider.
+async fn login(
     rt: &Runtime,
     name: &str,
     params: &[(String, String)],
@@ -198,10 +227,6 @@ pub(crate) async fn login(
     };
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let redirect_uri = format!("{}/admin/v1/auth/oidc/{name}/callback", own_origin(rt, headers));
-    let return_to = params
-        .iter()
-        .find(|(k, _)| k == "return_to")
-        .map_or("/", |(_, v)| v.as_str());
     let scopes = p.scopes.join(" ");
     let q = query(&[
         ("response_type", "code"),
@@ -219,7 +244,7 @@ pub(crate) async fn login(
         nonce,
         verifier,
         redirect_uri,
-        return_to: safe_return(return_to),
+        return_to: return_to(params),
         started: now,
         test,
         trust_device: !test && params.iter().any(|(k, v)| k == "trust_device" && v == "true"),
@@ -235,6 +260,7 @@ pub(crate) async fn login(
 
 pub(crate) fn bad_state() -> AdminError {
     AdminError::invalid_parameter("The login state is unknown, used or expired.")
+        .with_sso(crate::sso::Failure::StateInvalid)
 }
 
 pub(crate) fn refused(message: &str) -> AdminError {
@@ -249,23 +275,63 @@ fn claim_values(claims: &serde_json::Map<String, Value>, name: &str) -> Vec<Stri
     }
 }
 
-/// `GET /admin/v1/auth/oidc/{provider}/callback?code=…&state=…`.
+/// `GET /admin/v1/auth/oidc/{provider}/callback?code=…&state=…` (or `error=…` from the
+/// identity provider). A browser is sent back to the console on any failure.
 pub(crate) async fn callback(
     rt: &Runtime,
     name: &str,
     params: &[(String, String)],
     headers: &HeaderMap,
 ) -> Result<Response, AdminError> {
-    let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-    let state = get("state").ok_or_else(bad_state)?;
+    let login = match pending(rt, params, headers, |l| l.provider == name, STATE_LIFETIME).await {
+        Ok(login) => login,
+        Err(e) => return settle(rt, headers, &Landing::SignIn, Err(e)),
+    };
+    let landing = Landing::of(login.test, &login.return_to);
+    let result = Box::pin(finish(rt, name, params, login)).await;
+    settle(rt, headers, &landing, result)
+}
+
+/// The sign-in a callback's `state` names: bound to this browser, started for `ours`, not older
+/// than `lifetime`; it is used up.
+pub(crate) async fn pending(
+    rt: &Runtime,
+    params: &[(String, String)],
+    headers: &HeaderMap,
+    ours: impl Fn(&OidcLogin) -> bool,
+    lifetime: Duration,
+) -> Result<OidcLogin, AdminError> {
+    let state = params
+        .iter()
+        .find(|(n, _)| n == "state")
+        .map(|(_, v)| v.clone())
+        .ok_or_else(bad_state)?;
     if !bound(headers, &state) {
         return Err(bad_state());
     }
     let login = rt.take_login(&state).await.ok_or_else(bad_state)?;
-    if login.provider != name || rt.now().since(login.started) > STATE_LIFETIME {
+    if !ours(&login) || rt.now().since(login.started) > lifetime {
         return Err(bad_state());
     }
-    let code = get("code").ok_or_else(|| AdminError::invalid_parameter("code is required"))?;
+    Ok(login)
+}
+
+/// The authorization code of a callback, or the error the identity provider sent instead.
+pub(crate) fn code_of(params: &[(String, String)]) -> Result<String, AdminError> {
+    let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+    if let Some(error) = get("error") {
+        return Err(crate::sso::provider_said(&error));
+    }
+    get("code").ok_or_else(|| AdminError::invalid_parameter("code is required"))
+}
+
+async fn finish(
+    rt: &Runtime,
+    name: &str,
+    params: &[(String, String)],
+    login: OidcLogin,
+) -> Result<Response, AdminError> {
+    let code = code_of(params)?;
     let p = provider(rt, name)?;
     let meta = discovery(rt, &p).await.ok_or_else(unavailable)?;
     let token_endpoint = meta

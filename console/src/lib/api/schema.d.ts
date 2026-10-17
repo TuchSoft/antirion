@@ -5464,6 +5464,7 @@ export interface components {
                 last_error: string | null;
             };
         };
+        SsoFailureCode: "sso_state_invalid" | "sso_denied" | "sso_response_invalid" | "sso_provider_error" | "sso_provider_unknown" | "sso_rate_limited" | "sso_error";
         SsoTestResult: {
             claims: Record<string, unknown>;
             matched_role_mappings: Record<string, unknown>[];
@@ -11967,6 +11968,7 @@ export interface components {
         SamlProvider: string;
         SessionId: string;
         SinkName: components["schemas"]["$defs-Name"];
+        SsoProviderError: string;
         TeamName: components["schemas"]["TenantName"];
         To: components["schemas"]["Timestamp"];
         TokenKid: string;
@@ -12181,6 +12183,7 @@ export type SchemaMeUpdate = components['schemas']['MeUpdate'];
 export type SchemaPasswordResetCheck = components['schemas']['PasswordResetCheck'];
 export type SchemaProviderPressure = components['schemas']['ProviderPressure'];
 export type SchemaSamlProviderStatus = components['schemas']['SamlProviderStatus'];
+export type SchemaSsoFailureCode = components['schemas']['SsoFailureCode'];
 export type SchemaSsoTestResult = components['schemas']['SsoTestResult'];
 export type SchemaMfaEnrollStart = components['schemas']['MfaEnrollStart'];
 export type SchemaMfaConfirm = components['schemas']['MfaConfirm'];
@@ -12610,6 +12613,7 @@ export type ParameterSafetyEventId = components['parameters']['SafetyEventId'];
 export type ParameterSamlProvider = components['parameters']['SamlProvider'];
 export type ParameterSessionId = components['parameters']['SessionId'];
 export type ParameterSinkName = components['parameters']['SinkName'];
+export type ParameterSsoProviderError = components['parameters']['SsoProviderError'];
 export type ParameterTeamName = components['parameters']['TeamName'];
 export type ParameterTo = components['parameters']['To'];
 export type ParameterTokenKid = components['parameters']['TokenKid'];
@@ -14987,7 +14991,11 @@ export interface operations {
     };
     oauthCallback: {
         parameters: {
-            query?: never;
+            query?: {
+                code?: components["parameters"]["OidcCode"];
+                state?: components["parameters"]["OidcState"];
+                error?: components["parameters"]["SsoProviderError"];
+            };
             header?: never;
             path: {
                 provider: components["parameters"]["OauthProvider"];
@@ -15012,7 +15020,9 @@ export interface operations {
     };
     oauthLogin: {
         parameters: {
-            query?: never;
+            query?: {
+                return_to?: components["parameters"]["ReturnTo"];
+            };
             header?: never;
             path: {
                 provider: components["parameters"]["OauthProvider"];
@@ -15040,6 +15050,7 @@ export interface operations {
             query?: {
                 code?: components["parameters"]["OidcCode"];
                 state?: components["parameters"]["OidcState"];
+                error?: components["parameters"]["SsoProviderError"];
             };
             header?: never;
             path: {

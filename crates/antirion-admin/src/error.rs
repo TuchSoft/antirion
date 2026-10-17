@@ -20,6 +20,9 @@ pub(crate) struct AdminError {
     pub(crate) resource: Option<String>,
     /// Seconds for `Retry-After` on a 429.
     pub(crate) retry_after: Option<u32>,
+    /// The code a failed single sign-on sends the browser back with, when more precise than the
+    /// one its status implies.
+    pub(crate) sso: Option<crate::sso::Failure>,
 }
 
 impl AdminError {
@@ -32,6 +35,7 @@ impl AdminError {
             allow: None,
             resource: None,
             retry_after: None,
+            sso: None,
         }
     }
 
@@ -178,6 +182,11 @@ impl AdminError {
             E::Store(_) => AdminError::store_unavailable(),
             E::Internal => AdminError::internal(),
         }
+    }
+
+    pub(crate) fn with_sso(mut self, failure: crate::sso::Failure) -> AdminError {
+        self.sso = Some(failure);
+        self
     }
 
     pub(crate) fn with_resource(mut self, resource: impl Into<String>) -> AdminError {

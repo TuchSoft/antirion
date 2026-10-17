@@ -23,7 +23,8 @@ use serde_json::{Value, json};
 
 use crate::call::Call;
 use crate::error::AdminError;
-use crate::oidc::{SignedIn, own_origin, redirect, refused, safe_return, unavailable};
+use crate::oidc::{SignedIn, own_origin, redirect, refused, return_to, safe_return, unavailable};
+use crate::sso::{Failure, Landing, settle};
 
 const REQUEST_LIFETIME: Duration = Duration::from_secs(600);
 /// What a pending request is kept under, apart from OIDC states.
@@ -73,10 +74,6 @@ pub(crate) async fn login(
         .map(|r| format!("_{r}"))
         .map_err(|_| AdminError::internal())?;
     let now = rt.now();
-    let return_to = params
-        .iter()
-        .find(|(k, _)| k == "return_to")
-        .map_or("/", |(_, v)| v.as_str());
     let request = AuthnRequest {
         id: &id,
         issue_instant: &now.to_rfc3339_seconds(),
@@ -91,7 +88,7 @@ pub(crate) async fn login(
         nonce: String::new(),
         verifier: String::new(),
         redirect_uri: acs_url,
-        return_to: safe_return(return_to),
+        return_to: return_to(params),
         started: now,
         test,
         trust_device: false,
@@ -117,9 +114,17 @@ pub(crate) async fn public(
 ) -> Result<Response, AdminError> {
     match step {
         "acs" if *method == Method::POST => Box::pin(acs(rt, name, headers, body)).await,
-        "acs" => Err(AdminError::method_not_allowed("POST")),
+        "acs" => settle(
+            rt,
+            headers,
+            &Landing::SignIn,
+            Err(AdminError::method_not_allowed("POST")),
+        ),
         _ if *method != Method::GET => Err(AdminError::method_not_allowed("GET")),
-        "login" => Box::pin(login(rt, name, params, headers, false)).await,
+        "login" => {
+            let result = Box::pin(login(rt, name, params, headers, false)).await;
+            settle(rt, headers, &Landing::SignIn, result)
+        }
         _ => metadata(rt, name, headers),
     }
 }
@@ -129,9 +134,15 @@ pub(crate) async fn login_test(call: &Call, name: &str) -> Result<Response, Admi
     if call.method != Method::GET {
         return Err(AdminError::method_not_allowed("GET"));
     }
-    call.allow_params(&["test", "return_to"])?;
-    call.require("security:write", &[Scope::Gateway])?;
-    Box::pin(login(&call.rt, name, &call.query, &call.headers, true)).await
+    let landing = Landing::of(true, &return_to(&call.query));
+    let result = match call
+        .allow_params(&["test", "return_to"])
+        .and_then(|()| call.require("security:write", &[Scope::Gateway]))
+    {
+        Ok(()) => Box::pin(login(&call.rt, name, &call.query, &call.headers, true)).await,
+        Err(e) => Err(e),
+    };
+    settle(&call.rt, &call.headers, &landing, result)
 }
 
 /// `GET /admin/v1/auth/saml/{provider}/metadata`: the service provider's metadata.
@@ -164,8 +175,15 @@ fn malformed() -> AdminError {
 fn refusal(e: &SamlError) -> AdminError {
     match e {
         SamlError::Malformed => malformed(),
-        other => refused(&other.to_string()),
+        SamlError::InResponseTo | SamlError::Unsolicited | SamlError::Replayed => stale(e),
+        SamlError::Status(_) => refused(&e.to_string()),
+        other => refused(&other.to_string()).with_sso(Failure::ResponseInvalid),
     }
+}
+
+/// A response that answers no sign-in in progress, or an assertion used already.
+fn stale(e: &SamlError) -> AdminError {
+    refused(&e.to_string()).with_sso(Failure::StateInvalid)
 }
 
 fn email_of(p: &Provider, a: &Assertion) -> Option<String> {
@@ -225,7 +243,7 @@ async fn answering(
                 .pending_login(&format!("{LOGIN_PREFIX}{id}"))
                 .await
                 .filter(|l| l.provider == name && rt.now().since(l.started) <= REQUEST_LIFETIME)
-                .ok_or_else(|| refused(&SamlError::InResponseTo.to_string()))?;
+                .ok_or_else(|| stale(&SamlError::InResponseTo))?;
             Ok(Answering {
                 request_id: Some(id),
                 acs_url: login.redirect_uri,
@@ -239,17 +257,34 @@ async fn answering(
             return_to: safe_return(relay_state.unwrap_or("/")),
             test: false,
         }),
-        None => Err(refused(&SamlError::Unsolicited.to_string())),
+        None => Err(stale(&SamlError::Unsolicited)),
     }
 }
 
-/// `POST /admin/v1/auth/saml/{provider}/acs`: the identity provider's HTTP-POST response.
+/// `POST /admin/v1/auth/saml/{provider}/acs`: the identity provider's HTTP-POST response. A
+/// failure sends the browser back to the console (a test sign-in: where it was started).
 pub(crate) async fn acs(
     rt: &Runtime,
     name: &str,
     headers: &HeaderMap,
     body: &[u8],
 ) -> Result<Response, AdminError> {
+    let (p, xml, on) = match Box::pin(answered(rt, name, headers, body)).await {
+        Ok(found) => found,
+        Err(e) => return settle(rt, headers, &Landing::SignIn, Err(e)),
+    };
+    let landing = Landing::of(on.test, &on.return_to);
+    let result = Box::pin(consume(rt, name, headers, &p, &xml, on)).await;
+    settle(rt, headers, &landing, result)
+}
+
+/// The provider, the response document and the sign-in it answers.
+async fn answered(
+    rt: &Runtime,
+    name: &str,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<(Arc<Provider>, String, Answering), AdminError> {
     let p = provider(rt, name)?;
     let fields = form(body);
     let get = |k: &str| fields.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
@@ -265,12 +300,24 @@ pub(crate) async fn acs(
     let xml = String::from_utf8(raw).map_err(|_| malformed())?;
     let claimed = saml::in_response_to(&xml).map_err(|_| malformed())?;
     let on = answering(rt, name, &p, claimed, get("RelayState"), headers).await?;
-    let idp = rt.saml_idp(name, &p).await.map_err(|_| unavailable())?;
+    Ok((p, xml, on))
+}
+
+/// Validates the assertion of a response that answers `on`, then signs its user in.
+async fn consume(
+    rt: &Runtime,
+    name: &str,
+    headers: &HeaderMap,
+    p: &Provider,
+    xml: &str,
+    on: Answering,
+) -> Result<Response, AdminError> {
+    let idp = rt.saml_idp(name, p).await.map_err(|_| unavailable())?;
     let origin = own_origin(rt, headers);
-    let sp = sp_entity_id(&p, &origin, name);
+    let sp = sp_entity_id(p, &origin, name);
     let now = rt.now();
     let assertion = saml::validate(
-        &xml,
+        xml,
         &Expected {
             idp_entity_id: &idp.entity_id,
             sp_entity_id: &sp,
@@ -288,7 +335,7 @@ pub(crate) async fn acs(
     if let Some(id) = &on.request_id
         && rt.take_login(&format!("{LOGIN_PREFIX}{id}")).await.is_none()
     {
-        return Err(refused(&SamlError::InResponseTo.to_string()));
+        return Err(stale(&SamlError::InResponseTo));
     }
     let first_use = rt
         .saml_assertion_once(
@@ -300,9 +347,9 @@ pub(crate) async fn acs(
         .map_err(|_| AdminError::store_unavailable())?;
     if !first_use {
         tracing::info!(provider = name, "a replayed SAML assertion was refused");
-        return Err(refused(&SamlError::Replayed.to_string()));
+        return Err(stale(&SamlError::Replayed));
     }
-    Box::pin(sign_in(rt, name, &p, &assertion, on)).await
+    Box::pin(sign_in(rt, name, p, &assertion, on)).await
 }
 
 async fn sign_in(
