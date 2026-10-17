@@ -184,12 +184,20 @@ export function splitCertificates(text: string): string[] {
     .filter(Boolean);
 }
 
-/** The provider's settings as the configuration takes them; the secret only when one was typed. */
+/** Text or a list as the configuration takes it: null when left empty, so a merge patch removes it. */
+const orNull = <T>(value: T, empty: boolean): T | null => (empty ? null : value);
+
+/**
+ * The provider's settings as the configuration takes them; the secret only when one was typed.
+ * An optional field left empty is null, so saving removes it even when the copy the form opened
+ * from did not have it yet.
+ */
 export function providerSpec(f: ProviderForm): Record<string, unknown> {
   const common: Record<string, unknown> = {
-    ...(f.displayName.trim() ? { display_name: f.displayName.trim() } : {}),
+    display_name: orNull(f.displayName.trim(), !f.displayName.trim()),
     jit_provisioning: f.jit,
   };
+  const domains = orNull(f.domains, f.domains.length === 0);
   const bindings = f.defaults.filter((b) => b.role && b.scope);
   if (f.protocol === 'oidc') {
     return {
@@ -198,7 +206,7 @@ export function providerSpec(f: ProviderForm): Record<string, unknown> {
       client_id: f.clientId.trim(),
       ...(f.clientSecret ? { client_secret: f.clientSecret } : {}),
       scopes: f.scopes,
-      ...(f.domains.length ? { allowed_email_domains: f.domains } : {}),
+      allowed_email_domains: domains,
       role_mappings: f.mappings.map((m) => ({
         claim: m.match.trim(),
         value: m.value,
@@ -214,7 +222,7 @@ export function providerSpec(f: ProviderForm): Record<string, unknown> {
       type: 'github',
       client_id: f.clientId.trim(),
       ...(f.clientSecret ? { client_secret: f.clientSecret } : {}),
-      ...(f.apiBase.trim() ? { api_base_url: f.apiBase.trim() } : {}),
+      api_base_url: orNull(f.apiBase.trim(), !f.apiBase.trim()),
       allowed_organizations: f.orgs,
       role_mappings: f.mappings.map((m) => ({
         organization: m.match.trim(),
@@ -237,11 +245,11 @@ export function providerSpec(f: ProviderForm): Record<string, unknown> {
   return {
     ...common,
     idp,
-    ...(f.spEntityId.trim() ? { sp_entity_id: f.spEntityId.trim() } : {}),
+    sp_entity_id: orNull(f.spEntityId.trim(), !f.spEntityId.trim()),
     name_id_format: f.nameId,
-    ...(f.emailAttribute.trim() ? { email_attribute: f.emailAttribute.trim() } : {}),
+    email_attribute: orNull(f.emailAttribute.trim(), !f.emailAttribute.trim()),
     allow_idp_initiated: f.idpInitiated,
-    ...(f.domains.length ? { allowed_email_domains: f.domains } : {}),
+    allowed_email_domains: domains,
     role_mappings: f.mappings.map((m) => ({
       attribute: m.match.trim(),
       value: m.value,
