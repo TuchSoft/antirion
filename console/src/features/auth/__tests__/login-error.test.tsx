@@ -10,22 +10,28 @@ import { LoginScreen } from '../components/login-screen';
 import { useLogin } from '../store';
 
 describe('a failed single sign-on, in words', () => {
-  it('names what happened by code and adds the gateway message', () => {
-    expect(callbackError('forbidden', 'This email domain may not sign in.')).toEqual({
-      title: 'Your account is not allowed to sign in to this gateway.',
+  it.each([
+    ['sso_state_invalid', 'The sign-in link expired or was opened in another browser. Start again.'],
+    ['sso_denied', 'Your identity provider or this gateway did not let you sign in.'],
+    ['sso_response_invalid', 'The answer from your identity provider could not be verified.'],
+    ['sso_provider_error', 'Your identity provider could not be reached, or answered with an error.'],
+    ['sso_provider_unknown', 'This sign-in option is not set up on the gateway any more.'],
+    ['sso_rate_limited', 'Too many sign-in attempts. Wait a minute, then try again.'],
+    ['sso_error', 'The gateway could not finish signing you in. Try again in a moment.'],
+  ])('words %s', (code, title) => {
+    expect(callbackError(code, null)?.title).toBe(title);
+  });
+
+  it('adds the gateway message as the detail', () => {
+    expect(callbackError('sso_denied', 'This email domain may not sign in.')).toEqual({
+      title: 'Your identity provider or this gateway did not let you sign in.',
       detail: 'This email domain may not sign in.',
     });
-    expect(callbackError('access_denied', 'User cancelled the login')).toEqual({
-      title: 'Your identity provider did not let you sign in.',
-      detail: 'User cancelled the login.',
-    });
+    expect(callbackError('sso_denied', 'User cancelled the login')?.detail).toBe('User cancelled the login.');
   });
 
   it('says what to do next when there is no message', () => {
-    expect(callbackError('invalid_parameter', null)).toEqual({
-      title: 'The sign-in expired or was already used.',
-      detail: 'Try again, or sign in another way.',
-    });
+    expect(callbackError('sso_state_invalid', null)?.detail).toBe('Try again, or sign in another way.');
     expect(callbackError('something_new', '')).toEqual({
       title: 'Single sign-on did not work.',
       detail: 'Try again, or sign in another way.',
@@ -34,7 +40,7 @@ describe('a failed single sign-on, in words', () => {
 
   it('shows a message without a code, cuts a long one and ignores an empty address', () => {
     expect(callbackError(null, 'Upstream said no')?.title).toBe('Single sign-on did not work.');
-    expect(callbackError('internal', 'x'.repeat(500))?.detail).toHaveLength(300);
+    expect(callbackError('sso_error', 'x'.repeat(500))?.detail).toHaveLength(300);
     expect(callbackError(null, null)).toBeNull();
     expect(callbackError('', '   ')).toBeNull();
   });
@@ -68,20 +74,20 @@ describe('sign-in page after a failed single sign-on', () => {
     window.history.replaceState(
       null,
       '',
-      '/login/?error=forbidden&message=This%20email%20domain%20may%20not%20sign%20in.',
+      '/login/?error=sso_denied&message=This%20email%20domain%20may%20not%20sign%20in.',
     );
     render(<LoginScreen />);
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Your account is not allowed to sign in to this gateway.');
+    expect(alert).toHaveTextContent('Your identity provider or this gateway did not let you sign in.');
     expect(alert).toHaveTextContent('This email domain may not sign in.');
     expect(await screen.findByRole('link', { name: /Continue with Google Workspace/ })).toBeInTheDocument();
   });
 
   it('still explains the failure when the message is missing', async () => {
-    window.history.replaceState(null, '', '/login/?error=invalid_parameter');
+    window.history.replaceState(null, '', '/login/?error=sso_state_invalid');
     render(<LoginScreen />);
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('The sign-in expired or was already used.');
+    expect(alert).toHaveTextContent('The sign-in link expired or was opened in another browser.');
     expect(alert).toHaveTextContent('Try again, or sign in another way.');
   });
 

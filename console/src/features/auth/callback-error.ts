@@ -4,21 +4,19 @@
  * when it sent one.
  */
 const BY_CODE: Record<string, string> = {
-  access_denied: 'Your identity provider did not let you sign in.',
-  forbidden: 'Your account is not allowed to sign in to this gateway.',
-  unauthenticated: 'The answer from your identity provider could not be verified.',
-  invalid_parameter: 'The sign-in expired or was already used.',
-  invalid_state: 'The sign-in expired or was already used.',
-  expired: 'The sign-in expired or was already used.',
-  conflict: 'Your account could not be matched to a person on this gateway.',
-  store_unavailable: 'The gateway could not finish signing you in.',
-  internal: 'The gateway could not finish signing you in.',
+  sso_state_invalid: 'The sign-in link expired or was opened in another browser. Start again.',
+  sso_denied: 'Your identity provider or this gateway did not let you sign in.',
+  sso_response_invalid: 'The answer from your identity provider could not be verified.',
+  sso_provider_error: 'Your identity provider could not be reached, or answered with an error.',
+  sso_provider_unknown: 'This sign-in option is not set up on the gateway any more.',
+  sso_rate_limited: 'Too many sign-in attempts. Wait a minute, then try again.',
+  sso_error: 'The gateway could not finish signing you in. Try again in a moment.',
 };
 
 const GENERAL = 'Single sign-on did not work.';
 const NEXT_STEP = 'Try again, or sign in another way.';
 
-/** The longest message shown from the address bar; anything longer is cut. */
+/** The longest message shown from the address bar (the gateway sends at most 200); longer is cut. */
 const MAX_MESSAGE = 300;
 
 export interface CallbackError {
