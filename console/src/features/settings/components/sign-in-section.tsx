@@ -18,6 +18,7 @@ import { FALLBACKS } from '../fallbacks';
 import { detailErrors, DURATION_RE, mergePatch, same } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Card, SaveBar } from './parts';
+import { TestSignInOutcome } from './test-sign-in-outcome';
 
 type Factor = 'totp' | 'webauthn';
 
@@ -579,23 +580,26 @@ export function SignInSection() {
     };
   }, [admin, organization.data, org]);
   return (
-    <Card
-      title="Sign-in & sessions"
-      description="How people prove who they are, and how long they stay signed in."
-    >
-      <LoadError of={auth} subject="Sign-in settings" size="sm" />
-      {auth.status === 'loading' && !auth.data ? <LoadingRows rows={4} /> : null}
-      <div className="flex flex-col gap-5">
-        {usersError ? null : <Coverage users={users} />}
-        {initial && auth.data ? (
-          <PolicyForm
-            key={`${auth.data.metadata.etag}${organization.data?.metadata.etag ?? ''}`}
-            org={org}
-            initial={initial}
-            hasSso={hasSso}
-          />
-        ) : null}
-      </div>
-    </Card>
+    <>
+      <TestSignInOutcome />
+      <Card
+        title="Sign-in & sessions"
+        description="How people prove who they are, and how long they stay signed in."
+      >
+        <LoadError of={auth} subject="Sign-in settings" size="sm" />
+        {auth.status === 'loading' && !auth.data ? <LoadingRows rows={4} /> : null}
+        <div className="flex flex-col gap-5">
+          {usersError ? null : <Coverage users={users} />}
+          {initial && auth.data ? (
+            <PolicyForm
+              key={`${auth.data.metadata.etag}${organization.data?.metadata.etag ?? ''}`}
+              org={org}
+              initial={initial}
+              hasSso={hasSso}
+            />
+          ) : null}
+        </div>
+      </Card>
+    </>
   );
 }

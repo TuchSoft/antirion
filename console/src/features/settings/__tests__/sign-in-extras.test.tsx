@@ -8,6 +8,8 @@ import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
 import { SignInExtras } from '../components/sign-in-extras';
+import { navigation } from '@/test/setup';
+
 import { SignInSection } from '../components/sign-in-section';
 import { useOrgSettings } from '../store';
 
@@ -112,5 +114,27 @@ describe('Sign-in extras', () => {
     await userEvent.click(within(playground).getByRole('button', { name: 'Save changes' }));
     expect(await within(playground).findByText('Enter a number from 1 to 10000')).toBeInTheDocument();
     expect(patches).toHaveLength(0);
+  });
+});
+
+describe('test sign-in outcome', () => {
+  it('shows a failed test sign-in in words, then takes it out of the address', async () => {
+    authServer({});
+    window.history.replaceState(
+      null,
+      '',
+      '/?settings=sign-in&error=sso_denied&message=This%20email%20domain%20may%20not%20sign%20in.',
+    );
+    render(<SignInSection />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The test sign-in failed.');
+    expect(alert).toHaveTextContent('Your identity provider or this gateway did not let you sign in.');
+    expect(alert).toHaveTextContent('This email domain may not sign in.');
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenLastCalledWith('/?settings=sign-in', { scroll: false }),
+    );
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
