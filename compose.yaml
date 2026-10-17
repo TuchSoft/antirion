@@ -4,6 +4,10 @@
 #   docker compose up -d          # builds the image on the first run
 #   open http://localhost:8081/ui/
 #
+# Outgoing email (invitations, password resets, alert and personal notifications) goes to Mailpit,
+# a local mail catcher: every message the gateway sends shows at http://localhost:8025. The
+# ANTIRION_SMTP_* settings in .env point the gateway at a real server instead.
+#
 # Profiles:
 #   mock      adds the mock upstream, an OpenAI- and Anthropic-compatible server with fake answers,
 #             reachable from the gateway at http://mock-upstream:19401
@@ -27,14 +31,18 @@ services:
     ports:
       - "127.0.0.1:${ANTIRION_DATA_PORT:-8080}:8080"
       - "127.0.0.1:${ANTIRION_ADMIN_PORT:-8081}:8081"
+      # Mailpit's web interface: Mailpit shares the gateway's network, so its port is published here.
+      - "127.0.0.1:${ANTIRION_MAIL_PORT:-8025}:8025"
     environment:
       ANTIRION_BOOTSTRAP_TOKEN: ${ANTIRION_BOOTSTRAP_TOKEN:-}
       ANTIRION_ENCRYPTION_KEY: ${ANTIRION_ENCRYPTION_KEY:-}
+      ANTIRION_SMTP_PASSWORD: ${ANTIRION_SMTP_PASSWORD:-}
     # Compose does not recreate a container when only its startup file below changes: these
     # values, the file's inputs, make it.
     labels:
       antirion.public-origin: ${ANTIRION_PUBLIC_ORIGIN:-http://localhost:${ANTIRION_ADMIN_PORT:-8081}}
       antirion.data-plane-url: ${ANTIRION_DATA_PLANE_URL:-http://localhost:${ANTIRION_DATA_PORT:-8080}}
+      antirion.smtp: ${ANTIRION_SMTP_TLS:-none}://${ANTIRION_SMTP_USERNAME:-}@${ANTIRION_SMTP_HOST:-127.0.0.1}:${ANTIRION_SMTP_PORT:-1025} from ${ANTIRION_SMTP_FROM:-noreply@antirion.localhost}
     configs:
       - source: antirion
         target: /etc/antirion/antirion.yaml
@@ -42,6 +50,18 @@ services:
       - data:/var/lib/antirion
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+
+  # A mail catcher for the gateway's outgoing email. It runs in the gateway's network namespace, so
+  # the gateway reaches it on 127.0.0.1:1025: plain SMTP is accepted only on a loopback address.
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    network_mode: service:gateway
+    depends_on: [gateway]
+    restart: unless-stopped
+    environment:
+      MP_SMTP_BIND_ADDR: 127.0.0.1:1025
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+      MP_MAX_MESSAGES: 5000
 
   mock-upstream:
     profiles: [mock]
@@ -86,4 +106,12 @@ configs:
         admin:
           public_origin: "${ANTIRION_PUBLIC_ORIGIN:-http://localhost:${ANTIRION_ADMIN_PORT:-8081}}"
           ${ANTIRION_BOOTSTRAP_TOKEN:+bootstrap_token: "$${env:ANTIRION_BOOTSTRAP_TOKEN}"}
+      smtp:
+        enabled: true
+        host: "${ANTIRION_SMTP_HOST:-127.0.0.1}"
+        port: ${ANTIRION_SMTP_PORT:-1025}
+        tls: "${ANTIRION_SMTP_TLS:-none}"
+        from: "${ANTIRION_SMTP_FROM:-noreply@antirion.localhost}"
+        ${ANTIRION_SMTP_USERNAME:+username: "${ANTIRION_SMTP_USERNAME}"}
+        ${ANTIRION_SMTP_PASSWORD:+password: "$${env:ANTIRION_SMTP_PASSWORD}"}
       ${ANTIRION_ENCRYPTION_KEY:+security: {secrets: {encryption_keys: ["$${env:ANTIRION_ENCRYPTION_KEY}"]}}}

@@ -15,21 +15,23 @@ sed -i.bak "s|^ANTIRION_BOOTSTRAP_TOKEN=.*|ANTIRION_BOOTSTRAP_TOKEN=$(openssl ra
 docker compose --profile mock up -d    # the first run builds the images: 10 to 20 minutes
 ```
 
-This starts one gateway (`compose.yaml`) with its data in the volume `antirion_data`, and the mock
-upstream (the `mock` profile; leave `--profile mock` out if you only use real providers). Both
-ports are published on 127.0.0.1 only:
+This starts one gateway (`compose.yaml`) with its data in the volume `antirion_data`, Mailpit to
+catch the email it sends (see [Email](#email)), and the mock upstream (the `mock` profile; leave
+`--profile mock` out if you only use real providers). The ports are published on 127.0.0.1 only:
 
-| Port | What                                                     |
-| ---- | -------------------------------------------------------- |
-| 8080 | the data plane: the `/v1` API your apps call             |
-| 8081 | the admin plane: the Admin API and the console at `/ui/` |
+| Port | What                                                       |
+| ---- | ---------------------------------------------------------- |
+| 8080 | the data plane: the `/v1` API your apps call               |
+| 8081 | the admin plane: the Admin API and the console at `/ui/`   |
+| 8025 | Mailpit: every email the gateway sends, in a web interface |
 
 Open <http://localhost:8081/ui/> and paste `ANTIRION_BOOTSTRAP_TOKEN` from `.env` into **Admin
 token**. A new gateway asks for it straight away ("Set up your gateway"); later, the sign-in page
 has it under **Use an admin token**.
 
-Ports already taken on your machine? Set `ANTIRION_DATA_PORT` and `ANTIRION_ADMIN_PORT` in `.env`
-(see [Ports, host names and the public origin](#ports-host-names-and-the-public-origin)).
+Ports already taken on your machine? Set `ANTIRION_DATA_PORT`, `ANTIRION_ADMIN_PORT` and
+`ANTIRION_MAIL_PORT` in `.env` (see
+[Ports, host names and the public origin](#ports-host-names-and-the-public-origin)).
 
 Both keys are optional. Without a bootstrap token the gateway generates one into its volume:
 
@@ -113,6 +115,36 @@ Test mode adds the test clock, seed and reset endpoints under `/admin/v1/test/` 
 test-only request headers. It is for trying things out only. Turn it on with
 `ANTIRION_SERVE_FLAGS=--test-mode` in `.env` and `docker compose up -d`; remove the line to turn it
 off.
+
+## Email
+
+The gateway sends email for invitations, password resets, email alert channels and personal
+notifications. Compose sends all of it to Mailpit, a mail catcher that runs beside the gateway and
+delivers nothing: open <http://localhost:8025> to read every message. To check the path end to
+end, send a test message from **Gateway settings → SMTP** in the console, or:
+
+```bash
+curl -s -X POST http://localhost:8081/admin/v1/settings/smtp:test \
+  -H "Authorization: Bearer $(grep ^ANTIRION_BOOTSTRAP_TOKEN= .env | cut -d= -f2)" \
+  -H 'Content-Type: application/json' -d '{"to": "you@example.com"}'
+```
+
+Mailpit shares the gateway's network, and the gateway reaches it on `127.0.0.1:1025`: the gateway
+sends plain SMTP (`tls: none`) only to a loopback address. To send real email, set the
+`ANTIRION_SMTP_*` values in `.env` (`.env.example` describes them) and `docker compose up -d`:
+
+```bash
+ANTIRION_SMTP_HOST=smtp.example.com
+ANTIRION_SMTP_PORT=587
+ANTIRION_SMTP_TLS=starttls             # or tls on port 465
+ANTIRION_SMTP_USERNAME=antirion@example.com
+ANTIRION_SMTP_PASSWORD=...
+ANTIRION_SMTP_FROM=antirion@example.com
+```
+
+Compose writes these settings into the gateway's startup file, so the console shows them read-only
+(managed by the file). The Compose cluster and the Helm chart start with email off: set it in
+**Gateway settings → SMTP**, with a server that speaks STARTTLS or TLS.
 
 ## A cluster with Compose
 
