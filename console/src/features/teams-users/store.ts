@@ -276,6 +276,12 @@ export function viewerFor(scope: string): string {
 
 /** User administration actions that are not plain edits. */
 export const userActions = {
+  /** Enables or disables a user (a merge patch of `enabled`, with the reason for the audit log). */
+  async setEnabled(user: string, enabled: boolean, reason?: string): Promise<void> {
+    const current = useUsers.getState().byName(user);
+    const updated = await directoryApi.setUserEnabled(user, enabled, current?.metadata.etag, reason);
+    useUsers.setState((s) => ({ items: s.items.map((u) => (u.name === user ? updated : u)) }));
+  },
   revokeSessions: (user: string) => directoryApi.revokeSessions(user),
   resetMfa: (user: string, reason?: string) => directoryApi.resetMfa(user, reason),
   async offboard(user: string, body: OffboardRequest) {

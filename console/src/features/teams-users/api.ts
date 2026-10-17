@@ -136,6 +136,14 @@ export const directoryApi = {
       ifMatch: etag,
       reason,
     }),
+  /** Turns a user on or off with a merge patch, so their role bindings are not sent back. */
+  setUserEnabled: (
+    name: string,
+    enabled: boolean,
+    etag: string | undefined,
+    reason?: string,
+  ): Promise<UserResource> =>
+    api.patch('/users/{name}', { path: { name }, body: { spec: { enabled } }, ifMatch: etag, reason }),
   setTeamEnabled: (
     name: string,
     enabled: boolean,

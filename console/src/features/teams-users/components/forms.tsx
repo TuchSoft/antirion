@@ -607,8 +607,17 @@ const bindingSchema = z.object({
   target: z.string(),
 });
 
-/** Adds a role binding for a user at a scope. */
-export function BindingDialog({ user, onClose }: { user: string; onClose: () => void }) {
+/** Adds a role binding for a user, or for one of their admin tokens, at a scope. */
+export function BindingDialog({
+  user,
+  token,
+  onClose,
+}: {
+  user: string;
+  /** Binds the role to this admin token instead of the user. */
+  token?: { kid: string; hint: string } | undefined;
+  onClose: () => void;
+}) {
   const roles = useDirectory((s) => s.roles.data) ?? [];
   const teams = useTeams((s) => s.items);
   const projects = useProjects((s) => s.items);
@@ -646,11 +655,11 @@ export function BindingDialog({ user, onClose }: { user: string; onClose: () => 
     setError(null);
     try {
       await addBinding({
-        principal: { type: 'user', id: user },
+        principal: token ? { type: 'token', id: token.kid } : { type: 'user', id: user },
         role: values.role,
         scope: values.kind === 'gateway' ? 'gateway' : `${values.kind}/${values.target}`,
       });
-      notify('success', 'Role assigned', `${roleLabel(values.role)} to ${user}`);
+      notify('success', 'Role assigned', `${roleLabel(values.role)} to ${token ? token.hint : user}`);
       onClose();
     } catch (e) {
       setError(e);
@@ -664,7 +673,7 @@ export function BindingDialog({ user, onClose }: { user: string; onClose: () => 
       dirty={edited}
       open
       onClose={onClose}
-      title={`Assign a role to ${user}`}
+      title={token ? `Give a role to token ${token.hint}` : `Assign a role to ${user}`}
       size="sm"
       footer={
         <>
@@ -708,7 +717,9 @@ export function BindingDialog({ user, onClose }: { user: string; onClose: () => 
           )}
         </div>
         <p className="text-caption text-muted">
-          Admin access is always a role binding; API key scopes never grant it.
+          {token
+            ? `The token gets this role on top of what it does as ${user}. Revoking the token ends it.`
+            : 'Admin access is always a role binding; API key scopes never grant it.'}
         </p>
       </div>
     </Dialog>

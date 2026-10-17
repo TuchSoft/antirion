@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { FavouriteButton } from '@/components/ui/favourite';
 import { Badge, Dot } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Field, Input, Select } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
@@ -15,6 +15,7 @@ import { Avatar } from '@/components/ui/misc';
 import { Banner, EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
+import type { RoleBinding } from '@/lib/api/types';
 import { useNow } from '@/lib/hooks';
 import { formatDate, formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
@@ -45,6 +46,30 @@ import {
 } from './user-facts';
 import { auditActorBy } from '@/lib/audit-words';
 import { useTokenNames } from '@/stores/actors';
+
+/** The roles an admin token holds of its own, each removable. */
+function TokenRoles({ held, onRemove }: { held: RoleBinding[]; onRemove: (id: string) => void }) {
+  const canRemove = useCan('deleteRoleBinding');
+  if (held.length === 0) return <span className="text-muted">None</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {held.map((b) => (
+        <Badge key={b.id} tone="warn">
+          {roleLabel(b.role)} · {b.scope}
+          {canRemove ? (
+            <IconButton
+              icon="x"
+              size={12}
+              label={`Remove ${roleLabel(b.role)} at ${b.scope}`}
+              className="-mr-1 h-4 w-4"
+              onClick={() => onRemove(b.id)}
+            />
+          ) : null}
+        </Badge>
+      ))}
+    </span>
+  );
+}
 
 type DialogKind =
   | 'binding'
@@ -81,9 +106,10 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
   const deleteToken = useDirectory((s) => s.deleteToken);
   const cancelInvitation = useDirectory((s) => s.cancelInvitation);
   const resendInvitation = useDirectory((s) => s.resendInvitation);
-  const update = useUsers((s) => s.update);
   const remove = useUsers((s) => s.remove);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [tokenRole, setTokenRole] = useState<{ kid: string; hint: string } | null>(null);
+  const bindings = useDirectory((s) => s.bindings.data) ?? [];
   const [tokenDraft, setTokenDraft] = useState({ description: '', days: '90' });
   const [offboardKeys, setOffboardKeys] = useState<'disable' | 'delete' | 'transfer'>('disable');
   const [transferTo, setTransferTo] = useState('');
@@ -244,9 +270,9 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
             disabled: blockedBySeats,
             disabledReason: `All ${seats.cap ?? ''} seats are in use. Disable someone or raise the seat cap first.`,
             onSelect: () =>
-              void update(view.name, { ...user.spec, enabled: true }).then(() =>
-                notify('success', 'User enabled', view.name),
-              ),
+              void userActions
+                .setEnabled(view.name, true)
+                .then(() => notify('success', 'User enabled', view.name)),
           }
         : { label: 'Disable', icon: 'pause', onSelect: () => setDialog('disable') },
     );
@@ -386,6 +412,7 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
               <tr>
                 <Th>Token</Th>
                 <Th>Description</Th>
+                <Th>Own roles</Th>
                 <Th>Expires</Th>
                 <Th>Last used</Th>
                 <Th>
@@ -398,9 +425,26 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
                 <Tr key={t.kid}>
                   <Td mono>{t.hint}</Td>
                   <Td muted>{t.description ?? '—'}</Td>
+                  <Td>
+                    <TokenRoles
+                      held={bindings.filter((b) => b.principal.type === 'token' && b.principal.id === t.kid)}
+                      onRemove={(id) =>
+                        void removeBinding(id).then(() => notify('success', 'Role removed', t.hint))
+                      }
+                    />
+                  </Td>
                   <Td muted>{t.expires_at ? formatDate(t.expires_at, timeZone) : 'Never'}</Td>
                   <Td muted>{formatRelative(t.last_used_at ?? null)}</Td>
-                  <Td className="text-right">
+                  <Td className="text-right whitespace-nowrap">
+                    <Gate operation="createRoleBinding" mode="hide">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setTokenRole({ kid: t.kid, hint: t.hint })}
+                      >
+                        Give role
+                      </Button>
+                    </Gate>
                     <Gate operation="deleteAdminToken" mode="hide">
                       <Button
                         size="sm"
@@ -461,6 +505,9 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
       </DetailSection>
 
       {dialog === 'binding' ? <BindingDialog user={view.name} onClose={() => setDialog(null)} /> : null}
+      {tokenRole ? (
+        <BindingDialog user={view.name} token={tokenRole} onClose={() => setTokenRole(null)} />
+      ) : null}
       <ConfirmDialog
         open={dialog === 'token'}
         onClose={() => setDialog(null)}
@@ -505,11 +552,11 @@ export function UserDetail({ view, teams, onEdit, onSecret }: UserDetailProps) {
         tone="primary"
         confirmLabel="Disable user"
         effect="They won't be able to sign in, and they'll be signed out now. Their admin tokens stop working until you enable them again."
-        onConfirm={async () => {
-          await update(view.name, { ...user.spec, enabled: false });
+        onConfirm={async (reason) => {
+          await userActions.setEnabled(view.name, false, reason);
           notify('success', 'User disabled', view.name, {
             label: 'Undo',
-            onClick: () => void update(view.name, { ...user.spec, enabled: true }),
+            onClick: () => void userActions.setEnabled(view.name, true, 'undo'),
           });
         }}
       />
