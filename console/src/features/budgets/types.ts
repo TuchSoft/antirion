@@ -1,4 +1,5 @@
 import type { BudgetCounter } from '@/lib/api/types';
+import { formatCount, formatMoney } from '@/lib/format';
 
 export type BudgetState = 'blocked' | 'over' | 'at_risk' | 'on_pace';
 export type BudgetLevel = 'organization' | 'team' | 'project' | 'key';
@@ -49,6 +50,20 @@ export interface TreeContext {
   declaration?: (level: string, owner: string, name: string) => Record<string, unknown> | undefined;
   /** A user's primary team, for placing per-user seats of an organization budget. */
   teamOfUser?: (user: string) => string | undefined;
+}
+
+/** A budget amount in its unit: dollars, or a count of tokens ("12,000 tokens"). */
+export function formatAmount(
+  value: number | string | null | undefined,
+  unit: string | undefined,
+  options: { compact?: boolean; sign?: boolean } = {},
+): string {
+  if (unit !== 'tokens') return formatMoney(value, options);
+  const n = Number(value);
+  if (value === null || value === undefined || value === '' || !Number.isFinite(n))
+    return formatMoney(value, options);
+  const sign = n < 0 ? '−' : options.sign && n > 0 ? '+' : '';
+  return `${sign}${formatCount(Math.abs(n), { compact: options.compact })} tokens`;
 }
 
 export function budgetId(c: Pick<BudgetCounter, 'level' | 'owner' | 'name' | 'partition'>): string {

@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { money, resourceName } from '@/lib/validation';
 
 export type Enforcement = 'soft' | 'hard' | 'approval' | 'downgrade';
+export type BudgetUnit = 'usd' | 'tokens';
+/** Which tokens a token budget counts: all of them, one direction, or weighted by pricing class. */
+export type TokenCount = 'total' | 'input' | 'output' | 'weighted';
 export type Period = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime' | 'rolling';
 
 /** The rolling windows the drawer offers (any duration is kept as written). */
@@ -12,6 +15,10 @@ export interface BudgetFormValues {
   level: 'organization' | 'team' | 'project' | 'key';
   owner: string;
   name: string;
+  /** What the amount counts: dollars, or tokens. */
+  unit: BudgetUnit;
+  /** With `tokens`: which tokens count. */
+  tokens: TokenCount;
   amount: string;
   period: Period;
   /** With `rolling`: the window's length, a duration such as `7d`. */
@@ -33,6 +40,8 @@ export const EMPTY_BUDGET: BudgetFormValues = {
   level: 'team',
   owner: '',
   name: 'monthly',
+  unit: 'usd',
+  tokens: 'total',
   amount: '',
   period: 'monthly',
   window: '7d',
@@ -68,7 +77,9 @@ export const budgetSchema = z
     level: z.enum(['organization', 'team', 'project', 'key']),
     owner: resourceName,
     name: z.string().regex(/^[a-z0-9_]{1,64}$/, 'Lowercase letters, digits and _'),
-    amount: money,
+    unit: z.enum(['usd', 'tokens']),
+    tokens: z.enum(['total', 'input', 'output', 'weighted']),
+    amount: z.string().trim(),
     period: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'lifetime', 'rolling']),
     window: z.string().trim(),
     enforcement: z.enum(['soft', 'hard', 'approval', 'downgrade']),
@@ -86,6 +97,10 @@ export const budgetSchema = z
     downgradeModel: z.string(),
     downgradeTier: z.string(),
     cacheBypass: z.boolean(),
+  })
+  .refine((v) => (v.unit === 'tokens' ? /^\d+$/.test(v.amount) : money.safeParse(v.amount).success), {
+    path: ['amount'],
+    message: 'Enter an amount',
   })
   .refine((v) => v.hardCap === '' || v.enforcement === 'soft', {
     path: ['hardCap'],
@@ -116,9 +131,13 @@ export function toDeclarations(v: BudgetFormValues): Record<string, Record<strin
     .map((p) => Number(p) / 100);
   const rolling = v.period === 'rolling';
   const period = rolling ? v.window.trim() : v.period;
+  const tokens = v.unit === 'tokens';
   const base: Record<string, unknown> = {
-    unit: 'usd',
-    amount: v.amount,
+    unit: v.unit,
+    amount: amountOf(v.unit, v.amount),
+    // `tokens` and `weights` only exist on a token budget; the default count is left unwritten.
+    tokens: tokens ? (v.tokens === 'total' ? undefined : v.tokens) : null,
+    ...(tokens ? {} : { weights: null }),
     period,
     algorithm: rolling ? 'sliding_window' : null,
     ...(rolling ? {} : { precision: null }),
@@ -136,12 +155,15 @@ export function toDeclarations(v: BudgetFormValues): Record<string, Record<strin
         : null,
     cache_hits_bypass_budgets: v.cacheBypass ? true : null,
   };
+  if (base.tokens === undefined) delete base.tokens;
   const out: Record<string, Record<string, unknown> | null> = { [v.name]: base };
   const capName = `${v.name}_cap`.slice(0, 64);
   if (v.hardCap) {
+    const capAmount = (Number(v.amount) * Number(v.hardCap)) / 100;
     out[capName] = {
-      unit: 'usd',
-      amount: String((Number(v.amount) * Number(v.hardCap)) / 100),
+      unit: v.unit,
+      amount: tokens ? Math.round(capAmount) : String(capAmount),
+      ...(tokens && v.tokens !== 'total' ? { tokens: v.tokens } : {}),
       period,
       algorithm: rolling ? 'sliding_window' : null,
       mode: 'hard',
@@ -152,13 +174,24 @@ export function toDeclarations(v: BudgetFormValues): Record<string, Record<strin
   return out;
 }
 
+/** An amount as a declaration writes it: a decimal string of dollars, or a whole number of tokens. */
+export function amountOf(unit: BudgetUnit, amount: string): string | number {
+  return unit === 'tokens' ? Number(amount.trim()) : amount.trim();
+}
+
 /** A merge patch that sets or removes one partition value's own amount. */
 export function toOverride(
   name: string,
   value: string,
   amount: string | null,
+  unit: BudgetUnit = 'usd',
 ): Record<string, Record<string, unknown>> {
-  return { [name]: { overrides: { [value]: amount } } };
+  return { [name]: { overrides: { [value]: amount === null ? null : amountOf(unit, amount) } } };
+}
+
+/** The unit a declaration counts in; a declaration without one is read as dollars. */
+export function unitOf(decl: Record<string, unknown> | undefined): BudgetUnit {
+  return decl?.unit === 'tokens' ? 'tokens' : 'usd';
 }
 
 const PERIODS = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'lifetime'];
@@ -171,7 +204,11 @@ export function fromDeclaration(
   cap: Record<string, unknown> | undefined,
 ): BudgetFormValues {
   const d = decl ?? {};
-  const mode = typeof d.mode === 'string' ? d.mode : 'soft';
+  // A declaration without a mode blocks at the limit (the default is `hard`).
+  const mode = typeof d.mode === 'string' ? d.mode : decl ? 'hard' : 'soft';
+  const tokens = ['total', 'input', 'output', 'weighted'].includes(d.tokens as string)
+    ? (d.tokens as TokenCount)
+    : 'total';
   const downgrade = d.downgrade as { at?: number; to_tier?: string; to_model?: string } | undefined;
   const alerts = Array.isArray(d.alert_at)
     ? (d.alert_at as unknown[]).map((a) => String(Math.round(Number(a) * 100))).join(', ')
@@ -185,6 +222,8 @@ export function fromDeclaration(
     level,
     owner,
     name,
+    unit: unitOf(decl),
+    tokens,
     amount,
     period: rolling ? 'rolling' : (period as Period),
     window: rolling ? period : '7d',

@@ -6,13 +6,13 @@ import { ConfirmDialog } from '@/components/ui/confirm';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Field, Input } from '@/components/ui/form';
 import type { BudgetCounter } from '@/lib/api/types';
-import { formatMoney } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
 import { formatDateTime } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
 
 import { useBudgets } from '../store';
+import { formatAmount } from '../types';
 
 const DAY = 86_400_000;
 
@@ -49,8 +49,11 @@ export function OverageDialog({
   const defaultDay = (periodEnd ? new Date(new Date(periodEnd).getTime() - 1) : new Date(now + 7 * DAY))
     .toISOString()
     .slice(0, 10);
+  const tokens = counter.unit === 'tokens';
   const over = Math.max(0, Number(counter.spent) - Number(counter.amount));
-  const [amount, setAmount] = useState(() => (over > 0 ? (Math.ceil(over * 100) / 100).toFixed(2) : ''));
+  const [amount, setAmount] = useState(() =>
+    over > 0 ? (tokens ? String(Math.ceil(over)) : (Math.ceil(over * 100) / 100).toFixed(2)) : '',
+  );
   const [day, setDay] = useState(defaultDay);
   const [reason, setReason] = useState('');
   const today = new Date(now).toISOString().slice(0, 10);
@@ -76,23 +79,27 @@ export function OverageDialog({
       }
       onConfirm={async () => {
         const trimmed = amount.trim();
-        if (!/^\d+(\.\d{1,6})?$/.test(trimmed) || Number(trimmed) <= 0)
-          throw new Error('Enter the extra amount in dollars, like 50');
+        if (!(tokens ? /^\d+$/ : /^\d+(\.\d{1,6})?$/).test(trimmed) || Number(trimmed) <= 0)
+          throw new Error(
+            tokens
+              ? 'Enter the extra tokens, a whole number like 50000'
+              : 'Enter the extra amount in dollars, like 50',
+          );
         if (!reason.trim()) throw new Error('Say why going over is approved; it goes to the audit log.');
         const expires = grantExpiry(day, periodEnd);
         if (new Date(expires).getTime() <= Date.now()) throw new Error('Choose a day from today on');
         await grant(counter, trimmed, expires, reason.trim());
-        notify('success', 'Overage approved', `${label}: ${formatMoney(trimmed)} more`);
+        notify('success', 'Overage approved', `${label}: ${formatAmount(trimmed, counter.unit)} more`);
       }}
     >
       <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-        <Field label="Extra amount (USD)" required>
+        <Field label={tokens ? 'Extra tokens' : 'Extra amount (USD)'} required>
           <Input
             mono
-            inputMode="decimal"
+            inputMode={tokens ? 'numeric' : 'decimal'}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 50"
+            placeholder={tokens ? 'e.g. 50000' : 'e.g. 50'}
           />
         </Field>
         <Field label="Until" hint={periodEnd ? 'At most the end of the period.' : undefined}>

@@ -25,6 +25,7 @@ import {
   type BudgetRow,
   enforcementLabel,
   flatten,
+  formatAmount,
   isCounted,
   LEVEL_LABEL,
   partitionLabel,
@@ -90,7 +91,7 @@ function ForecastBar({ row }: { row: BudgetRow }) {
           value={row.spent}
           max={row.amount}
           tone={tone === 'success' ? 'accent' : tone}
-          label={`${row.owner} ${row.name}: ${formatMoney(row.spent)} of ${formatMoney(row.amount)} in the window`}
+          label={`${row.owner} ${row.name}: ${formatAmount(row.spent, row.counter.unit)} of ${formatAmount(row.amount, row.counter.unit)} in the window`}
           className="h-2"
         />
         <span className="text-caption text-dim">Rolling window: no period end to forecast</span>
@@ -104,7 +105,7 @@ function ForecastBar({ row }: { row: BudgetRow }) {
         projected={row.projected}
         tick={row.kind === 'budget' || row.kind === 'partition' ? row.elapsed : undefined}
         tone={tone === 'success' ? 'accent' : tone}
-        label={`${row.owner} ${row.name}: ${formatMoney(row.spent)} spent, projected ${formatMoney(row.projected)} of ${formatMoney(row.amount)}`}
+        label={`${row.owner} ${row.name}: ${formatAmount(row.spent, row.counter.unit)} spent, projected ${formatAmount(row.projected, row.counter.unit)} of ${formatAmount(row.amount, row.counter.unit)}`}
         className="h-2"
       />
       {over > 0 ? (
@@ -347,10 +348,10 @@ function Row({
         </Badge>
       </Td>
       <Td numeric>
-        <div>{formatMoney(row.spent, { compact: true })}</div>
+        <div>{formatAmount(row.spent, row.counter.unit, { compact: true })}</div>
         <div className="text-caption text-muted">
           {row.amount > 0
-            ? `${formatPercent(row.spent / row.amount, 0)} of ${formatMoney(row.amount, { compact: true })}${group ? ' together' : ''}`
+            ? `${formatPercent(row.spent / row.amount, 0)} of ${formatAmount(row.amount, row.counter.unit, { compact: true })}${group ? ' together' : ''}`
             : 'No amount'}
         </div>
       </Td>
@@ -366,12 +367,12 @@ function Row({
         ) : (
           <>
             <div className={cn(row.projected > row.amount && 'text-error')}>
-              {formatMoney(row.projected, { compact: true })}
+              {formatAmount(row.projected, row.counter.unit, { compact: true })}
             </div>
             <div className="text-caption text-muted">
               {row.projected > row.amount
-                ? `${formatMoney(row.projected - row.amount, { compact: true, sign: true })} over`
-                : `${formatMoney(row.amount - row.projected, { compact: true })} to spare`}
+                ? `${formatAmount(row.projected - row.amount, row.counter.unit, { compact: true, sign: true })} over`
+                : `${formatAmount(row.amount - row.projected, row.counter.unit, { compact: true })} to spare`}
             </div>
           </>
         )}

@@ -17,7 +17,7 @@ import { InlineError } from '@/components/ui/states';
 import { modelOption } from '@/components/ui/marks';
 import { cn } from '@/lib/cn';
 import { useNow } from '@/lib/hooks';
-import { formatMoney, formatPercent, plural } from '@/lib/format';
+import { formatPercent, plural } from '@/lib/format';
 import { formatDate, formatRelative } from '@/lib/time';
 import { serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
 import { usePreferences } from '@/stores/preferences';
@@ -26,6 +26,7 @@ import { notify } from '@/stores/ui';
 import {
   budgetSchema,
   type BudgetFormValues,
+  type BudgetUnit,
   type Enforcement,
   EMPTY_BUDGET,
   fromDeclaration,
@@ -36,6 +37,7 @@ import {
 import { useBudgets } from '../store';
 import {
   type BudgetRow,
+  formatAmount,
   isCounted,
   LEVEL_LABEL,
   partitionLabel,
@@ -68,6 +70,23 @@ const WINDOW_LABEL: Record<string, string> = {
   '30d': 'Last 30 days',
 };
 
+const UNITS = [
+  { value: 'usd', label: 'Dollars' },
+  { value: 'tokens', label: 'Tokens' },
+] as const;
+
+const TOKEN_COUNTS = [
+  { value: 'total', label: 'Input and output' },
+  { value: 'input', label: 'Input only' },
+  { value: 'output', label: 'Output only' },
+  { value: 'weighted', label: 'Weighted by price class' },
+];
+
+/** "Amount (USD)" or "Amount (tokens)". */
+function amountLabel(unit: BudgetUnit, noun = 'Amount'): string {
+  return `${noun} (${unit === 'tokens' ? 'tokens' : 'USD'})`;
+}
+
 const LEVELS = [
   { value: 'organization', label: 'Organization' },
   { value: 'team', label: 'Team' },
@@ -83,6 +102,7 @@ function amountText(v: unknown): string {
 
 /** The parent's amount, what its other budgets take, and what is left for this one. */
 function Allocation({ row, parent, amount }: { row: BudgetRow; parent: BudgetRow; amount: number }) {
+  const fmt = (v: number) => formatAmount(v, row.counter.unit);
   const siblings = parent.children.filter(
     (c) => c.id !== row.id && c.kind === 'budget' && c.counter.unit === row.counter.unit,
   );
@@ -98,21 +118,21 @@ function Allocation({ row, parent, amount }: { row: BudgetRow; parent: BudgetRow
         <dt className="text-muted">
           {parent.owner} · {parent.name}
         </dt>
-        <dd className="text-right text-fg">{formatMoney(parent.amount)}</dd>
+        <dd className="text-right text-fg">{fmt(parent.amount)}</dd>
         <dt className="text-muted">
           Other {noun} ({siblings.length})
         </dt>
-        <dd className="text-right text-fg">{formatMoney(others)}</dd>
+        <dd className="text-right text-fg">{fmt(others)}</dd>
         <dt className="text-muted">Left for this one</dt>
         <dd className={cn('text-right font-semibold', available < 0 || over ? 'text-warn' : 'text-success')}>
-          {formatMoney(available)}
+          {fmt(available)}
         </dd>
       </dl>
       {over ? (
         <p className="text-caption text-warn">
-          At {formatMoney(amount)}, the budgets inside {parent.owner} add up to {formatMoney(others + amount)}
-          , {formatMoney(others + amount - parent.amount)} more than its amount. Every budget is still checked
-          on its own; the {level} budget can refuse first.
+          At {fmt(amount)}, the budgets inside {parent.owner} add up to {fmt(others + amount)},{' '}
+          {fmt(others + amount - parent.amount)} more than its amount. Every budget is still checked on its
+          own; the {level} budget can refuse first.
         </p>
       ) : null}
     </section>
@@ -121,6 +141,7 @@ function Allocation({ row, parent, amount }: { row: BudgetRow; parent: BudgetRow
 
 /** What a budget's children take of it, from the gateway's count. */
 function ChildrenAllocated({ row, amount }: { row: BudgetRow; amount: number }) {
+  const fmt = (v: number) => formatAmount(v, row.counter.unit);
   const allocated = row.counter.children_allocated ? Number(row.counter.children_allocated) : null;
   if (allocated === null) return null;
   const over = Number.isFinite(amount) && allocated > amount;
@@ -133,9 +154,9 @@ function ChildrenAllocated({ row, amount }: { row: BudgetRow; amount: number }) 
           : 'border-line bg-sunken text-muted',
       )}
     >
-      The budgets inside take {formatMoney(allocated)}
+      The budgets inside take {fmt(allocated)}
       {Number.isFinite(amount) && amount > 0
-        ? ` (${formatPercent(allocated / amount, 0)} of ${formatMoney(amount)})`
+        ? ` (${formatPercent(allocated / amount, 0)} of ${fmt(amount)})`
         : ''}
       .{over ? ' That is more than this budget; each is still checked on its own.' : ''}
     </p>
@@ -186,6 +207,11 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
   const editable = row === null || ['organization', 'team', 'project', 'key'].includes(row.level);
   const partition = row?.kind === 'partition' ? row.partition : null;
   const counted = row !== null && isCounted(row);
+  // Amounts read in the budget's unit: the counter's, else the one the form declares.
+  const unit: BudgetUnit = row ? (row.counter.unit === 'tokens' ? 'tokens' : 'usd') : values.unit;
+  const fmt = (v: number | string | null | undefined, options?: { sign?: boolean }) =>
+    formatAmount(v, unit, options);
+  const wholeTokens = /^\d+$/;
 
   useEffect(() => {
     if (!row) return;
@@ -237,14 +263,21 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
   async function submitOverride() {
     if (!row || !partition) return;
     const amount = override.amount.trim();
-    if (override.own && !/^\d+(\.\d{1,6})?$/.test(amount)) {
-      setErrors({ override: 'Enter an amount in dollars, like 25' });
+    if (override.own && !(unit === 'tokens' ? wholeTokens : /^\d+(\.\d{1,6})?$/).test(amount)) {
+      setErrors({
+        override:
+          unit === 'tokens' ? 'Enter a whole number of tokens' : 'Enter an amount in dollars, like 25',
+      });
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await save(row.level, row.owner, toOverride(row.name, partition.value, override.own ? amount : null));
+      await save(
+        row.level,
+        row.owner,
+        toOverride(row.name, partition.value, override.own ? amount : null, unit),
+      );
       notify('success', 'Budget saved', `${partitionLabel(partition)} · ${row.name}`);
       onClose();
     } catch (e) {
@@ -287,7 +320,11 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
           : keys.map((k) => k.name);
 
   const levelLabel = LEVELS.find((l) => l.value === values.level)?.label ?? 'Owner';
-  const amountError = errors.amount ? 'Enter an amount in dollars, like 500' : undefined;
+  const amountError = errors.amount
+    ? values.unit === 'tokens'
+      ? 'Enter a whole number of tokens, like 1000000'
+      : 'Enter an amount in dollars, like 500'
+    : undefined;
   const counterActions: MenuItem[] = [];
   if (row && counted && canGrant)
     counterActions.push({ label: 'Approve overage', icon: 'check', onSelect: () => setDialog('approve') });
@@ -363,9 +400,9 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
             <DefinitionGrid
               columns={4}
               items={[
-                { label: 'Spent', value: formatMoney(row.spent) },
-                { label: 'Held for requests in flight', value: formatMoney(row.reserved) },
-                { label: 'Projected', value: row.rolling ? 'No forecast' : formatMoney(row.projected) },
+                { label: 'Spent', value: fmt(row.spent) },
+                { label: 'Held for requests in flight', value: fmt(row.reserved) },
+                { label: 'Projected', value: row.rolling ? 'No forecast' : fmt(row.projected) },
                 {
                   label: row.rolling ? 'Counting since' : 'Resets',
                   value: row.rolling
@@ -376,11 +413,11 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 },
                 {
                   label: 'Burn, last 7 days',
-                  value: row.ratePerDay !== null ? `${formatMoney(row.ratePerDay)} a day` : '—',
+                  value: row.ratePerDay !== null ? `${fmt(row.ratePerDay)} a day` : '—',
                 },
                 {
                   label: 'Daily mean this period',
-                  value: `${formatMoney(row.spent / elapsedDays)} a day`,
+                  value: `${fmt(row.spent / elapsedDays)} a day`,
                 },
                 {
                   label: 'Runs out',
@@ -390,7 +427,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                   label: 'Approved overage',
                   value:
                     row.effective > row.amount
-                      ? `+${formatMoney(row.effective - row.amount)} · ${plural(row.counter.grants?.length ?? 0, 'approval')}`
+                      ? `+${fmt(row.effective - row.amount)} · ${plural(row.counter.grants?.length ?? 0, 'approval')}`
                       : 'None',
                 },
               ]}
@@ -411,16 +448,16 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
               value={override.own ? 'own' : 'shared'}
               onChange={(v) => setOverride({ ...override, own: v === 'own' })}
               options={[
-                { value: 'shared', label: `The budget's amount (${formatMoney(amountText(decl?.amount))})` },
+                { value: 'shared', label: `The budget's amount (${fmt(amountText(decl?.amount))})` },
                 { value: 'own', label: 'An amount of its own' },
               ]}
               className="w-fit max-w-full"
             />
             {override.own ? (
-              <Field label="Amount (USD)" error={errors.override} required>
+              <Field label={amountLabel(unit)} error={errors.override} required>
                 <Input
                   mono
-                  inputMode="decimal"
+                  inputMode={unit === 'tokens' ? 'numeric' : 'decimal'}
                   value={override.amount}
                   onChange={(e) => setOverride({ ...override, amount: e.target.value })}
                   data-autofocus
@@ -467,14 +504,26 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 />
               </Field>
             )}
+            {row ? null : (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-ui font-medium text-fg">Counts</span>
+                <Segmented<BudgetUnit>
+                  label="Counts"
+                  value={values.unit}
+                  onChange={(v) => set('unit', v)}
+                  options={UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                  className="w-fit"
+                />
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
-              <Field label="Amount (USD)" error={amountError} required>
+              <Field label={amountLabel(values.unit)} error={amountError} required>
                 <Input
                   mono
-                  inputMode="decimal"
+                  inputMode={values.unit === 'tokens' ? 'numeric' : 'decimal'}
                   value={values.amount}
                   onChange={(e) => set('amount', e.target.value)}
-                  placeholder="e.g. 500"
+                  placeholder={values.unit === 'tokens' ? 'e.g. 1000000' : 'e.g. 500'}
                   data-autofocus
                 />
               </Field>
@@ -486,6 +535,22 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 />
               </Field>
             </div>
+            {values.unit === 'tokens' ? (
+              <Field
+                label="Tokens counted"
+                hint={
+                  values.tokens === 'weighted'
+                    ? 'Each price class counts with the weight set in the configuration; classes without one count once.'
+                    : undefined
+                }
+              >
+                <Select
+                  value={values.tokens}
+                  onChange={(v) => set('tokens', v as BudgetFormValues['tokens'])}
+                  options={TOKEN_COUNTS}
+                />
+              </Field>
+            ) : null}
             {values.period === 'rolling' ? (
               <Field
                 label="Counts spend over the"
@@ -617,12 +682,9 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 : 'border-line bg-sunken text-muted',
             )}
           >
-            At {formatMoney(newAmount)} (was {formatMoney(whatIf.was)}), the projected{' '}
-            {formatMoney(row?.projected)} is {formatPercent((row?.projected ?? 0) / newAmount, 0)} of the
-            budget
-            {whatIf.headroom < 0
-              ? `, ${formatMoney(-whatIf.headroom)} over.`
-              : `, leaving ${formatMoney(whatIf.headroom)}.`}
+            At {fmt(newAmount)} (was {fmt(whatIf.was)}), the projected {fmt(row?.projected)} is{' '}
+            {formatPercent((row?.projected ?? 0) / newAmount, 0)} of the budget
+            {whatIf.headroom < 0 ? `, ${fmt(-whatIf.headroom)} over.` : `, leaving ${fmt(whatIf.headroom)}.`}
             {whatIf.crossesCap ? '' : whatIf.crossesAlert ? ' It will cross an alert threshold.' : ''}
           </p>
         ) : null}
@@ -657,7 +719,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
           <ul className="flex flex-col gap-1 text-caption text-muted">
             {row.counter.grants.map((g) => (
               <li key={g.id}>
-                +{formatMoney(g.amount)} approved by {g.granted_by}, expires {formatRelative(g.expires_at)}:{' '}
+                +{fmt(g.amount)} approved by {g.granted_by}, expires {formatRelative(g.expires_at)}:{' '}
                 {g.reason}
               </li>
             ))}
@@ -694,22 +756,26 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
             confirmLabel="Adjust"
             objectName={title}
             withReason
-            effect="Add to or subtract from what this budget has spent. Use a negative amount for a credit."
+            effect={`Add to or subtract from what this budget has ${unit === 'tokens' ? 'counted' : 'spent'}. Use a negative amount for a credit.`}
             onConfirm={async (reason) => {
               const trimmed = adjustBy.trim();
-              if (!/^-?\d+(\.\d{1,6})?$/.test(trimmed)) {
-                throw new Error('Enter an amount in dollars, like -25.00 or 10');
+              if (!(unit === 'tokens' ? /^-?\d+$/ : /^-?\d+(\.\d{1,6})?$/).test(trimmed)) {
+                throw new Error(
+                  unit === 'tokens'
+                    ? 'Enter a whole number of tokens, like -5000 or 1000'
+                    : 'Enter an amount in dollars, like -25.00 or 10',
+                );
               }
               await adjust(row.counter, trimmed, reason ?? 'adjusted from the console');
               notify('success', 'Amount spent adjusted', row.owner);
             }}
           >
-            <Field label="Amount (USD)">
+            <Field label={amountLabel(unit)}>
               <Input
                 mono
                 value={adjustBy}
                 onChange={(e) => setAdjustBy(e.target.value)}
-                placeholder="e.g. -25.00"
+                placeholder={unit === 'tokens' ? 'e.g. -5000' : 'e.g. -25.00'}
               />
             </Field>
           </ConfirmDialog>

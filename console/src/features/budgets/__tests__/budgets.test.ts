@@ -87,6 +87,35 @@ describe('budget form', () => {
     expect(d.monthly).toMatchObject({ unit: 'usd', amount: '500', mode: 'soft', alert_at: [0.5, 0.8, 1] });
     expect(d.monthly_cap).toMatchObject({ amount: '550', mode: 'hard' });
   });
+  it('keeps a token budget in tokens when it is saved again', () => {
+    const decl = { unit: 'tokens', amount: 2_000_000, period: 'monthly', mode: 'hard', tokens: 'output' };
+    const values = fromDeclaration('team', 'core', 'monthly', decl, undefined);
+    expect(values.unit).toBe('tokens');
+    expect(values.tokens).toBe('output');
+    const out = toDeclarations({ ...values, amount: '3000000' }).monthly;
+    expect(out).toMatchObject({ unit: 'tokens', amount: 3_000_000, tokens: 'output', mode: 'hard' });
+    expect(out?.amount).toBeTypeOf('number');
+  });
+  it('creates a token budget when the unit is chosen, and a dollar one by default', () => {
+    const tokens = toDeclarations({ ...EMPTY_BUDGET, owner: 'core', unit: 'tokens', amount: '500000' });
+    expect(tokens.monthly).toMatchObject({ unit: 'tokens', amount: 500_000 });
+    expect(tokens.monthly).not.toHaveProperty('tokens');
+    const usd = toDeclarations({ ...EMPTY_BUDGET, owner: 'core', amount: '500' });
+    expect(usd.monthly).toMatchObject({ unit: 'usd', amount: '500', tokens: null, weights: null });
+  });
+  it('asks for whole tokens on a token budget', () => {
+    const base = { ...EMPTY_BUDGET, owner: 'core', unit: 'tokens' as const };
+    expect(budgetSchema.safeParse({ ...base, amount: '12.5' }).success).toBe(false);
+    expect(budgetSchema.safeParse({ ...base, amount: '1200' }).success).toBe(true);
+  });
+  it('reads a declaration without a mode as blocking, its default', () => {
+    expect(fromDeclaration('team', 'core', 'm', { unit: 'usd', amount: '5' }, undefined).enforcement).toBe(
+      'hard',
+    );
+  });
+  it('writes a token override as a whole number', () => {
+    expect(toOverride('seats', 'ada', '1000', 'tokens')).toEqual({ seats: { overrides: { ada: 1000 } } });
+  });
   it('removes the cap twin when no cap is set', () => {
     expect(toDeclarations({ ...EMPTY_BUDGET, owner: 'core', amount: '500' }).monthly_cap).toBeNull();
   });
