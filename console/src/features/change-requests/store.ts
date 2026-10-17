@@ -6,8 +6,13 @@ import { useShell } from '@/stores/shell';
 
 import { changeRequestsApi } from './api';
 
+type Governance = Awaited<ReturnType<typeof changeRequestsApi.governance>>;
+
 interface ChangeRequestsState {
   list: Slot<ChangeRequest[]>;
+  /** What opens a change request, to say so when nothing does. */
+  governance: Slot<Governance>;
+  loadGovernance: () => Promise<void>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
   approve: (id: string) => Promise<void>;
   reject: (id: string, reason?: string) => Promise<void>;
@@ -28,6 +33,8 @@ export const useChangeRequests = create<ChangeRequestsState>()((set, get) => {
   };
   return {
     list: emptySlot(),
+    governance: emptySlot(),
+    loadGovernance: () => loadSlot(set, get, 'governance', changeRequestsApi.governance),
     load: (options) =>
       loadSlot(
         set,

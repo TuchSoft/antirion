@@ -22,6 +22,7 @@ import { useUrlFilters } from '@/lib/url-filters';
 import { type ChangeRequestState, PENDING } from '../api';
 import { STATE_LABEL, stateTone } from '../describe';
 import { useChangeRequests } from '../store';
+import { ChangeControlNotice } from './change-control-notice';
 import { ChangeRequestDetail } from './change-request-detail';
 
 type View = 'pending' | 'closed' | 'all';
@@ -117,6 +118,7 @@ export function ChangeRequestsScreen() {
           </>
         }
       />
+      <ChangeControlNotice />
       <Tabs<View>
         label="Change requests by state"
         value={view}

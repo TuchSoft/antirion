@@ -6,6 +6,8 @@ export type ChangeRequestState = ChangeRequest['state'];
 export const PENDING: ChangeRequestState[] = ['open', 'approved'];
 
 export const changeRequestsApi = {
+  /** The governance settings: what change control holds, and the two-person rule's actions. */
+  governance: () => api.get('/settings/governance'),
   list: (query: { state?: ChangeRequestState[]; author?: string; cursor?: string; limit?: number }) =>
     api.get('/change_requests', {
       query: {

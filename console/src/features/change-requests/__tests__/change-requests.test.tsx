@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -158,5 +158,40 @@ describe('Opening a change request for a refused write', () => {
       changes: [{ method: 'PATCH', path: '/routes/default', body: { spec: { type: 'conditional' } } }],
     });
     expect(opened).toHaveBeenCalledWith('cr_9');
+  });
+});
+
+describe('Change control notice', () => {
+  beforeEach(() => {
+    useChangeRequests.setState({ list: emptySlot(), governance: emptySlot() });
+  });
+
+  const governance = (spec: unknown) =>
+    http.get('*/admin/v1/settings/governance', () =>
+      HttpResponse.json({
+        spec,
+        metadata: { etag: '"1"', generation: 1, created_at: null, updated_at: null, managed_by: 'api' },
+      }),
+    );
+
+  it('says change control is off and links to where it is turned on', async () => {
+    signInAs(['config:read', 'security:read']);
+    serve([]);
+    server.use(governance({ dual_control: { actions: ['keys.delete'] } }));
+    render(<ChangeRequestsScreen />);
+    expect(await screen.findByText(/Change control is off/)).toBeInTheDocument();
+    expect(screen.getByText(/Only actions held by the two-person rule wait here/)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Turn it on in Danger zone › Change control' });
+    expect(link.getAttribute('href')).toMatch(/settings=danger#change-control$/);
+  });
+
+  it('says nothing while change control holds something', async () => {
+    signInAs(['config:read', 'security:read']);
+    serve([request({})]);
+    server.use(governance({ change_control: { resources: ['routes'] } }));
+    render(<ChangeRequestsScreen />);
+    expect(await screen.findByRole('heading', { name: 'Change route default' })).toBeInTheDocument();
+    await waitFor(() => expect(useChangeRequests.getState().governance.data).not.toBeNull());
+    expect(screen.queryByText(/Change control is off/)).not.toBeInTheDocument();
   });
 });

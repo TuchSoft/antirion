@@ -10,6 +10,7 @@ import { useReportUnsaved } from '../unsaved';
 
 /** A settings section: flat and full-bleed, a title row over its body, a hairline under it. */
 export function Card({
+  id,
   title,
   badge,
   description,
@@ -17,6 +18,8 @@ export function Card({
   children,
   danger,
 }: {
+  /** An anchor, so a link can land on this card. */
+  id?: string;
   title: string;
   /** A small mark after the title, such as {@link GatewayWide} or {@link FromFile}. */
   badge?: ReactNode;
@@ -26,7 +29,7 @@ export function Card({
   danger?: boolean;
 }) {
   return (
-    <section className="border-b border-line bg-raised">
+    <section id={id} className="scroll-mt-4 border-b border-line bg-raised">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4 max-sm:px-gutter-sm">
         <div className="min-w-0 flex-[1_1_16rem]">
           <h3

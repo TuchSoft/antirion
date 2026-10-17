@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button, IconButton } from '@/components/ui/button';
 import { Checkbox, Field, Input, NumberInput, Select } from '@/components/ui/form';
@@ -14,6 +14,9 @@ import type { GovernanceSettings } from '../api';
 import { useDanger } from '../danger-store';
 import { DURATION_RE, detailErrors, mergePatch, same } from '../form-errors';
 import { Card, SaveBar } from './parts';
+
+/** The anchor of the Change control card, which Change requests links to while it is off. */
+export const CHANGE_CONTROL_ANCHOR = 'change-control';
 
 type ChangeControl = NonNullable<GovernanceSettings['spec']['change_control']>;
 export type ControlledKind = NonNullable<ChangeControl['resources']>[number];
@@ -255,8 +258,15 @@ function ChangeControlForm({ initial }: { initial: ChangeControlValues }) {
 export function ChangeControlCard() {
   const governance = useDanger((s) => s.governance);
   const cc = governance.data?.spec.change_control;
+  const loaded = governance.data !== null;
+  useEffect(() => {
+    // Change requests links here (`#change-control`) while change control is off.
+    if (loaded && window.location.hash === `#${CHANGE_CONTROL_ANCHOR}`)
+      document.getElementById(CHANGE_CONTROL_ANCHOR)?.scrollIntoView({ block: 'start' });
+  }, [loaded]);
   return (
     <Card
+      id={CHANGE_CONTROL_ANCHOR}
       title="Change control"
       description="Changes to what you pick here are not applied at once: they open a change request that someone else approves. Requests show in Change requests."
     >
