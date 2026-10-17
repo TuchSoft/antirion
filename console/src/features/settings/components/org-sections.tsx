@@ -24,7 +24,8 @@ import { notify } from '@/stores/ui';
 import { settingsApi } from '../api';
 import { dataUrlBytes, LogoError, logoDataUrl } from '../logo';
 import { useOrgSettings } from '../store';
-import { Card, Facts, GatewayWide, SaveBar, TechnicalDetails } from './parts';
+import { ClientAddressCard, NetworkCard, RateLimitCard, RequestLimitsCard } from './gateway-forms';
+import { Card, Facts, GatewayWide, SaveBar } from './parts';
 
 function useSettingsLoad() {
   const loadSettings = useOrgSettings((s) => s.loadSettings);
@@ -475,22 +476,11 @@ export function ProvisioningSection() {
   );
 }
 
-type Security = {
-  egress?: { operator?: { deny_private?: boolean }; proxy?: { url: string } | null };
-  limits?: { max_body?: string };
-  client_ip?: { trusted_proxies?: string[] };
-};
-type Limits = { enabled?: boolean; algorithm?: string; on_store_unavailable?: string };
-
-/** Where apps connect, rate limiting, and TLS and network rules, in words (was API access and Encryption). */
+/** Where apps connect, rate limiting, the client address, network rules and request sizes. */
 export function ApiAccessSection() {
   useSettingsLoad();
-  const limits = useOrgSettings((s) => s.limits);
-  const security = useOrgSettings((s) => s.security);
   const dataPlane = useShell((s) => s.status?.data_plane_url ?? null);
   const configHref = useSettingsHref('configuration');
-  const sec = (security.data?.spec ?? {}) as Security;
-  const lim = (limits.data?.spec ?? {}) as Limits;
   const notSet = (hint: string) => ({ value: <span className="text-muted">Not set</span>, hint });
   return (
     <>
@@ -521,71 +511,10 @@ export function ApiAccessSection() {
           </a>
         )}
       </Card>
-      <Card title="Rate limiting" description="How the gateway counts and enforces limits.">
-        <LoadError of={limits} subject="Rate limiting" size="sm" />
-        {limits.data ? (
-          <div className="flex flex-col gap-3">
-            <Facts
-              items={[
-                { label: 'Limits', value: lim.enabled === false ? 'Off' : 'On' },
-                {
-                  label: 'Counting method',
-                  value:
-                    lim.algorithm === 'sliding_window'
-                      ? 'Sliding window'
-                      : lim.algorithm === 'gcra'
-                        ? 'Smooth rate (GCRA)'
-                        : 'Gateway default',
-                },
-                {
-                  label: 'If the limit store is down',
-                  value:
-                    lim.on_store_unavailable === 'fail_closed'
-                      ? 'Refuse requests'
-                      : lim.on_store_unavailable === 'fail_open'
-                        ? 'Let requests through'
-                        : lim.on_store_unavailable === 'local_share'
-                          ? 'Each node enforces its share'
-                          : 'Gateway default',
-                },
-              ]}
-            />
-            <TechnicalDetails value={limits.data.spec} />
-          </div>
-        ) : null}
-      </Card>
-      <Card title="Network" description="Where the gateway may connect, and the largest request it takes.">
-        <LoadError of={security} subject="Security settings" size="sm" />
-        {security.data ? (
-          <div className="flex flex-col gap-3">
-            <Facts
-              items={[
-                {
-                  label: 'Outbound proxy',
-                  value: sec.egress?.proxy?.url ? (
-                    <span className="mono">{sec.egress.proxy.url}</span>
-                  ) : (
-                    'None'
-                  ),
-                },
-                {
-                  label: 'Calls to private networks',
-                  value:
-                    sec.egress?.operator?.deny_private === false
-                      ? 'Allowed'
-                      : sec.egress?.operator?.deny_private === true
-                        ? 'Blocked'
-                        : 'Gateway default',
-                },
-                ...(sec.limits?.max_body
-                  ? [{ label: 'Largest request', value: <span className="mono">{sec.limits.max_body}</span> }]
-                  : []),
-              ]}
-            />
-            <TechnicalDetails value={security.data.spec} />
-          </div>
-        ) : null}
-      </Card>
+      <RateLimitCard />
+      <ClientAddressCard />
+      <NetworkCard />
+      <RequestLimitsCard />
     </>
   );
 }

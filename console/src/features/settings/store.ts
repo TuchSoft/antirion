@@ -193,6 +193,7 @@ interface OrgSettingsState {
   saveAuth: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
   saveObservability: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
   saveSecurity: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
+  saveLimits: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
 }
 
 /** The settings singletons and the scope's organization, as the Settings sections read and write them. */
@@ -232,6 +233,58 @@ export const useOrgSettings = create<OrgSettingsState>()((set, get) => ({
   async saveSecurity(spec, reason) {
     await settingsApi.patchSecurity(spec, get().security.data?.metadata.etag, reason);
     await loadSlot(set, get, 'security', settingsApi.securitySettings, { quiet: true });
+  },
+  async saveLimits(spec, reason) {
+    await settingsApi.patchLimits(spec, get().limits.data?.metadata.etag, reason);
+    await loadSlot(set, get, 'limits', settingsApi.limitsSettings, { quiet: true });
+  },
+}));
+
+type Read<F extends () => Promise<unknown>> = Slot<Awaited<ReturnType<F>>>;
+
+interface GatewaySettingsState {
+  api: Read<typeof settingsApi.apiSettings>;
+  streaming: Read<typeof settingsApi.streamingSettings>;
+  server: Read<typeof settingsApi.serverSettings>;
+  admin: Read<typeof settingsApi.adminSettings>;
+  store: Read<typeof settingsApi.storeSettings>;
+  cluster: Read<typeof settingsApi.clusterSettings>;
+  loadApi: () => Promise<void>;
+  saveApi: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
+  saveStreaming: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
+  /** The startup settings (server, admin, store, cluster), as the configuration file set them. */
+  loadNode: () => Promise<void>;
+}
+
+/** The API & endpoints page and the read-only Node page. */
+export const useGatewaySettings = create<GatewaySettingsState>()((set, get) => ({
+  api: emptySlot(),
+  streaming: emptySlot(),
+  server: emptySlot(),
+  admin: emptySlot(),
+  store: emptySlot(),
+  cluster: emptySlot(),
+  async loadApi() {
+    await Promise.all([
+      loadSlot(set, get, 'api', settingsApi.apiSettings),
+      loadSlot(set, get, 'streaming', settingsApi.streamingSettings),
+    ]);
+  },
+  async saveApi(spec, reason) {
+    await settingsApi.patchApi(spec, get().api.data?.metadata.etag, reason);
+    await loadSlot(set, get, 'api', settingsApi.apiSettings, { quiet: true });
+  },
+  async saveStreaming(spec, reason) {
+    await settingsApi.patchStreaming(spec, get().streaming.data?.metadata.etag, reason);
+    await loadSlot(set, get, 'streaming', settingsApi.streamingSettings, { quiet: true });
+  },
+  async loadNode() {
+    await Promise.all([
+      loadSlot(set, get, 'server', settingsApi.serverSettings),
+      loadSlot(set, get, 'admin', settingsApi.adminSettings),
+      loadSlot(set, get, 'store', settingsApi.storeSettings),
+      loadSlot(set, get, 'cluster', settingsApi.clusterSettings),
+    ]);
   },
 }));
 

@@ -82,6 +82,19 @@ export const settingsApi = {
   patchObservabilitySettings: (spec: Record<string, unknown>, etag: string | undefined, reason?: string) =>
     api.patch('/settings/observability', { body: { spec }, ifMatch: etag, reason }),
   limitsSettings: () => api.get('/settings/limits'),
+  patchLimits: (spec: Record<string, unknown>, etag: string | undefined, reason?: string) =>
+    api.patch('/settings/limits', { body: { spec }, ifMatch: etag, reason }),
+  apiSettings: () => api.get('/settings/api'),
+  patchApi: (spec: Record<string, unknown>, etag: string | undefined, reason?: string) =>
+    api.patch('/settings/api', { body: { spec }, ifMatch: etag, reason }),
+  streamingSettings: () => api.get('/settings/streaming'),
+  patchStreaming: (spec: Record<string, unknown>, etag: string | undefined, reason?: string) =>
+    api.patch('/settings/streaming', { body: { spec }, ifMatch: etag, reason }),
+  /** The startup settings, read from the configuration file; the API cannot change them. */
+  serverSettings: () => api.get('/settings/server'),
+  adminSettings: () => api.get('/settings/admin'),
+  storeSettings: () => api.get('/settings/store'),
+  clusterSettings: () => api.get('/settings/cluster'),
   securitySettings: () => api.get('/settings/security'),
   auditSinks: async (): Promise<AuditSinkStatus[]> => (await api.get('/runtime/audit/sinks')).items,
   scim: () => api.get('/auth/scim/status'),

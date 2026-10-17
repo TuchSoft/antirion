@@ -49,7 +49,9 @@ describe('settings sections', () => {
       http.get('*/admin/v1/settings/observability', empty),
     );
     const { container } = render(<ApiAccessSection />);
-    expect(await screen.findByText('Calls to private networks')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('switch', { name: 'Block calls to private networks' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Not set')).toBeInTheDocument();
     expect(container.textContent).not.toContain('{}');
     expect(container.textContent).not.toContain('server.public_url');
