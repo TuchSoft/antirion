@@ -561,6 +561,24 @@ export function loginOptions(organization: string | null): S['LoginOptions'] {
   };
 }
 
+/**
+ * The signed-in person, with the personal-token rule the gateway reports (`token_policy`: the
+ * longest lifetime a new token may have and the one the form starts on).
+ */
+export function signedInUser(): S['Me'] & {
+  token_policy: { max_lifetime: string; default_lifetime: string | null };
+} {
+  return {
+    principal: { type: 'user', id: 'ada', authenticated_by: 'session' },
+    bindings: [
+      { id: 'rb-ada', principal: { type: 'user', id: 'ada' }, role: 'gateway_admin', scope: 'gateway' },
+    ],
+    permissions: { gateway: ['config:read', 'security:read'] },
+    session: null,
+    token_policy: { max_lifetime: '90d', default_lifetime: '30d' },
+  };
+}
+
 export function anomalies(): S['Anomaly'][] {
   return [
     {

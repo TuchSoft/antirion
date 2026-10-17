@@ -14,6 +14,7 @@ import {
   loginOptions,
   noise,
   providerModels,
+  signedInUser,
   safetyEvents,
   tiers,
   usageBuckets,
@@ -636,6 +637,7 @@ export const demoHandlers: HttpHandler[] = [
  */
 export const identityHandlers: HttpHandler[] = [
   mock('get', '/auth/login_options', ({ query }) => loginOptions(query.get('organization'))),
+  mock('get', '/auth/me', () => signedInUser()),
   mock('get', '/auth/me/preferences', () => state.preferences),
   mock('put', '/auth/me/preferences', ({ body }) => {
     state.preferences = body ?? {};

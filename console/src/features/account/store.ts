@@ -18,7 +18,8 @@ interface AccountState {
   /** Returns the new token's value, to be shown once and dropped. */
   createToken: (input: {
     description: string;
-    days: number;
+    /** When the token stops working (RFC 3339). */
+    expiresAt: string;
     access: 'full' | 'read_only';
   }) => Promise<string>;
   deleteToken: (kid: string) => Promise<void>;
@@ -48,9 +49,8 @@ export const useAccount = create<AccountState>()((set, get) => ({
     await accountApi.revokeOthers();
     await get().loadSessions();
   },
-  async createToken({ description, days, access }) {
-    const expires = new Date(Date.now() + days * 86_400_000).toISOString();
-    const created = await accountApi.createToken({ description, expires_at: expires, access });
+  async createToken({ description, expiresAt, access }) {
+    const created = await accountApi.createToken({ description, expires_at: expiresAt, access });
     const { token, ...listed } = created;
     set((s) => ({ tokens: { ...s.tokens, data: [...(s.tokens.data ?? []), listed] } }));
     return token;

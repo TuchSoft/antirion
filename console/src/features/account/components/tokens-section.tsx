@@ -13,8 +13,10 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { formatDate, formatRelative } from '@/lib/time';
 import { validate, type FieldErrors } from '@/lib/validation';
 import { usePreferences } from '@/stores/preferences';
+import { useSession } from '@/stores/session';
 
 import { useAccount } from '../store';
+import { expiryFor, lifetimeChoices, lifetimeWords, tokenPolicy } from '../token-policy';
 
 type Access = 'read_only' | 'full';
 
@@ -24,7 +26,7 @@ const tokenSchema = z.object({
     .trim()
     .min(1, 'Name the token after what will use it')
     .max(500, 'Use 500 characters or fewer'),
-  days: z.coerce.number().int().min(1).max(365),
+  lifetime: z.coerce.number().int().positive('Choose when the token expires'),
   access: z.enum(['full', 'read_only']),
 });
 
@@ -36,11 +38,17 @@ export function TokensSection() {
   const create = useAccount((s) => s.createToken);
   const remove = useAccount((s) => s.deleteToken);
   const timeZone = usePreferences((s) => s.timeZone);
-  const [values, setValues] = useState<{ description: string; days: string; access: Access }>({
-    description: '',
-    days: '30',
-    access: 'read_only',
-  });
+  const me = useSession((s) => s.me);
+  const policy = tokenPolicy(me);
+  const lifetimes = lifetimeChoices(policy);
+  const blank = { description: '', lifetime: lifetimes.initial, access: 'read_only' as Access };
+  const [values, setValues] = useState<{ description: string; lifetime: string; access: Access }>(blank);
+  // The rule can arrive after the form: an option it no longer offers falls back to its default.
+  const lifetime = lifetimes.options.some((o) => o.value === values.lifetime)
+    ? values.lifetime
+    : lifetimes.initial;
+  /** The gateway answers 404 on its token list while personal tokens are turned off. */
+  const turnedOff = tokens.error?.notFound === true;
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -52,7 +60,7 @@ export function TokensSection() {
   }, [load]);
 
   async function submit() {
-    const result = validate(tokenSchema, values);
+    const result = validate(tokenSchema, { ...values, lifetime });
     if (!result.ok) {
       setErrors(result.errors);
       return;
@@ -61,8 +69,9 @@ export function TokensSection() {
     setBusy(true);
     setError(null);
     try {
-      setSecret(await create(result.data));
-      setValues({ description: '', days: '30', access: 'read_only' });
+      const { description, access } = result.data;
+      setSecret(await create({ description, access, expiresAt: expiryFor(result.data.lifetime, policy) }));
+      setValues(blank);
     } catch (e) {
       setError(e);
     } finally {
@@ -76,60 +85,67 @@ export function TokensSection() {
         Use a personal token in scripts and the CLI. It acts as you, with your permissions; choose Read only
         to limit it.
       </p>
-      <form
-        className="flex flex-col gap-4 rounded-sm border border-line p-4"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_140px]">
-          <Field label="Name" error={errors.description}>
-            <Input
-              value={values.description}
-              onChange={(e) => {
-                setValues({ ...values, description: e.target.value });
-                setErrors({});
-              }}
-              placeholder="e.g. Deploy script"
-            />
-          </Field>
-          <Field label="Expires" error={errors.days}>
-            <Select
-              value={values.days}
-              onChange={(v) => setValues({ ...values, days: v })}
+      {turnedOff ? (
+        <p role="status" className="rounded-sm border border-line bg-sunken px-3 py-2 text-ui text-muted">
+          Personal tokens are turned off on this gateway. An administrator can turn them on in Gateway
+          settings, under Sign-in &amp; SSO.
+        </p>
+      ) : null}
+      {turnedOff ? null : (
+        <form
+          className="flex flex-col gap-4 rounded-sm border border-line p-4"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_140px]">
+            <Field label="Name" error={errors.description}>
+              <Input
+                value={values.description}
+                onChange={(e) => {
+                  setValues({ ...values, description: e.target.value });
+                  setErrors({});
+                }}
+                placeholder="e.g. Deploy script"
+              />
+            </Field>
+            <Field
+              label="Expires"
+              error={errors.lifetime}
+              hint={`At most ${lifetimeWords(Number(lifetimes.options.at(-1)?.value ?? 0))}.`}
+            >
+              <Select
+                value={lifetime}
+                onChange={(v) => setValues({ ...values, lifetime: v })}
+                options={lifetimes.options}
+              />
+            </Field>
+          </div>
+          <Field label="Access">
+            <Segmented<Access>
+              label="Access"
+              value={values.access}
+              onChange={(access) => setValues({ ...values, access })}
               options={[
-                { value: '7', label: 'In 7 days' },
-                { value: '30', label: 'In 30 days' },
-                { value: '90', label: 'In 90 days' },
-                { value: '365', label: 'In 1 year' },
+                { value: 'read_only', label: ACCESS_LABEL.read_only },
+                { value: 'full', label: ACCESS_LABEL.full },
               ]}
             />
           </Field>
-        </div>
-        <Field label="Access">
-          <Segmented<Access>
-            label="Access"
-            value={values.access}
-            onChange={(access) => setValues({ ...values, access })}
-            options={[
-              { value: 'read_only', label: ACCESS_LABEL.read_only },
-              { value: 'full', label: ACCESS_LABEL.full },
-            ]}
-          />
-        </Field>
-        <div className="flex flex-col gap-3">
-          <InlineError error={error} />
-          <div>
-            <Button type="submit" variant="primary" icon="plus" busy={busy}>
-              Create token
-            </Button>
+          <div className="flex flex-col gap-3">
+            <InlineError error={error} />
+            <div>
+              <Button type="submit" variant="primary" icon="plus" busy={busy}>
+                Create token
+              </Button>
+            </div>
           </div>
-        </div>
-      </form>
+        </form>
+      )}
       {tokens.status === 'loading' && !tokens.data ? <LoadingRows rows={3} /> : null}
-      <LoadError of={tokens} subject="personal tokens" onRetry={() => void load()} />
+      {turnedOff ? null : <LoadError of={tokens} subject="personal tokens" onRetry={() => void load()} />}
       {tokens.data?.length === 0 ? <EmptyState title="No personal tokens yet" /> : null}
       {tokens.data && tokens.data.length > 0 ? (
         <Table label="Personal tokens">
