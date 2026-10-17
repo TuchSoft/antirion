@@ -86,8 +86,8 @@ export const settingsApi = {
     api.post('/config:validate', { body: doc as S['ConfigDocument'] }),
   apply: (doc: ConfigDoc, etag: string | null, reason?: string): Promise<ApplyResult> =>
     api.post('/config:apply', { body: doc as S['ConfigDocument'], ifMatch: etag ?? undefined, reason }),
-  audit: (q: AuditQuery, cursor?: string) =>
-    api.get('/audit', { query: { ...q, limit: 50, ...(cursor ? { cursor } : {}) } }),
+  audit: (q: AuditQuery, cursor?: string, limit = 50) =>
+    api.get('/audit', { query: { ...q, limit, ...(cursor ? { cursor } : {}) } }),
   auditEntry: (id: string): Promise<AuditEntry> => api.get('/audit/{id}', { path: { id } }),
   health: (): Promise<Health> => api.get('/health'),
   deployments: async (): Promise<DeploymentHealth[]> => (await api.get('/runtime/deployments')).items,

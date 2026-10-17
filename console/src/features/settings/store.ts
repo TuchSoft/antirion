@@ -179,7 +179,13 @@ interface AuditState {
   setQuery: (query: AuditQuery) => void;
   load: () => Promise<void>;
   loadMore: () => Promise<void>;
+  /** Every entry the filters match, not only the loaded pages, up to `AUDIT_EXPORT_MAX`. */
+  exportAll: () => Promise<{ entries: AuditEntry[]; complete: boolean }>;
 }
+
+/** The most entries one export reads (pages of `AUDIT_EXPORT_PAGE`). */
+export const AUDIT_EXPORT_PAGE = 500;
+export const AUDIT_EXPORT_MAX = 50_000;
 
 /** The audit log with its filters and cursor; reads are left out on the server unless asked for. */
 export const useAudit = create<AuditState>()((set, get) => ({
@@ -206,6 +212,18 @@ export const useAudit = create<AuditState>()((set, get) => ({
       entries: { ...s.entries, data: [...(s.entries.data ?? []), ...page.items] },
       cursor: page.next_cursor ?? null,
     }));
+  },
+  async exportAll() {
+    const query = get().query;
+    const entries: AuditEntry[] = [];
+    let cursor: string | undefined;
+    while (entries.length < AUDIT_EXPORT_MAX) {
+      const page = await settingsApi.audit(query, cursor, AUDIT_EXPORT_PAGE);
+      entries.push(...page.items);
+      if (!page.next_cursor) return { entries, complete: true };
+      cursor = page.next_cursor;
+    }
+    return { entries, complete: false };
   },
 }));
 

@@ -4,7 +4,8 @@ import { Fragment, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input, Select, Switch } from '@/components/ui/form';
+import { DatePicker, TimeField } from '@/components/ui/date-picker';
+import { Field, Input, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
@@ -20,17 +21,19 @@ import {
 } from '@/lib/audit-words';
 import type { AuditEntry } from '@/lib/api/types';
 import { downloadCsv } from '@/lib/csv';
-import { formatDuration, parseDuration } from '@/lib/format';
+import { formatCount, formatDuration, parseDuration } from '@/lib/format';
 import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { usePageShortcut } from '@/lib/shortcuts';
-import { formatDateTime, formatRelative } from '@/lib/time';
+import { formatDateTime, formatRelative, zoneLabel } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
+import { notify } from '@/stores/ui';
 
 import type { AuditQuery } from '../api';
-import { useAudit, useGatewaySettings } from '../store';
+import { AUDIT_RANGES, type AuditRange, auditBounds, type CustomRange } from '../audit-range';
+import { AUDIT_EXPORT_MAX, useAudit, useGatewaySettings } from '../store';
 import { useTokenNames } from '@/stores/actors';
 
-function exportAudit(entries: AuditEntry[]) {
+function downloadAudit(entries: AuditEntry[]) {
   downloadCsv(
     'audit.csv',
     [
@@ -129,7 +132,12 @@ export function AuditSection() {
   const setQuery = useAudit((s) => s.setQuery);
   const load = useAudit((s) => s.load);
   const loadMore = useAudit((s) => s.loadMore);
+  const exportAll = useAudit((s) => s.exportAll);
   const [draft, setDraft] = useState<AuditQuery>(query);
+  const [range, setRange] = useState<AuditRange>(query.from || query.to ? 'custom' : '');
+  const [custom, setCustom] = useState<CustomRange>({ fromDay: '', fromTime: '', toDay: '', toTime: '' });
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [open, setOpen] = useState<AuditEntry | null>(null);
   const showReads = query.kind !== 'write';
   const setShowReads = (on: boolean) => {
@@ -142,7 +150,36 @@ export function AuditSection() {
   useEffect(() => {
     void load();
   }, [query, load]);
-  usePageShortcut('e', () => exportAudit(entries.data ?? []));
+
+  /** Every entry the filters and the range match, read page by page, as one CSV. */
+  async function exportAudit() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { entries: all, complete } = await exportAll();
+      downloadAudit(all);
+      notify(
+        complete ? 'success' : 'info',
+        `Exported ${formatCount(all.length)} ${all.length === 1 ? 'entry' : 'entries'}`,
+        complete
+          ? undefined
+          : `The newest ${formatCount(AUDIT_EXPORT_MAX)} only: narrow the time range for the rest.`,
+      );
+    } catch (e) {
+      notify('error', "The audit log couldn't be exported", e instanceof Error ? e.message : undefined);
+    } finally {
+      setExporting(false);
+    }
+  }
+  usePageShortcut('e', () => void exportAudit());
+  const between =
+    query.from && query.to
+      ? ` Between ${formatDateTime(query.from, timeZone)} and ${formatDateTime(query.to, timeZone)}.`
+      : query.from
+        ? ` Since ${formatDateTime(query.from, timeZone)}.`
+        : query.to
+          ? ` Until ${formatDateTime(query.to, timeZone)}.`
+          : '';
 
   return (
     <>
@@ -152,11 +189,17 @@ export function AuditSection() {
           showReads
             ? 'Changes, denied actions and reads.'
             : 'Changes and denied actions. Turn on Show reads to include reads.'
-        }${kept ? ` Kept for ${kept}.` : ''}`}
+        }${between}${kept ? ` Kept for ${kept}.` : ''}`}
         actions={
           <>
             <Switch label="Show reads" checked={showReads} onChange={setShowReads} />
-            <Button size="sm" icon="download" variant="ghost" onClick={() => exportAudit(entries.data ?? [])}>
+            <Button
+              size="sm"
+              icon="download"
+              variant="ghost"
+              busy={exporting}
+              onClick={() => void exportAudit()}
+            >
               Export CSV
             </Button>
           </>
@@ -166,9 +209,14 @@ export function AuditSection() {
           className="mb-3 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const { kind: _, ...filters } = draft;
+            const bounds = auditBounds(range, custom, timeZone);
+            setRangeError(bounds.error ?? null);
+            if (bounds.error) return;
+            const { kind: _, from: _from, to: _to, ...filters } = draft;
             setQuery({
               ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
+              ...(bounds.from ? { from: bounds.from } : {}),
+              ...(bounds.to ? { to: bounds.to } : {}),
               ...(showReads ? {} : { kind: 'write' }),
             });
           }}
@@ -214,6 +262,17 @@ export function AuditSection() {
               ]}
             />
           </div>
+          <div className="w-40 shrink-0 max-sm:w-full">
+            <Select
+              aria-label="When"
+              value={range}
+              onChange={(v) => {
+                setRange(v as AuditRange);
+                setRangeError(null);
+              }}
+              options={AUDIT_RANGES}
+            />
+          </div>
           <Button size="sm" type="submit">
             Filter
           </Button>
@@ -222,11 +281,58 @@ export function AuditSection() {
             variant="ghost"
             onClick={() => {
               setDraft({});
+              setRange('');
+              setRangeError(null);
+              setCustom({ fromDay: '', fromTime: '', toDay: '', toTime: '' });
               setQuery(showReads ? {} : { kind: 'write' });
             }}
           >
             Clear
           </Button>
+          {range === 'custom' ? (
+            <div className="flex basis-full flex-wrap items-end gap-2">
+              <div className="grid grid-cols-[minmax(0,10rem)_5.5rem] gap-2">
+                <Field label={`From (${zoneLabel(timeZone)})`} controlId="audit-from-day">
+                  <DatePicker
+                    id="audit-from-day"
+                    value={custom.fromDay}
+                    clearable
+                    placeholder="Any start"
+                    onChange={(v) => setCustom({ ...custom, fromDay: v })}
+                  />
+                </Field>
+                <Field label="Time" controlId="audit-from-time">
+                  <TimeField
+                    id="audit-from-time"
+                    value={custom.fromTime}
+                    onChange={(v) => setCustom({ ...custom, fromTime: v })}
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-[minmax(0,10rem)_5.5rem] gap-2">
+                <Field
+                  label={`To (${zoneLabel(timeZone)})`}
+                  controlId="audit-to-day"
+                  error={rangeError ?? undefined}
+                >
+                  <DatePicker
+                    id="audit-to-day"
+                    value={custom.toDay}
+                    clearable
+                    placeholder="Now"
+                    onChange={(v) => setCustom({ ...custom, toDay: v })}
+                  />
+                </Field>
+                <Field label="Time" controlId="audit-to-time">
+                  <TimeField
+                    id="audit-to-time"
+                    value={custom.toTime}
+                    onChange={(v) => setCustom({ ...custom, toTime: v })}
+                  />
+                </Field>
+              </div>
+            </div>
+          ) : null}
         </form>
         {entries.status === 'loading' && !entries.data ? <LoadingRows rows={8} /> : null}
         <LoadError of={entries} subject="The audit log" onRetry={() => void load()} />

@@ -1,15 +1,17 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { emptySlot } from '@/lib/slot';
 import { server } from '@/mocks/node';
-import { signInAs } from '@/test/utils';
+import { pickOption, signInAs } from '@/test/utils';
 
+import { auditBounds, zonedInstant } from '../audit-range';
+import { AuditSection } from '../components/audit-section';
 import { ConfigSection } from '../components/config-section';
 import { ObjectivesSection } from '../components/objectives-section';
-import { useConfigDoc, useGatewaySettings, useOrgSettings } from '../store';
+import { useAudit, useConfigDoc, useGatewaySettings, useOrgSettings } from '../store';
 
 const meta = { etag: '"7"', generation: 7, created_at: null, updated_at: null, managed_by: 'api' };
 const list = (items: unknown[]) => HttpResponse.json({ items, next_cursor: null });
@@ -263,5 +265,90 @@ describe('Objectives', () => {
     await userEvent.click(within(drawer).getByRole('button', { name: 'Add objective' }));
     expect(await within(drawer).findByText(/above 0 and below 100/)).toBeInTheDocument();
     expect(patches).toHaveLength(0);
+  });
+});
+
+describe('Audit log time range', () => {
+  beforeEach(() => {
+    useAudit.setState({ query: { kind: 'write' }, entries: emptySlot(), cursor: null });
+  });
+
+  it('sends the chosen range as from, and exports every matching page', async () => {
+    signInAs(['audit:read']);
+    const seen: URLSearchParams[] = [];
+    const entry = (id: string) => ({
+      id,
+      time: '2026-10-17T14:30:00Z',
+      actor: { type: 'operator', id: 'ada' },
+      action: 'keys.create',
+      resource: `keys/${id}`,
+      outcome: 'success',
+      status_code: 201,
+      generation_before: 1,
+      generation_after: 2,
+      request_id: `r-${id}`,
+      source_ip: '10.0.0.1',
+      changes: null,
+    });
+    server.use(
+      http.get('*/admin/v1/audit', ({ request }) => {
+        const q = new URL(request.url).searchParams;
+        seen.push(q);
+        if (q.get('limit') === '500')
+          return HttpResponse.json(
+            q.get('cursor')
+              ? { items: [entry('b')], next_cursor: null }
+              : { items: [entry('a')], next_cursor: 'c2' },
+          );
+        return list([entry('a')]);
+      }),
+    );
+    const created = vi.fn(() => 'blob:audit');
+    URL.createObjectURL = created;
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(<AuditSection />);
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]?.get('from')).toBeNull();
+    await pickOption(screen.getByRole('combobox', { name: 'When' }), 'Last 24 hours');
+    const before = Date.now();
+    await userEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    const from = Date.parse(seen[1]?.get('from') ?? '');
+    expect(Math.abs(before - 86_400_000 - from)).toBeLessThan(10_000);
+    expect(seen[1]?.get('to')).toBeNull();
+    expect(seen[1]?.get('kind')).toBe('write');
+    expect(screen.getByText(/Since /)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    const pages = seen.filter((q) => q.get('limit') === '500');
+    expect(pages.map((q) => q.get('cursor'))).toEqual([null, 'c2']);
+    expect(pages.every((q) => q.get('from') === seen[1]?.get('from'))).toBe(true);
+    const blob = (created.mock.calls[0] as unknown as [Blob])[0];
+    const csv = await blob.text();
+    expect(csv).toContain('keys/a');
+    expect(csv).toContain('keys/b');
+    click.mockRestore();
+  });
+
+  it('reads a custom range on the console clock', () => {
+    const custom = { fromDay: '2026-10-17', fromTime: '14:00', toDay: '2026-10-17', toTime: '15:00' };
+    expect(auditBounds('custom', custom, 'UTC')).toEqual({
+      from: '2026-10-17T14:00:00.000Z',
+      to: '2026-10-17T15:00:00.000Z',
+    });
+    expect(auditBounds('custom', custom, 'America/Sao_Paulo')).toEqual({
+      from: '2026-10-17T17:00:00.000Z',
+      to: '2026-10-17T18:00:00.000Z',
+    });
+    expect(zonedInstant('2026-07-01', '12:00', 'Europe/Berlin')).toBe('2026-07-01T10:00:00.000Z');
+    expect(auditBounds('custom', { ...custom, toTime: '13:00' }, 'UTC').error).toBe(
+      'End the range after it starts',
+    );
+    expect(auditBounds('7d', custom, 'UTC', Date.parse('2026-10-17T00:00:00Z'))).toEqual({
+      from: '2026-10-10T00:00:00.000Z',
+    });
   });
 });
