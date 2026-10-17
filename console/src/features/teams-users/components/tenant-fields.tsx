@@ -58,7 +58,7 @@ export function LimitsEditor({
   const update = (i: number, patch: Partial<LimitRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const splits = [
-    { value: '', label: `The whole ${level}` },
+    { value: '', label: `Whole ${level}` },
     { value: 'key', label: 'Each key' },
     { value: 'user', label: 'Each person' },
     ...(level === 'team' ? [{ value: 'project', label: 'Each project' }] : []),
@@ -99,6 +99,7 @@ export function LimitsEditor({
           <NumberInput
             aria-label={`Limit ${i + 1} amount`}
             min={0}
+            placeholder="e.g. 600"
             value={row.limit}
             onChange={(v) => update(i, { limit: v })}
           />
