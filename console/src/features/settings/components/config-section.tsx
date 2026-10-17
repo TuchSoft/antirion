@@ -12,7 +12,7 @@ import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui
 import { downloadText } from '@/lib/csv';
 import { notify } from '@/stores/ui';
 
-import { useConfigDoc, useGatewaySettings } from '../store';
+import { type ConvergenceState, useConfigDoc, useGatewaySettings } from '../store';
 import { useReportUnsaved } from '../unsaved';
 import { ChangeRow } from './change-row';
 import { VersionsPanel } from './versions-panel';
@@ -26,12 +26,116 @@ function useAppliedLock(): boolean {
   return admin.data?.spec.config?.lock_applied === true;
 }
 
+/** "node-b", "node-b and node-c", "node-b, node-c and 2 more". */
+function nodeList(ids: string[]): string {
+  if (ids.length <= 1) return ids[0] ?? '';
+  if (ids.length <= 3) return `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+  return `${ids.slice(0, 2).join(', ')} and ${ids.length - 2} more`;
+}
+
+/** Whether the version the last apply or rollback made runs on every node, in words. */
+export function convergenceWords(c: ConvergenceState | null, propagated: boolean): string {
+  switch (c?.state) {
+    case 'checking':
+      return 'checking every node…';
+    case 'waiting':
+      return c.lagging.length > 0 ? `waiting for ${nodeList(c.lagging)}` : 'reaching every node…';
+    case 'converged':
+      return 'live on every node';
+    case 'lagging':
+      return c.lagging.length > 0
+        ? `still not on ${nodeList(c.lagging)} after a minute`
+        : 'not on every node after a minute';
+    default:
+      return propagated ? 'live on every node' : 'reaching every node';
+  }
+}
+
+/** The last apply or rollback made from this page, and whether every node runs it yet. */
+function ApplyStatus() {
+  const applied = useConfigDoc((s) => s.applied);
+  const by = useConfigDoc((s) => s.appliedBy);
+  const convergence = useConfigDoc((s) => s.convergence);
+  const statusHref = useSettingsHref('status');
+  const result = applied.data;
+  if (!result || !by) return null;
+  const c = convergence?.generation === result.generation ? convergence : null;
+  const tone =
+    c?.state === 'lagging' ? 'text-warn' : c?.state === 'converged' || !c ? 'text-success' : 'text-muted';
+  return (
+    <span role="status" className={`flex flex-wrap items-center gap-x-1.5 text-caption ${tone}`}>
+      {c?.state === 'converged' || (!c && result.propagated) ? (
+        <Icon name="check" size={14} className="shrink-0" />
+      ) : null}
+      <span>
+        {by.kind === 'rollback'
+          ? `Rolled back to version ${by.to} as version ${result.generation}`
+          : `Applied as version ${result.generation}`}
+        , {convergenceWords(c, result.propagated)}
+      </span>
+      {c?.state === 'lagging' || c?.state === 'waiting' ? (
+        <a href={statusHref} className="text-accent hover:underline">
+          See the nodes
+        </a>
+      ) : null}
+    </span>
+  );
+}
+
+/** The gateway's checks of the draft: problems that stop an apply, and warnings that don't. */
+function ValidationResult() {
+  const validation = useConfigDoc((s) => s.validation);
+  const v = validation.data;
+  if (validation.error) return <InlineError error={validation.error} />;
+  if (!v) return null;
+  if (v.valid && v.errors.length === 0 && v.warnings.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {v.errors.length > 0 ? (
+        <div
+          role="alert"
+          className="rounded-control border border-[color-mix(in_oklab,var(--ant-error)_40%,transparent)] bg-[color-mix(in_oklab,var(--ant-error)_8%,transparent)] px-3 py-2.5 text-ui text-fg"
+        >
+          <p className="flex items-center gap-2 font-medium">
+            <Icon name="alertCircle" size={16} className="shrink-0 text-error" />
+            {v.errors.length === 1
+              ? 'One problem to fix before you can apply'
+              : `${v.errors.length} problems to fix before you can apply`}
+          </p>
+          <ul className="mt-1.5 flex flex-col gap-1 pl-6">
+            {v.errors.map((e, i) => (
+              <li key={`${e.path}-${i}`} className="text-caption">
+                <span className="mono text-fg">{e.path || '(document)'}</span>
+                <span className="text-muted">: {e.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {v.warnings.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {v.warnings.map((w, i) => (
+            <li key={`${w.path ?? ''}-${i}`} className="flex items-start gap-1.5 text-caption text-warn">
+              <Icon name="alert" size={14} className="mt-0.5 shrink-0" />
+              <span>
+                {w.path ? <span className="mono">{w.path}: </span> : null}
+                {w.message}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /** The configuration document as JSON: edit it, see the diff against the running generation, apply. */
 export function ConfigSection() {
   const document = useConfigDoc((s) => s.document);
   const draft = useConfigDoc((s) => s.draft);
   const parseError = useConfigDoc((s) => s.parseError);
   const diff = useConfigDoc((s) => s.diff);
+  const validation = useConfigDoc((s) => s.validation);
   const applied = useConfigDoc((s) => s.applied);
   const loadDocument = useConfigDoc((s) => s.loadDocument);
   const setDraft = useConfigDoc((s) => s.setDraft);
@@ -47,6 +151,12 @@ export function ConfigSection() {
   const locked = useAppliedLock();
 
   const changes = diff.data?.changes ?? [];
+  const invalid = (validation.data?.errors.length ?? 0) > 0;
+  // The review's own warnings show above; the diff's are listed only when they say something else.
+  const checked = new Set((validation.data?.warnings ?? []).map((w) => w.message));
+  const diffWarnings = (diff.data?.warnings ?? [])
+    .map((w) => (typeof w === 'string' ? w : ((w as { message?: string }).message ?? JSON.stringify(w))))
+    .filter((m) => !checked.has(m));
   return (
     <div className="flex flex-col">
       {locked ? (
@@ -102,10 +212,10 @@ export function ConfigSection() {
                 {parseError}
               </p>
             ) : null}
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button
                 icon="file"
-                busy={diff.status === 'loading'}
+                busy={diff.status === 'loading' || validation.status === 'loading'}
                 disabled={parseError !== null}
                 onClick={() => void runDiff()}
               >
@@ -114,11 +224,13 @@ export function ConfigSection() {
               <Gate operation="applyConfig">
                 <Button
                   variant="primary"
-                  disabled={parseError !== null || changes.length === 0}
+                  disabled={parseError !== null || changes.length === 0 || invalid}
                   disabledReason={
-                    changes.length === 0
-                      ? 'Review your changes first; there is nothing to apply yet'
-                      : undefined
+                    invalid
+                      ? 'Fix the problems the review found first'
+                      : changes.length === 0
+                        ? 'Review your changes first; there is nothing to apply yet'
+                        : undefined
                   }
                   onClick={() => setConfirm(true)}
                 >
@@ -127,12 +239,7 @@ export function ConfigSection() {
                     : 'Apply changes'}
                 </Button>
               </Gate>
-              {applied.data ? (
-                <span className="text-caption text-success">
-                  Applied as version {applied.data.generation}
-                  {applied.data.propagated ? ', live on every node' : ', reaching every node'}
-                </span>
-              ) : null}
+              {applied.status === 'loading' ? null : <ApplyStatus />}
             </div>
             {applied.error ? (
               <div className="mt-3">
@@ -150,19 +257,20 @@ export function ConfigSection() {
             : 'Choose Review changes to compare your edits with the running configuration.'
         }
       >
+        <ValidationResult />
         {diff.error ? <InlineError error={diff.error} /> : null}
-        {diff.data && changes.length === 0 ? (
+        {diff.data && changes.length === 0 && !invalid ? (
           <EmptyState
             size="sm"
             title="No changes yet"
             description="Your edits match the running configuration."
           />
         ) : null}
-        {(diff.data?.warnings ?? []).length > 0 ? (
+        {diffWarnings.length > 0 ? (
           <ul className="mb-2 flex flex-col gap-1">
-            {(diff.data?.warnings ?? []).map((w, i) => (
+            {diffWarnings.map((w, i) => (
               <li key={i} className="text-caption text-warn">
-                {typeof w === 'string' ? w : ((w as { message?: string }).message ?? JSON.stringify(w))}
+                {w}
               </li>
             ))}
           </ul>

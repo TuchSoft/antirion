@@ -8,7 +8,9 @@ import type {
   Health,
   OrganizationResource,
   ProviderResource,
+  ValidateResult,
 } from '@/lib/api/types';
+import { hasGatewayPermission, useSession } from '@/stores/session';
 import { asApiError, emptySlot, loadSlot, type Slot } from '@/lib/slot';
 
 import {
@@ -16,6 +18,7 @@ import {
   type GovernanceSettings,
   type AuditSinkStatus,
   type ConfigDoc,
+  type Convergence,
   type NodeInfo,
   type ProviderStatus,
   settingsApi,
@@ -28,12 +31,35 @@ interface ConfigState {
   draft: string;
   parseError: string | null;
   diff: Slot<DiffResult>;
+  /** The gateway's checks of the draft, run with the diff by Review changes. */
+  validation: Slot<ValidateResult>;
   applied: Slot<ApplyResult>;
+  /** What made the last version from here: an apply or a rollback (to that version). */
+  appliedBy: { kind: 'apply' } | { kind: 'rollback'; to: number } | null;
+  /** Whether every node runs the version the last apply or rollback made. */
+  convergence: ConvergenceState | null;
   loadDocument: () => Promise<void>;
   setDraft: (text: string) => void;
   runDiff: () => Promise<void>;
   apply: (reason?: string) => Promise<ApplyResult | null>;
+  /** Records a rollback's new version like an apply's, and follows it to every node. */
+  rolledBack: (to: number, result: ApplyResult) => Promise<void>;
 }
+
+/**
+ * Following a new configuration version to every node: `checking` until the first answer,
+ * `waiting` while some nodes lag, `converged` once all run it, `lagging` when they still did not
+ * after every wait, `unknown` when the cluster can't be asked (no permission, or the call failed).
+ */
+export interface ConvergenceState {
+  generation: number;
+  state: 'checking' | 'waiting' | 'converged' | 'lagging' | 'unknown';
+  lagging: string[];
+}
+
+/** How many times the cluster is asked, each waiting up to `CONVERGE_WAIT`, before giving up. */
+export const CONVERGE_ATTEMPTS = 6;
+export const CONVERGE_WAIT = '10s';
 
 function parseDraft(text: string): { doc: ConfigDoc | null; error: string | null } {
   try {
@@ -47,51 +73,104 @@ function parseDraft(text: string): { doc: ConfigDoc | null; error: string | null
 }
 
 /** The configuration document: export, edit as JSON, diff against the running generation, apply. */
-export const useConfigDoc = create<ConfigState>()((set, get) => ({
-  document: emptySlot(),
-  draft: '',
-  parseError: null,
-  diff: emptySlot(),
-  applied: emptySlot(),
-
-  async loadDocument() {
-    await loadSlot(set, get, 'document', settingsApi.exportConfig);
-    const doc = get().document.data?.doc;
-    if (doc)
-      set({ draft: JSON.stringify(doc, null, 2), parseError: null, diff: emptySlot(), applied: emptySlot() });
-  },
-
-  setDraft(text) {
-    set({ draft: text, parseError: parseDraft(text).error, diff: emptySlot() });
-  },
-
-  async runDiff() {
-    const { doc, error } = parseDraft(get().draft);
-    if (!doc) {
-      set({ parseError: error });
+export const useConfigDoc = create<ConfigState>()((set, get) => {
+  /** Asks the cluster until every node runs `generation`, unless a newer version took over. */
+  async function follow(generation: number, propagated: boolean) {
+    const mine = () => get().convergence?.generation === generation;
+    if (!hasGatewayPermission(useSession.getState().me, 'cluster:read')) {
+      set({ convergence: { generation, state: propagated ? 'converged' : 'unknown', lagging: [] } });
       return;
     }
-    await loadSlot(set, get, 'diff', () => settingsApi.diff(doc));
-  },
+    set({ convergence: { generation, state: 'checking', lagging: [] } });
+    for (let i = 0; i < CONVERGE_ATTEMPTS; i++) {
+      let answer: Convergence;
+      try {
+        answer = await settingsApi.converged(generation, CONVERGE_WAIT);
+      } catch {
+        if (mine()) set({ convergence: { generation, state: 'unknown', lagging: [] } });
+        return;
+      }
+      if (!mine()) return;
+      if (answer.converged) {
+        set({ convergence: { generation, state: 'converged', lagging: [] } });
+        return;
+      }
+      set({ convergence: { generation, state: 'waiting', lagging: answer.lagging ?? [] } });
+    }
+    if (mine())
+      set({ convergence: { generation, state: 'lagging', lagging: get().convergence?.lagging ?? [] } });
+  }
 
-  async apply(reason) {
-    const { doc, error } = parseDraft(get().draft);
-    if (!doc) {
-      set({ parseError: error });
-      return null;
-    }
-    set({ applied: { ...emptySlot(), status: 'loading' } });
-    try {
-      const result = await settingsApi.apply(doc, get().document.data?.etag ?? null, reason);
-      set({ applied: { data: result, status: 'ready', error: null, at: Date.now() } });
+  return {
+    document: emptySlot(),
+    draft: '',
+    parseError: null,
+    diff: emptySlot(),
+    validation: emptySlot(),
+    applied: emptySlot(),
+    appliedBy: null,
+    convergence: null,
+
+    async loadDocument() {
+      await loadSlot(set, get, 'document', settingsApi.exportConfig);
+      const doc = get().document.data?.doc;
+      if (doc)
+        set({
+          draft: JSON.stringify(doc, null, 2),
+          parseError: null,
+          diff: emptySlot(),
+          validation: emptySlot(),
+        });
+    },
+
+    setDraft(text) {
+      set({ draft: text, parseError: parseDraft(text).error, diff: emptySlot(), validation: emptySlot() });
+    },
+
+    async runDiff() {
+      const { doc, error } = parseDraft(get().draft);
+      if (!doc) {
+        set({ parseError: error });
+        return;
+      }
+      await Promise.all([
+        loadSlot(set, get, 'validation', () => settingsApi.validate(doc)),
+        loadSlot(set, get, 'diff', () => settingsApi.diff(doc)),
+      ]);
+    },
+
+    async apply(reason) {
+      const { doc, error } = parseDraft(get().draft);
+      if (!doc) {
+        set({ parseError: error });
+        return null;
+      }
+      set({ applied: { ...get().applied, status: 'loading', error: null } });
+      try {
+        const result = await settingsApi.apply(doc, get().document.data?.etag ?? null, reason);
+        set({
+          applied: { data: result, status: 'ready', error: null, at: Date.now() },
+          appliedBy: { kind: 'apply' },
+        });
+        await get().loadDocument();
+        void follow(result.generation, result.propagated);
+        return result;
+      } catch (e) {
+        set({ applied: { data: null, status: 'error', error: asApiError(e), at: null }, appliedBy: null });
+        throw e;
+      }
+    },
+
+    async rolledBack(to, result) {
+      set({
+        applied: { data: result, status: 'ready', error: null, at: Date.now() },
+        appliedBy: { kind: 'rollback', to },
+      });
       await get().loadDocument();
-      return result;
-    } catch (e) {
-      set({ applied: { data: null, status: 'error', error: asApiError(e), at: null } });
-      throw e;
-    }
-  },
-}));
+      void follow(result.generation, result.propagated);
+    },
+  };
+});
 
 interface AuditState {
   query: AuditQuery;

@@ -147,7 +147,7 @@ function VersionDrawer({
 export function VersionsPanel() {
   const timeZone = usePreferences((s) => s.timeZone);
   const document = useConfigDoc((s) => s.document);
-  const loadDocument = useConfigDoc((s) => s.loadDocument);
+  const rolledBack = useConfigDoc((s) => s.rolledBack);
   const [versions, setVersions] = useState<Slot<GenerationSummary[]>>(emptySlot());
   const [opened, setOpened] = useState<Opened | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -260,7 +260,7 @@ export function VersionsPanel() {
         tone="primary"
         confirmLabel="Roll back"
         withReason
-        effect={`A new version is made with the configuration of version ${target ?? ''}: ${changeCount} ${changeCount === 1 ? 'setting changes' : 'settings change'}. Anything created since then, keys included, is removed. If someone changes the configuration meanwhile, nothing is applied.`}
+        effect={`A new version is made with the configuration of version ${target ?? ''}: ${changeCount} ${changeCount === 1 ? 'setting changes' : 'settings change'}. Anything created since then, keys included, is removed. If someone changes the configuration meanwhile, nothing is applied. Next to Apply, you'll see when every node runs it.`}
         onConfirm={async (reason) => {
           if (target === undefined) return;
           const result = await settingsApi.rollback(target, document.data?.etag ?? null, reason);
@@ -270,7 +270,7 @@ export function VersionsPanel() {
             `Now running as version ${result.generation}.`,
           );
           setOpened(null);
-          await loadDocument();
+          await rolledBack(target, result);
         }}
       />
     </Section>

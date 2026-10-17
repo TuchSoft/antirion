@@ -37,6 +37,33 @@ export interface DeliveryFilter {
 }
 export type TestResult = S['TestResult'];
 export type UserResource = S['UserResource'];
+export type SloStatus = S['SloStatus'];
+
+/**
+ * A node as `/cluster` and `/runtime/nodes/{id}` report it. The gateway also sends its load and
+ * since when it runs; the contract does not list those members yet, so they are optional here.
+ */
+export type ClusterNode = NodeInfo & {
+  in_flight?: number;
+  max_in_flight?: number;
+  queue_depth?: number;
+  started_at?: string | null;
+  ready_since?: string | null;
+};
+
+/** The cluster: its mode, its nodes, the background job leases and the summed load. */
+export interface ClusterView {
+  mode: S['Cluster']['mode'];
+  nodes: ClusterNode[];
+  jobs: S['JobLease'][];
+  totals?: { in_flight: number; max_in_flight: number; queue_depth: number };
+}
+
+/** Whether every node runs a configuration version, and which do not yet. */
+export interface Convergence {
+  converged: boolean;
+  lagging?: string[];
+}
 
 export interface AuditQuery {
   actor?: string;
@@ -122,6 +149,12 @@ export const settingsApi = {
   rollback: (generation: number, etag: string | null, reason?: string): Promise<ApplyResult> =>
     api.post('/config:rollback', { body: { generation }, ifMatch: etag ?? undefined, reason }),
   drainNode: (id: string) => api.post('/runtime/nodes/{id}:drain', { path: { id } }),
+  cluster: async (): Promise<ClusterView> => await api.get('/cluster'),
+  node: async (id: string): Promise<ClusterNode> => await api.get('/runtime/nodes/{id}', { path: { id } }),
+  /** Waits up to `timeout` for every node to run `generation`, then says which still do not. */
+  converged: (generation: number, timeout = '10s'): Promise<Convergence> =>
+    api.get('/cluster/converged', { query: { config_version: generation, timeout } }),
+  slos: async (): Promise<SloStatus[]> => (await api.get('/runtime/slos')).items,
   encryption: (): Promise<EncryptionReport> => api.get('/runtime/encryption'),
   status: () => api.get('/status'),
   policies: () => api.get('/settings/policies'),
