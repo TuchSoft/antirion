@@ -147,6 +147,16 @@ describe('key form', () => {
       end_user: 'required',
     });
   });
+  it('creates a key that signs in with a token, and keeps the kind on edit', () => {
+    expect(toKeySpec({ ...EMPTY_KEY_FORM, name: 'k', kind: 'jwt', expiry: 'never' }, {}, NOW)).toEqual({
+      project: 'default',
+      kind: 'jwt',
+    });
+    expect(toKeySpec({ ...EMPTY_KEY_FORM, name: 'k', expiry: 'never' }, {}, NOW)).not.toHaveProperty('kind');
+    const base = { project: 'p', kind: 'jwt' as const };
+    expect(fromKeySpec('k', base).kind).toBe('jwt');
+    expect(toKeySpec(fromKeySpec('k', base), base, NOW, true)).toEqual(base);
+  });
   it('rejects bad tags, patterns and repeated metadata keys', () => {
     const ok = { ...EMPTY_KEY_FORM, name: 'k' };
     expect(keyFormSchema.safeParse({ ...ok, tags: ['antirion.internal'] }).success).toBe(false);

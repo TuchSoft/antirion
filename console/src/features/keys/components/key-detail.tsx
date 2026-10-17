@@ -115,6 +115,7 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
   const { key } = view;
   const prefix = hintPrefix(key.metadata.hint);
   const playground = key.metadata.created_by === 'playground';
+  const jwt = key.spec.kind === 'jwt';
   const disabled = key.spec.enabled === false;
   const rotationDue = Boolean(key.metadata.rotation_due);
   const limits = (key.spec.policies?.limits ?? {}) as Record<
@@ -155,8 +156,14 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
         variant={primary ? 'primary' : 'secondary'}
         icon="rotate"
         onClick={() => setDialog('rotate')}
-        disabled={playground}
-        disabledReason={playground ? "Keys made in the playground can't be rotated" : undefined}
+        disabled={playground || jwt}
+        disabledReason={
+          playground
+            ? "Keys made in the playground can't be rotated"
+            : jwt
+              ? 'This key signs in with a token, so it has no secret to rotate'
+              : undefined
+        }
       >
         Rotate
       </Button>
@@ -187,6 +194,9 @@ export function KeyDetail({ view, team, organization, onEdit, onSecret }: KeyDet
               {STATUS_LABEL[view.status]}
             </Badge>
             <Badge tone="accent">{TYPE_LABEL[view.type]}</Badge>
+            {jwt ? (
+              <Badge title="Requests carry a signed token mapped to this key">Signed token</Badge>
+            ) : null}
             <span className="font-sans">
               {key.spec.expires_at
                 ? `${view.status === 'expired' ? 'Expired' : 'Expires'} ${formatDate(key.spec.expires_at, timeZone)}`

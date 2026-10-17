@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -166,5 +166,30 @@ describe('API key details', () => {
     await userEvent.click(within(drawer).getByRole('button', { name: 'Create key' }));
     await screen.findByRole('alertdialog', { name: 'Your new API key' });
     expect(created).toMatchObject({ spec: { endpoints: ['chat'], permissions: ['tags:request'] } });
+  });
+
+  it('creates a key that signs in with a token without showing a secret', async () => {
+    useKeys.setState({ items: [], status: 'idle' });
+    signInAs(ALL_KEY_PERMISSIONS);
+    liveHandlers([]);
+    let created: { spec?: { kind?: string } } | null = null;
+    server.use(
+      http.post('*/admin/v1/keys', async ({ request }) => {
+        created = (await request.json()) as typeof created;
+        return HttpResponse.json(
+          { name: 'sso', spec: { project: 'default', kind: 'jwt' }, metadata: meta },
+          { status: 201 },
+        );
+      }),
+    );
+    render(<KeysScreen />);
+    await screen.findByText('No API keys yet');
+    await userEvent.click(first(screen.getAllByRole('button', { name: 'Create key' })));
+    const drawer = screen.getByRole('dialog', { name: 'Create API key' });
+    await userEvent.type(within(drawer).getByLabelText(/^Name/), 'sso');
+    await userEvent.click(within(drawer).getByRole('radio', { name: 'A signed token (JWT)' }));
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Create key' }));
+    await waitFor(() => expect(created).toMatchObject({ spec: { kind: 'jwt' } }));
+    expect(screen.queryByRole('alertdialog', { name: 'Your new API key' })).not.toBeInTheDocument();
   });
 });

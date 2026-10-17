@@ -62,6 +62,7 @@ import { KeyActivity, KeysByTeam, RotationTab } from './keys-tabs';
 import { KeyFormDrawer } from './key-form-drawer';
 import { KeySnippets } from './key-snippets';
 import { Tooltip } from '@/components/ui/tooltip';
+import { notify } from '@/stores/ui';
 
 const STALE_MS = 60 * 86_400_000;
 
@@ -584,7 +585,9 @@ export function KeysScreen() {
           editing={form === 'edit' ? current?.key : undefined}
           onCreated={(name, value) => {
             setSelected(name);
-            setSecret({ title: 'Your new API key', value, created: true });
+            // A key that signs in with a token has no secret to show.
+            if (value) setSecret({ title: 'Your new API key', value, created: true });
+            else notify('success', 'Key created', name);
           }}
         />
       ) : null}

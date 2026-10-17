@@ -22,8 +22,13 @@ export type ExpiryChoice = 'never' | '7d' | '30d' | '90d' | '365d' | 'custom';
 /** How a key is bound to a client certificate: not at all, by the certificate's SHA-256, or by a name in it. */
 export type CertBinding = 'none' | 'fingerprint' | 'san';
 
+/** How requests prove they hold the key: a secret the gateway issues, or a signed token (JWT). */
+export type KeyKind = 'secret' | 'jwt';
+
 export interface KeyFormValues extends AccessValues, LabelValues {
   name: string;
+  /** Chosen when the key is created; it can't change afterwards. */
+  kind: KeyKind;
   description: string;
   project: string;
   owner: string;
@@ -46,6 +51,7 @@ export interface KeyFormValues extends AccessValues, LabelValues {
 
 export const EMPTY_KEY_FORM: KeyFormValues = {
   name: '',
+  kind: 'secret',
   description: '',
   project: 'default',
   owner: '',
@@ -73,6 +79,7 @@ const optionalCount = z
 export const keyFormSchema = z
   .object({
     name: resourceName,
+    kind: z.enum(['secret', 'jwt']),
     description: z.string().max(500, 'At most 500 characters'),
     project: resourceName,
     owner: z.string(),
@@ -148,6 +155,8 @@ export function toKeySpec(
   const spec: Record<string, unknown> = {
     ...base,
     project: values.project,
+    // The kind is fixed at creation; a secret key states none (its default).
+    kind: values.kind === 'jwt' ? 'jwt' : base.kind,
     description: values.description.trim() || undefined,
     owner: values.owner || undefined,
     expires_at: keepExpiry ? base.expires_at : expiresAt(values, now),
@@ -203,6 +212,7 @@ export function fromKeySpec(name: string, spec: KeySpec): KeyFormValues {
   const limits = (spec.policies?.limits ?? {}) as Record<string, { limit?: number } | undefined>;
   return {
     name,
+    kind: spec.kind === 'jwt' ? 'jwt' : 'secret',
     description: spec.description ?? '',
     project: spec.project ?? 'default',
     owner: spec.owner ?? '',

@@ -13,6 +13,7 @@ import {
   Input,
   MultiSelect,
   NumberInput,
+  Segmented,
   Select,
   Textarea,
 } from '@/components/ui/form';
@@ -33,6 +34,7 @@ import {
   fromKeySpec,
   keyFormSchema,
   type KeyFormValues,
+  type KeyKind,
   limitWindow,
   toKeySpec,
 } from '../form';
@@ -170,7 +172,9 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
       subtitle={
         editing
           ? 'Changes apply right away and are recorded in the audit log.'
-          : "You'll see the key once, right after you create it."
+          : values.kind === 'jwt'
+            ? 'Requests with a token mapped to it get its access and limits.'
+            : "You'll see the key once, right after you create it."
       }
       width="lg"
       footer={
@@ -192,6 +196,28 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
       >
         <InlineError error={error} />
         <Section title="Basics">
+          {editing ? null : (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-ui font-medium text-fg" id="key-kind-label">
+                Apps prove they hold it with
+              </span>
+              <Segmented<KeyKind>
+                label="Apps prove they hold it with"
+                value={values.kind}
+                onChange={(v) => set('kind', v)}
+                options={[
+                  { value: 'secret', label: 'A secret' },
+                  { value: 'jwt', label: 'A signed token (JWT)' },
+                ]}
+                className="w-fit max-w-full"
+              />
+              <p className="text-caption text-muted">
+                {values.kind === 'jwt'
+                  ? 'Requests carry a token from your identity provider; the sign-in settings map its issuer and claims to this key. There is no secret to copy or rotate.'
+                  : "The gateway makes a secret; you'll see it once, right after you create the key."}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
             <Field
               label="Name"
