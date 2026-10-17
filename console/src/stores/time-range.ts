@@ -30,7 +30,13 @@ interface TimeRangeState {
   anchoredAt: number;
   /** How far back the page's data goes (the request log's retention), or null when unbounded. */
   retention: Retention | null;
+  /**
+   * The gateway's clock less the browser's, in milliseconds: zero, except on a test-mode gateway
+   * whose clock was moved. Preset ranges end at the gateway's "now", so they match what it wrote.
+   */
+  clockOffset: number;
   setRetention: (retention: Retention | null) => void;
+  setClockOffset: (offset: number) => void;
   setRange: (range: RangeValue) => void;
   setInterval: (interval: Interval) => void;
   setCompare: (compare: CompareValue) => void;
@@ -47,11 +53,16 @@ export const useTimeRange = create<TimeRangeState>()((set, get) => ({
   refreshTick: 0,
   anchoredAt: Date.now(),
   retention: null,
+  clockOffset: 0,
   setRetention(retention) {
     set({ retention });
   },
+  setClockOffset(offset) {
+    if (offset === get().clockOffset) return;
+    set({ clockOffset: offset, anchoredAt: Date.now() + offset });
+  },
   setRange(range) {
-    set({ range, interval: defaultInterval(range), anchoredAt: Date.now() });
+    set({ range, interval: defaultInterval(range), anchoredAt: Date.now() + get().clockOffset });
   },
   setInterval(interval) {
     const resolved = resolveRange(get().range, new Date(get().anchoredAt));
@@ -61,10 +72,10 @@ export const useTimeRange = create<TimeRangeState>()((set, get) => ({
     set({ compare });
   },
   refresh() {
-    set((s) => ({ refreshTick: s.refreshTick + 1, anchoredAt: Date.now() }));
+    set((s) => ({ refreshTick: s.refreshTick + 1, anchoredAt: Date.now() + s.clockOffset }));
   },
   pageOpened() {
-    if (get().range.kind === 'preset') set({ anchoredAt: Date.now() });
+    if (get().range.kind === 'preset') set({ anchoredAt: Date.now() + get().clockOffset });
   },
 }));
 

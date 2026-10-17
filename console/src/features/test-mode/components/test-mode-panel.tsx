@@ -19,6 +19,7 @@ import { useTimeRange } from '@/stores/time-range';
 import { notify } from '@/stores/ui';
 
 import { isGatewayAdmin, RESET_SCOPES, type ResetScope, testModeApi } from '../api';
+import { useTestClock } from '../clock';
 
 const STEPS = [
   { value: '1m', label: '1 minute' },
@@ -47,7 +48,9 @@ function Clock() {
     let live = true;
     testModeApi.clock().then(
       (c) => {
-        if (live) setNow(c.now);
+        if (!live) return;
+        setNow(c.now);
+        useTestClock.getState().set(c.now);
       },
       (e: unknown) => {
         if (live) setError(e);
@@ -72,6 +75,8 @@ function Clock() {
     try {
       const c = kind === 'advance' ? await testModeApi.advance(by) : await testModeApi.setClock(target ?? '');
       setNow(c.now);
+      // The banner and the page's time ranges follow the gateway's new time.
+      useTestClock.getState().set(c.now);
       notify('success', 'Clock moved', `The gateway's time is now ${formatDateTime(c.now, timeZone)}.`);
       refreshPage();
     } catch (e) {
