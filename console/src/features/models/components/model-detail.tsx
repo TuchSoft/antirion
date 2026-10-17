@@ -60,6 +60,7 @@ import { RuntimeState, TurnOffDialog, useDisablesFor } from './deployment-runtim
 import { FallbackEditor } from './fallback-editor';
 import { MigrationPanel } from './migration-panel';
 import { ModelUsage } from './model-usage';
+import { PoliciesPanel } from './policies-panel';
 import { TierPrices } from './tier-prices';
 
 function PriceDialog({
@@ -651,6 +652,8 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
           )}
         </div>
       </DetailSection>
+
+      <PoliciesPanel view={view} />
 
       <DetailSection
         title="Aliases"
