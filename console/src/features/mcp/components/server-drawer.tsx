@@ -6,8 +6,9 @@ import { Badge, Dot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { FavouriteButton } from '@/components/ui/favourite';
-import { Field, Input, Segmented, Select, Switch } from '@/components/ui/form';
+import { Checkbox, Field, Input, Segmented, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
+import { Icon } from '@/components/ui/icon';
 import { CopyButton, CopyLinkButton } from '@/components/ui/misc';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { EmptyState, InlineError } from '@/components/ui/states';
@@ -19,6 +20,7 @@ import { serverFieldErrors, type FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
 
 import type { McpServerResource } from '../api';
+import { identityText } from '../fields';
 import {
   type AuthType,
   EMPTY_SERVER,
@@ -35,7 +37,15 @@ import {
   waitingTools,
 } from '../form';
 import { useMcp } from '../store';
-import { Callout, Facts, FormGroup, HeaderRowsEditor, ListInput, Section } from './parts';
+import {
+  Callout,
+  Facts,
+  FormGroup,
+  HeaderRowsEditor,
+  IdentityHeadersEditor,
+  ListInput,
+  Section,
+} from './parts';
 import { useEdited } from '@/lib/hooks';
 
 const NONE: never[] = [];
@@ -252,6 +262,9 @@ function ServerView({ server, onApprove }: { server: McpServerResource; onApprov
             { label: 'Tools offered', value: filterText(s.tools) },
             ...(s.prompts ? [{ label: 'Prompts offered', value: filterText(s.prompts) }] : []),
             ...(s.resources ? [{ label: 'Resources offered', value: filterText(s.resources) }] : []),
+            ...(s.identity_headers && Object.keys(s.identity_headers).length > 0
+              ? [{ label: 'Identity headers', value: identityText(s.identity_headers) }]
+              : []),
             ...(s.client_headers?.length
               ? [{ label: 'Headers clients may send', value: s.client_headers.join(', ') }]
               : []),
@@ -388,6 +401,12 @@ function ServerEditor({
           error={errors.headers}
           hint="Values are stored encrypted and never shown again."
         />
+        <IdentityHeadersEditor
+          rows={values.identityHeaders}
+          onChange={(rows) => set('identityHeaders', rows)}
+          error={errors.identityHeaders}
+          hint="Tell the server who called, on every call. Not secret: they are shown."
+        />
         <Field label="Sign in with">
           <Select
             value={values.authType}
@@ -450,6 +469,62 @@ function ServerEditor({
                 <Input mono value={values.audience} onChange={(e) => set('audience', e.target.value)} />
               </Field>
             ) : null}
+            <details
+              className="group rounded-control border border-line px-3.5 py-2.5"
+              open={Boolean(errors.resource)}
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-ui font-medium text-fg [&::-webkit-details-marker]:hidden">
+                <Icon
+                  name="chevronRight"
+                  size={14}
+                  className="text-muted transition-transform group-open:rotate-90"
+                />
+                Token request details
+              </summary>
+              <div className="mt-3 flex flex-col gap-4">
+                <Field
+                  label="Resource"
+                  optional
+                  error={errors.resource}
+                  hint="Sent so the token is only good for this server. The server's URL unless set."
+                >
+                  <Input
+                    mono
+                    inputMode="url"
+                    disabled={values.noResource}
+                    value={values.resource}
+                    placeholder={values.url || undefined}
+                    onChange={(e) => set('resource', e.target.value)}
+                  />
+                </Field>
+                <Checkbox
+                  label="Send no resource"
+                  description="For identity providers that refuse it."
+                  checked={values.noResource}
+                  onChange={(v) => set('noResource', v)}
+                />
+                {values.authType === 'token_exchange' ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Caller's token type" optional hint="A JWT unless set.">
+                      <Input
+                        mono
+                        value={values.subjectTokenType}
+                        placeholder="urn:ietf:params:oauth:token-type:jwt"
+                        onChange={(e) => set('subjectTokenType', e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Token type asked for" optional hint="An access token unless set.">
+                      <Input
+                        mono
+                        value={values.requestedTokenType}
+                        placeholder="urn:ietf:params:oauth:token-type:access_token"
+                        onChange={(e) => set('requestedTokenType', e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                ) : null}
+              </div>
+            </details>
           </>
         ) : null}
       </FormGroup>
@@ -670,7 +745,7 @@ export function ServerDrawer({
                 {creating ? 'Add MCP server' : 'Save changes'}
               </Button>
             </>
-          ) : server && !fileOnly && (canEdit || canDelete) ? (
+          ) : server && (canEdit || canDelete) ? (
             <>
               {canDelete ? (
                 <Button
@@ -684,7 +759,7 @@ export function ServerDrawer({
                   Delete
                 </Button>
               ) : null}
-              {canEdit ? (
+              {canEdit && !fileOnly ? (
                 <Button variant="primary" icon="edit" onClick={() => setEditing(true)}>
                   Edit
                 </Button>
@@ -718,7 +793,11 @@ export function ServerDrawer({
         objectName={name ?? undefined}
         typeToConfirm={name ?? undefined}
         confirmLabel="Delete server"
-        effect="Apps and agents lose its tools, prompts and resources at once. Its approvals are forgotten."
+        effect={`Apps and agents lose its tools, prompts and resources at once. Its approvals are forgotten.${
+          fileOnly
+            ? ' It comes back when the gateway next reads its configuration file, if the file still defines it.'
+            : ''
+        }`}
         onConfirm={async (reason) => {
           if (!name) return;
           await remove(name, reason);

@@ -13,6 +13,10 @@ import {
   headerMap,
   headerRows,
   type HeaderRow,
+  identityErrors,
+  identityMap,
+  identityRows,
+  type IdentityRow,
   mcpNameError,
   put,
   REDACTED,
@@ -37,6 +41,7 @@ export interface ServerForm {
   protocol: 'auto' | 'legacy' | 'modern';
   prefix: string;
   headers: HeaderRow[];
+  identityHeaders: IdentityRow[];
   clientHeaders: string[];
   authType: AuthType;
   tokenUrl: string;
@@ -46,6 +51,12 @@ export interface ServerForm {
   clientAuth: 'basic' | 'post';
   scopes: string[];
   audience: string;
+  /** The RFC 8707 resource sent for a token: empty for the server's URL. */
+  resource: string;
+  /** Send no resource at all. */
+  noResource: boolean;
+  subjectTokenType: string;
+  requestedTokenType: string;
   toolsInclude: string[];
   toolsExclude: string[];
   promptsInclude: string[];
@@ -72,6 +83,7 @@ export const EMPTY_SERVER: ServerForm = {
   protocol: 'auto',
   prefix: '',
   headers: [],
+  identityHeaders: [],
   clientHeaders: [],
   authType: '',
   tokenUrl: '',
@@ -81,6 +93,10 @@ export const EMPTY_SERVER: ServerForm = {
   clientAuth: 'basic',
   scopes: [],
   audience: '',
+  resource: '',
+  noResource: false,
+  subjectTokenType: '',
+  requestedTokenType: '',
   toolsInclude: [],
   toolsExclude: [],
   promptsInclude: [],
@@ -110,6 +126,7 @@ export function serverForm(r: McpServerResource): ServerForm {
     protocol: s.protocol ?? 'auto',
     prefix: s.prefix ?? '',
     headers: headerRows(s.headers),
+    identityHeaders: identityRows(s.identity_headers),
     clientHeaders: s.client_headers ?? [],
     authType: auth ? (auth.type as AuthType) : '',
     tokenUrl: auth?.token_url ?? '',
@@ -119,6 +136,10 @@ export function serverForm(r: McpServerResource): ServerForm {
     clientAuth: auth?.client_auth ?? 'basic',
     scopes: auth?.scopes ?? [],
     audience: auth?.audience ?? '',
+    resource: typeof auth?.resource === 'string' ? auth.resource : '',
+    noResource: auth?.resource === null,
+    subjectTokenType: auth?.subject_token_type ?? '',
+    requestedTokenType: auth?.requested_token_type ?? '',
     toolsInclude: s.tools?.include ?? [],
     toolsExclude: s.tools?.exclude ?? [],
     promptsInclude: s.prompts?.include ?? [],
@@ -144,8 +165,8 @@ function filter(include: string[], exclude: string[]) {
 }
 
 /**
- * The server to write. Members the form doesn't show (identity headers, an auth block's token
- * types and resource) are kept from the read; what the form cleared is removed.
+ * The server to write. Members the form doesn't show are kept from the read; what the form
+ * cleared is removed.
  */
 export function serverSpec(f: ServerForm, existing: McpServerResource | null): McpServerSpec {
   const spec: McpServerSpec = existing ? structuredClone(existing.spec) : { transport: f.transport };
@@ -155,6 +176,7 @@ export function serverSpec(f: ServerForm, existing: McpServerResource | null): M
   put(spec, 'protocol', f.protocol === 'auto' ? undefined : f.protocol);
   put(spec, 'prefix', f.prefix.trim());
   put(spec, 'headers', headerMap(f.headers));
+  put(spec, 'identity_headers', identityMap(f.identityHeaders));
   put(spec, 'client_headers', f.clientHeaders);
   if (f.authType) {
     const prev = existing?.spec.auth;
@@ -167,10 +189,11 @@ export function serverSpec(f: ServerForm, existing: McpServerResource | null): M
     put(auth, 'client_auth', f.clientAuth === 'basic' ? undefined : f.clientAuth);
     put(auth, 'scopes', f.scopes);
     put(auth, 'audience', f.authType === 'token_exchange' ? f.audience.trim() : undefined);
-    if (f.authType === 'oauth_client_credentials') {
-      delete auth.subject_token_type;
-      delete auth.requested_token_type;
-    }
+    if (f.noResource) auth.resource = null;
+    else put(auth, 'resource', f.resource.trim());
+    const exchange = f.authType === 'token_exchange';
+    put(auth, 'subject_token_type', exchange ? f.subjectTokenType.trim() : undefined);
+    put(auth, 'requested_token_type', exchange ? f.requestedTokenType.trim() : undefined);
     spec.auth = auth;
   } else delete spec.auth;
   put(spec, 'tools', filter(f.toolsInclude, f.toolsExclude));
@@ -200,12 +223,16 @@ export function serverErrors(f: ServerForm, taken: string[], creating: boolean):
     e.prefix = 'Lowercase letters, digits and -, up to 32 characters';
   const headers = headerErrors(f.headers);
   if (headers) e.headers = headers;
+  const identity = identityErrors(f.identityHeaders);
+  if (identity) e.identityHeaders = identity;
   if (f.authType) {
     const token = urlError(f.tokenUrl, true);
     if (token) e.tokenUrl = token;
     if (!f.clientId.trim()) e.clientId = 'Required';
     if (f.authType === 'oauth_client_credentials' && !f.clientSecret.trim() && !f.clientSecretStored)
       e.clientSecret = 'Required';
+    const resource = f.noResource ? undefined : urlError(f.resource, false);
+    if (resource) e.resource = resource;
   }
   if (f.transport === 'openapi' && !f.openapiSpec.trim()) e.openapiSpec = 'Required';
   for (const key of [
@@ -280,6 +307,10 @@ export interface GatewayForm {
   infoTitle: string;
   allowedOrigins: string[];
   maxBody: string;
+  /** The longest time clients may cache a list or a resource; empty for 0s (never). */
+  clientCacheMaxTtl: string;
+  /** Serve modern requests from servers that speak only the older protocol. */
+  modernBridge: boolean;
   oauth: boolean;
   oauthResource: string;
   authorizationServers: string[];
@@ -302,6 +333,8 @@ export const EMPTY_GATEWAY: GatewayForm = {
   infoTitle: '',
   allowedOrigins: [],
   maxBody: '',
+  clientCacheMaxTtl: '',
+  modernBridge: false,
   oauth: false,
   oauthResource: '',
   authorizationServers: [],
@@ -327,6 +360,8 @@ export function gatewayForm(r: McpGatewayResource): GatewayForm {
     infoTitle: typeof info === 'object' ? (info.title ?? '') : '',
     allowedOrigins: s.allowed_origins ?? [],
     maxBody: s.max_body ?? '',
+    clientCacheMaxTtl: s.client_cache_max_ttl ?? '',
+    modernBridge: s.modern_bridge === true,
     oauth: Boolean(s.oauth),
     oauthResource: s.oauth?.resource ?? '',
     authorizationServers: s.oauth?.authorization_servers ?? [],
@@ -354,6 +389,12 @@ export function gatewaySpec(f: GatewayForm, existing: McpGatewayResource | null)
   } else delete spec.server_info;
   put(spec, 'allowed_origins', f.allowedOrigins);
   put(spec, 'max_body', f.maxBody.trim());
+  put(spec, 'client_cache_max_ttl', f.clientCacheMaxTtl.trim());
+  put(
+    spec,
+    'modern_bridge',
+    f.modernBridge ? true : existing?.spec.modern_bridge === false ? false : undefined,
+  );
   if (f.oauth) {
     const oauth: NonNullable<McpGatewaySpec['oauth']> = existing?.spec.oauth
       ? structuredClone(existing.spec.oauth)
@@ -377,6 +418,8 @@ export function gatewayErrors(f: GatewayForm, taken: string[], creating: boolean
     e.serverInfo = "Only a gateway with one server can show that server's own name";
   if (f.maxBody.trim() && !/^[0-9]+(B|KiB|MiB|GiB|KB|MB|GB)$/.test(f.maxBody.trim()))
     e.maxBody = 'A size such as 512KiB or 8MiB';
+  const ttl = durationError(f.clientCacheMaxTtl);
+  if (ttl) e.clientCacheMaxTtl = ttl;
   for (const o of f.allowedOrigins)
     if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/\s]+$/.test(o)) {
       e.allowedOrigins = `${o} isn't an origin (scheme and host, no path)`;

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { emptySlot } from '@/lib/slot';
 import { server } from '@/mocks/node';
-import { signInAs } from '@/test/utils';
+import { pickOption, signInAs } from '@/test/utils';
 
 import type { McpGatewayResource, McpServerResource, McpServerStatus } from '../api';
 import { McpScreen } from '../components/mcp-screen';
@@ -236,6 +236,54 @@ describe('MCP screen', () => {
         },
       }),
     );
+  });
+
+  it('adds a server that tells it who called, with identity headers', async () => {
+    const calls = serve();
+    signInAs(['mcp:read', 'mcp:write']);
+    render(<McpScreen />);
+    await screen.findByRole('table', { name: 'MCP servers' });
+    await userEvent.click(screen.getByRole('button', { name: 'Add MCP server' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Add MCP server' });
+    await userEvent.type(within(drawer).getByLabelText(/^Name/), 'docs');
+    await userEvent.type(within(drawer).getByLabelText(/^URL/), 'https://docs.example.com/mcp');
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Add identity header' }));
+    await userEvent.type(within(drawer).getByLabelText('Identity header 1 name'), 'x-caller');
+    await pickOption(within(drawer).getByLabelText('Identity header 1 carries'), 'Sign-in token claim');
+    await userEvent.type(within(drawer).getByLabelText('Identity header 1 claim'), 'email');
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Add MCP server' }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === 'servers')?.body).toEqual({
+        name: 'docs',
+        spec: {
+          transport: 'streamable_http',
+          url: 'https://docs.example.com/mcp',
+          identity_headers: { 'x-caller': 'jwt.email' },
+        },
+      }),
+    );
+  });
+
+  it('lets a server from the configuration file be deleted, not edited', async () => {
+    serve();
+    const local: McpServerResource = {
+      name: 'files',
+      spec: { transport: 'stdio', command: 'mcp-files' },
+      metadata: meta,
+    };
+    server.use(
+      http.get('*/admin/v1/mcp/servers', () =>
+        HttpResponse.json({ items: [billing, issues, local], next_cursor: null }),
+      ),
+    );
+    signInAs(['mcp:read', 'mcp:write']);
+    window.history.replaceState(null, '', '/mcp/?server=files');
+    render(<McpScreen />);
+    const drawer = await screen.findByRole('dialog', { name: 'files' });
+    expect(within(drawer).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Delete' }));
+    const confirm = await screen.findByRole('alertdialog', { name: /Delete MCP server files/ });
+    expect(confirm).toHaveTextContent('if the file still defines it');
   });
 
   it('shows the sessions of each gateway with the session lifetime', async () => {

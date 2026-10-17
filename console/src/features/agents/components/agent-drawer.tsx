@@ -15,8 +15,15 @@ import { serverFieldErrors, type FieldErrors } from '@/lib/validation';
 import { useShell } from '@/stores/shell';
 import { notify } from '@/stores/ui';
 
-import { dataPlaneAddress } from '@/features/mcp/fields';
-import { Facts, FormGroup, HeaderRowsEditor, ListInput, Section } from '@/features/mcp/components/parts';
+import { dataPlaneAddress, identityText } from '@/features/mcp/fields';
+import {
+  Facts,
+  FormGroup,
+  HeaderRowsEditor,
+  IdentityHeadersEditor,
+  ListInput,
+  Section,
+} from '@/features/mcp/components/parts';
 
 import type { AgentResource } from '../api';
 import {
@@ -38,7 +45,7 @@ function AgentView({ agent }: { agent: AgentResource }) {
   const s = agent.spec;
   const address = dataPlaneAddress(base, `/a2a/${agent.name}`);
   const headers = Object.keys(s.headers ?? {});
-  const identity = Object.entries(s.identity_headers ?? {});
+  const identity = Object.keys(s.identity_headers ?? {});
   return (
     <div className="flex flex-col gap-6">
       <Section title="Address" aside="Clients call the agent here">
@@ -79,7 +86,7 @@ function AgentView({ agent }: { agent: AgentResource }) {
               value: headers.length > 0 ? `Headers: ${headers.join(', ')} (values hidden)` : 'Nothing',
             },
             ...(identity.length > 0
-              ? [{ label: 'Identity headers', value: identity.map(([h, v]) => `${h}: ${v}`).join(', ') }]
+              ? [{ label: 'Identity headers', value: identityText(s.identity_headers) }]
               : []),
             {
               label: 'Timeouts',
@@ -311,6 +318,12 @@ export function AgentDrawer({
                 onChange={(rows) => set('headers', rows)}
                 error={errors.headers}
                 hint="Sent only to this agent. Values are stored encrypted and never shown again."
+              />
+              <IdentityHeadersEditor
+                rows={values.identityHeaders}
+                onChange={(rows) => set('identityHeaders', rows)}
+                error={errors.identityHeaders}
+                hint="Tell the agent who called, on every call. Not secret: they are shown."
               />
             </FormGroup>
             <FormGroup title="Timeouts and methods" hint="Leave empty for the gateway's defaults.">

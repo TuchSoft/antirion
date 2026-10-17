@@ -178,6 +178,12 @@ function GatewayView({ gateway }: { gateway: McpGatewayResource }) {
               ? [{ label: 'Browser origins', value: s.allowed_origins.join(', ') }]
               : []),
             ...(s.max_body ? [{ label: 'Body limit', value: s.max_body }] : []),
+            ...(s.client_cache_max_ttl
+              ? [{ label: 'Client caching', value: `at most ${s.client_cache_max_ttl}` }]
+              : []),
+            ...(s.modern_bridge
+              ? [{ label: 'Older servers', mono: false, value: 'Bridged for newer clients' }]
+              : []),
             {
               label: 'OAuth',
               mono: false,
@@ -434,6 +440,24 @@ export function GatewayDrawer({
               <Field label="Body limit" optional error={errors.maxBody} hint="Default 8MiB">
                 <Input mono value={values.maxBody} onChange={(e) => set('maxBody', e.target.value)} />
               </Field>
+              <Field
+                label="Clients may cache lists and resources for at most"
+                optional
+                error={errors.clientCacheMaxTtl}
+                hint="Such as 5m. Empty: never, whatever the servers allow."
+              >
+                <Input
+                  mono
+                  value={values.clientCacheMaxTtl}
+                  placeholder="0s"
+                  onChange={(e) => set('clientCacheMaxTtl', e.target.value)}
+                />
+              </Field>
+              <Switch
+                label="Serve newer clients from servers that speak only the older protocol"
+                checked={values.modernBridge}
+                onChange={(v) => set('modernBridge', v)}
+              />
             </FormGroup>
             <FormGroup
               title="OAuth"

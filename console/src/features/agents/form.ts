@@ -6,6 +6,10 @@ import {
   headerMap,
   headerRows,
   type HeaderRow,
+  identityErrors,
+  identityMap,
+  identityRows,
+  type IdentityRow,
   mcpNameError,
   put,
   urlError,
@@ -29,6 +33,7 @@ export interface AgentForm {
   enabled: boolean;
   publicCard: boolean;
   headers: HeaderRow[];
+  identityHeaders: IdentityRow[];
   cardCacheTtl: string;
   requestTimeout: string;
   streamIdleTimeout: string;
@@ -43,6 +48,7 @@ export const EMPTY_AGENT: AgentForm = {
   enabled: true,
   publicCard: false,
   headers: [],
+  identityHeaders: [],
   cardCacheTtl: '',
   requestTimeout: '',
   streamIdleTimeout: '',
@@ -59,6 +65,7 @@ export function agentForm(r: AgentResource): AgentForm {
     enabled: s.enabled !== false,
     publicCard: s.public_card === true,
     headers: headerRows(s.headers),
+    identityHeaders: identityRows(s.identity_headers),
     cardCacheTtl: s.card_cache_ttl ?? '',
     requestTimeout: s.request_timeout ?? '',
     streamIdleTimeout: s.stream_idle_timeout ?? '',
@@ -66,7 +73,7 @@ export function agentForm(r: AgentResource): AgentForm {
   };
 }
 
-/** The agent to write; identity headers, which the form doesn't show, are kept from the read. */
+/** The agent to write; members the form doesn't show are kept from the read. */
 export function agentSpec(f: AgentForm, existing: AgentResource | null): AgentSpec {
   const spec: AgentSpec = existing ? structuredClone(existing.spec) : { card_url: f.cardUrl.trim() };
   spec.card_url = f.cardUrl.trim();
@@ -75,6 +82,7 @@ export function agentSpec(f: AgentForm, existing: AgentResource | null): AgentSp
   put(spec, 'enabled', f.enabled ? undefined : false);
   put(spec, 'public_card', f.publicCard ? true : undefined);
   put(spec, 'headers', headerMap(f.headers));
+  put(spec, 'identity_headers', identityMap(f.identityHeaders));
   put(spec, 'card_cache_ttl', f.cardCacheTtl.trim());
   put(spec, 'request_timeout', f.requestTimeout.trim());
   put(spec, 'stream_idle_timeout', f.streamIdleTimeout.trim());
@@ -92,6 +100,8 @@ export function agentErrors(f: AgentForm, taken: string[], creating: boolean): F
   if (url) e.url = url;
   const headers = headerErrors(f.headers);
   if (headers) e.headers = headers;
+  const identity = identityErrors(f.identityHeaders);
+  if (identity) e.identityHeaders = identity;
   for (const key of ['cardCacheTtl', 'requestTimeout', 'streamIdleTimeout'] as const) {
     const d = durationError(f[key]);
     if (d) e[key] = d;

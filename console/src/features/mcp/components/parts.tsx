@@ -3,10 +3,10 @@
 import type { ReactNode } from 'react';
 
 import { Button, IconButton } from '@/components/ui/button';
-import { Input, MultiSelect } from '@/components/ui/form';
+import { Input, MultiSelect, Select } from '@/components/ui/form';
 import { cn } from '@/lib/cn';
 
-import type { HeaderRow } from '../fields';
+import { type HeaderRow, IDENTITY_SOURCES, type IdentityRow, type IdentitySource } from '../fields';
 
 /** A titled block of a drawer, as in the request drawer. */
 export function Section({
@@ -125,6 +125,86 @@ export function HeaderRowsEditor({
           <IconButton
             icon="trash"
             label={`Remove header ${row.name || i + 1}`}
+            onClick={() => onChange(rows.filter((_, j) => j !== i))}
+          />
+        </div>
+      ))}
+      {error ? (
+        <p role="alert" className="text-caption text-error">
+          {error}
+        </p>
+      ) : hint ? (
+        <p className="text-caption text-muted">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Headers that tell the server who called: each carries one fact of the caller, such as its team or
+ * a claim of its sign-in token. Not secrets, so they are shown.
+ */
+export function IdentityHeadersEditor({
+  rows,
+  onChange,
+  error,
+  hint,
+}: {
+  rows: IdentityRow[];
+  onChange: (rows: IdentityRow[]) => void;
+  error?: string | undefined;
+  hint?: ReactNode;
+}) {
+  const update = (i: number, patch: Partial<IdentityRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <div role="group" aria-label="Identity headers" className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-ui font-medium text-fg">
+          Identity headers <span className="font-normal text-muted">(optional)</span>
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="plus"
+          onClick={() => onChange([...rows, { name: '', source: 'team', claim: '' }])}
+        >
+          Add identity header
+        </Button>
+      </div>
+      {rows.length === 0 ? <p className="text-caption text-muted">None.</p> : null}
+      {rows.map((row, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_auto] items-center gap-2 max-sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+        >
+          <Input
+            mono
+            aria-label={`Identity header ${i + 1} name`}
+            placeholder="x-caller-team"
+            value={row.name}
+            onChange={(e) => update(i, { name: e.target.value })}
+          />
+          <Select
+            aria-label={`Identity header ${i + 1} carries`}
+            value={row.source}
+            onChange={(v) => update(i, { source: v as IdentitySource })}
+            options={IDENTITY_SOURCES}
+          />
+          {row.source === 'jwt' ? (
+            <Input
+              mono
+              aria-label={`Identity header ${i + 1} claim`}
+              placeholder="sub"
+              value={row.claim}
+              onChange={(e) => update(i, { claim: e.target.value })}
+            />
+          ) : (
+            <span className="max-sm:hidden" />
+          )}
+          <IconButton
+            icon="trash"
+            label={`Remove identity header ${row.name || i + 1}`}
             onClick={() => onChange(rows.filter((_, j) => j !== i))}
           />
         </div>
