@@ -4,23 +4,26 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { useScopedHref } from '@/components/layout/url-sync';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Gate, useCan } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
 import { MenuButton } from '@/components/ui/menu';
 import { EmptyState } from '@/components/ui/states';
 import { ExportCsvButton, Table, Td, Th, Tr } from '@/components/ui/table';
-import { formatCount } from '@/lib/format';
+import { formatCount, plural } from '@/lib/format';
 
 import { useCatalog } from '../store';
 import type { ModelView } from '../types';
-import { AliasDialog, RemoveAliasDialog } from './alias-dialog';
+import { AliasDialog, paramCount, RemoveAliasDialog } from './alias-dialog';
 
 interface AliasRow {
   alias: string;
   model: string;
   description: string;
   owner: string;
+  /** The parameters it sets or removes. */
+  params: number;
   requests: number | null;
 }
 
@@ -46,6 +49,7 @@ export function AliasesTab({
       model: v.name,
       description: a.description ?? '',
       owner: a.owner ?? '',
+      params: paramCount(a.params),
       requests: requested ? (requested.get(alias) ?? 0) : null,
     })),
   );
@@ -117,7 +121,10 @@ export function AliasesTab({
                 {rows.map((r) => (
                   <Tr key={`${r.model}/${r.alias}`}>
                     <Td mono className="text-accent">
-                      @{r.alias}
+                      <span className="flex items-center gap-2">
+                        @{r.alias}
+                        {r.params > 0 ? <Badge mono>sets {plural(r.params, 'param')}</Badge> : null}
+                      </span>
                     </Td>
                     <Td mono>
                       <button

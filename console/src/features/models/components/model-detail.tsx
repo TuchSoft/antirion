@@ -53,7 +53,7 @@ import { describeNode, stepsOf } from '../tree';
 import { healthName, type ModelView, rate, statusOf, STATUS_LABEL, STATUS_TONE, tierLabel } from '../types';
 import { AccessDrawer, AccessPanel } from './access-panel';
 import { ActivityList } from './activity-tab';
-import { AliasDialog, RemoveAliasDialog } from './alias-dialog';
+import { AliasDialog, paramCount, RemoveAliasDialog } from './alias-dialog';
 import { DeploymentDrawer } from './deployment-drawer';
 import { DeploymentMenu, reloadHealth } from './deployment-menu';
 import { RuntimeState, TurnOffDialog, useDisablesFor } from './deployment-runtime';
@@ -320,6 +320,7 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
             {(spec.labels ?? []).map((l) => (
               <Badge key={l}>{l}</Badge>
             ))}
+            {spec.visibility === 'internal' ? <Badge>Hidden from /v1/models</Badge> : null}
           </span>
         }
         title={
@@ -674,6 +675,9 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
               >
                 <span className="mono text-accent">@{alias}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">{a.description ?? ''}</span>
+                {paramCount(a.params) > 0 ? (
+                  <Badge mono>sets {plural(paramCount(a.params), 'param')}</Badge>
+                ) : null}
                 {a.owner ? <Badge>{a.owner}</Badge> : null}
                 <span className="mono w-24 text-right text-caption text-muted tabular-nums">
                   {requested ? `${formatCount(requested.get(alias) ?? 0, { compact: true })} req` : ''}

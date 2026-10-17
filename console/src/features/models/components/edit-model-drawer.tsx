@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
 import { joinValues, splitValues } from '@/components/ui/select';
 import { useTeamOptions } from '@/lib/team-options';
 import { useEdited } from '@/lib/hooks';
 import { Combobox, Field, Input, MultiSelect, Segmented, Select, Textarea } from '@/components/ui/form';
+import { Icon } from '@/components/ui/icon';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { InlineError } from '@/components/ui/states';
 import { modelOption } from '@/components/ui/marks';
@@ -21,9 +22,72 @@ import { useCatalog, useModels } from '../store';
 import { describeNode, stepsOf } from '../tree';
 import { BUILTIN_TIERS, tierLabel } from '../types';
 
+/** Free key and value notes on a Model (`annotations`): who to ask, a ticket, a cost centre. */
+function AnnotationRows({
+  rows,
+  error,
+  onChange,
+}: {
+  rows: EditModelValues['annotations'];
+  error: string | undefined;
+  onChange: (rows: EditModelValues['annotations']) => void;
+}) {
+  const update = (i: number, patch: Partial<EditModelValues['annotations'][number]>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <div role="group" aria-label="Annotations" className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-ui font-medium text-fg">
+          Annotations <span className="font-normal text-dim">(optional)</span>
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="plus"
+          onClick={() => onChange([...rows, { key: '', value: '' }])}
+        >
+          Add annotation
+        </Button>
+      </div>
+      {rows.map((row, i) => (
+        <div key={i} className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2">
+          <Input
+            mono
+            aria-label={`Annotation ${String(i + 1)} name`}
+            placeholder="runbook"
+            value={row.key}
+            onChange={(e) => update(i, { key: e.target.value })}
+          />
+          <Input
+            aria-label={`Annotation ${String(i + 1)} value`}
+            value={row.value}
+            onChange={(e) => update(i, { value: e.target.value })}
+          />
+          <IconButton
+            icon="trash"
+            label={`Remove annotation ${row.key || String(i + 1)}`}
+            onClick={() => onChange(rows.filter((_, j) => j !== i))}
+          />
+        </div>
+      ))}
+      {error ? (
+        <p role="alert" className="text-caption text-error">
+          {error}
+        </p>
+      ) : (
+        <p className="text-caption text-muted">
+          {rows.length === 0
+            ? 'None. Notes for people, shown on the model’s page.'
+            : 'Shown on the model’s page.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * Edits a Model's display name, what it serves from (its own deployments or a shared route), tier,
- * lifecycle (with end of life and replacement), labels and access.
+ * lifecycle (with end of life and replacement), labels, access, listing, catalog facts and annotations.
  */
 export function EditModelDrawer({
   model,
@@ -59,6 +123,10 @@ export function EditModelDrawer({
   }));
   const set = <K extends keyof EditModelValues>(key: K, value: EditModelValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }));
+  const [catalogOpen] = useState(() => values.annotations.length > 0 || Boolean(model.spec.catalog));
+  const catalogErrors = ['family', 'version', 'revision', 'releasedAt', 'ownedBy', 'annotations'].some(
+    (k) => errors[k],
+  );
 
   async function submit() {
     const result = validate(editModelSchema, values);
@@ -247,6 +315,62 @@ export function EditModelDrawer({
             onChange={(e) => set('description', e.target.value)}
           />
         </Field>
+        {focus !== 'lifecycle' ? (
+          <>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 text-ui font-medium text-fg">Listed to apps</legend>
+              <Segmented<'public' | 'internal'>
+                label="Listed to apps"
+                value={values.visibility}
+                onChange={(v) => set('visibility', v)}
+                options={[
+                  { value: 'public', label: 'Listed in /v1/models' },
+                  { value: 'internal', label: 'Hidden' },
+                ]}
+              />
+              <p className="text-caption text-muted">
+                {values.visibility === 'internal'
+                  ? 'Apps don’t see it in the model list, but requests that name it still work.'
+                  : 'Apps see it when they list models.'}
+              </p>
+            </fieldset>
+            <details className="group" open={catalogOpen || catalogErrors ? true : undefined}>
+              <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-ui text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+                <Icon name="chevronRight" size={12} className="transition-transform group-open:rotate-90" />
+                Catalog and annotations
+              </summary>
+              <div className="mt-3 flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Family" optional error={errors.family} hint="e.g. claude-sonnet, gpt-4o">
+                    <Input mono value={values.family} onChange={(e) => set('family', e.target.value)} />
+                  </Field>
+                  <Field label="Version" optional error={errors.version}>
+                    <Input mono value={values.version} onChange={(e) => set('version', e.target.value)} />
+                  </Field>
+                  <Field label="Revision" optional error={errors.revision}>
+                    <Input mono value={values.revision} onChange={(e) => set('revision', e.target.value)} />
+                  </Field>
+                  <Field label="Released" optional error={errors.releasedAt}>
+                    <DatePicker clearable value={values.releasedAt} onChange={(v) => set('releasedAt', v)} />
+                  </Field>
+                </div>
+                <Field
+                  label="Managed by"
+                  optional
+                  error={errors.ownedBy}
+                  hint="Shown to apps as the model’s owner. antirion when empty."
+                >
+                  <Input mono value={values.ownedBy} onChange={(e) => set('ownedBy', e.target.value)} />
+                </Field>
+                <AnnotationRows
+                  rows={values.annotations}
+                  error={errors.annotations}
+                  onChange={(v) => set('annotations', v)}
+                />
+              </div>
+            </details>
+          </>
+        ) : null}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>

@@ -163,6 +163,14 @@ export interface EditModelValues {
   deployment: string;
   /** Whether it had a tree of its own when the form opened. */
   hadTarget: boolean;
+  /** Listed in `/v1/models` (public) or left out of it (internal); requests work either way. */
+  visibility: 'public' | 'internal';
+  family: string;
+  version: string;
+  revision: string;
+  releasedAt: string;
+  ownedBy: string;
+  annotations: { key: string; value: string }[];
 }
 
 export const editModelSchema = z
@@ -179,8 +187,37 @@ export const editModelSchema = z
     route: z.string(),
     deployment: z.string(),
     hadTarget: z.boolean(),
+    visibility: z.enum(['public', 'internal']),
+    family: z.string().trim().max(100, 'Use at most 100 characters'),
+    version: z.string().trim().max(100, 'Use at most 100 characters'),
+    revision: z.string().trim().max(100, 'Use at most 100 characters'),
+    releasedAt: z.string().regex(/^$|^\d{4}-\d{2}-\d{2}$/, 'Choose a date'),
+    ownedBy: z.string().trim().max(128, 'Use at most 128 characters'),
+    annotations: z
+      .array(z.object({ key: z.string(), value: z.string() }))
+      .max(32, 'Use at most 32 annotations'),
   })
   .superRefine((v, ctx) => {
+    const keys = new Set<string>();
+    v.annotations.forEach((a, i) => {
+      const key = a.key.trim();
+      if (!key && !a.value.trim()) return;
+      if (!key || key.length > 64)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['annotations'],
+          message: `Annotation ${String(i + 1)}: a name of 1 to 64 characters`,
+        });
+      else if (keys.has(key))
+        ctx.addIssue({ code: 'custom', path: ['annotations'], message: `${key} is listed twice` });
+      else if (a.value.length > 512)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['annotations'],
+          message: `${key}: use at most 512 characters`,
+        });
+      keys.add(key);
+    });
     if (v.lifecycle === 'deprecated' && !v.eolAt)
       ctx.addIssue({ code: 'custom', path: ['eolAt'], message: 'Choose the date it stops working' });
     if (v.serves === 'route' && !v.route)
@@ -203,7 +240,55 @@ export function fromModelSpec(spec: ModelSpec): EditModelValues {
     route: spec.route ?? '',
     deployment: '',
     hadTarget: spec.target !== undefined && spec.target !== null,
+    visibility: spec.visibility ?? 'public',
+    family: spec.catalog?.family ?? '',
+    version: spec.catalog?.version ?? '',
+    revision: spec.catalog?.revision ?? '',
+    releasedAt: spec.catalog?.released_at ?? '',
+    ownedBy: spec.owned_by ?? '',
+    annotations: Object.entries(spec.annotations ?? {}).map(([key, value]) => ({ key, value })),
   };
+}
+
+/** Sets a member when the text is set, removes it otherwise. */
+function putText<T extends object>(target: T, key: keyof T, value: string): void {
+  const v = value.trim();
+  if (v) (target as Record<keyof T, unknown>)[key] = v;
+  else Reflect.deleteProperty(target, key);
+}
+
+/**
+ * The listing, catalog, owner and annotations of the edit form over a spec: a field left as it
+ * was keeps the spec's value as written.
+ */
+function applyCatalogEdit(spec: ModelSpec, v: EditModelValues): ModelSpec {
+  const init = fromModelSpec(spec);
+  const out: ModelSpec = { ...spec };
+  if (v.visibility !== init.visibility) {
+    if (v.visibility === 'internal') out.visibility = 'internal';
+    else delete out.visibility;
+  }
+  const catalogFields = [
+    ['family', 'family'],
+    ['version', 'version'],
+    ['revision', 'revision'],
+    ['releasedAt', 'released_at'],
+  ] as const;
+  if (catalogFields.some(([f]) => v[f] !== init[f])) {
+    const catalog: NonNullable<ModelSpec['catalog']> = { ...(spec.catalog ?? {}) };
+    for (const [f, key] of catalogFields) if (v[f] !== init[f]) putText(catalog, key, v[f]);
+    if (Object.keys(catalog).length > 0) out.catalog = catalog;
+    else delete out.catalog;
+  }
+  if (v.ownedBy !== init.ownedBy) putText(out, 'owned_by', v.ownedBy);
+  if (JSON.stringify(v.annotations) !== JSON.stringify(init.annotations)) {
+    const map = Object.fromEntries(
+      v.annotations.filter((a) => a.key.trim()).map((a) => [a.key.trim(), a.value]),
+    );
+    if (Object.keys(map).length > 0) out.annotations = map;
+    else delete out.annotations;
+  }
+  return out;
 }
 
 /** Applies the edit form over the Model's spec, keeping its tree, aliases and policies. */
@@ -223,7 +308,7 @@ export function applyModelEdit(spec: ModelSpec, v: EditModelValues): ModelSpec {
     route: _r,
     target: _t,
     ...rest
-  } = spec;
+  } = applyCatalogEdit(spec, v);
   const tree: Pick<ModelSpec, 'route' | 'target'> =
     v.serves === 'route'
       ? { route: v.route }
