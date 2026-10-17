@@ -254,6 +254,8 @@ interface GatewaySettingsState {
   saveStreaming: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
   /** The startup settings (server, admin, store, cluster), as the configuration file set them. */
   loadNode: () => Promise<void>;
+  /** Only `admin`: the audit retention and the apply lock, for the Audit log and Configuration pages. */
+  loadAdmin: () => Promise<void>;
 }
 
 /** The API & endpoints page and the read-only Node page. */
@@ -278,6 +280,7 @@ export const useGatewaySettings = create<GatewaySettingsState>()((set, get) => (
     await settingsApi.patchStreaming(spec, get().streaming.data?.metadata.etag, reason);
     await loadSlot(set, get, 'streaming', settingsApi.streamingSettings, { quiet: true });
   },
+  loadAdmin: () => loadSlot(set, get, 'admin', settingsApi.adminSettings),
   async loadNode() {
     await Promise.all([
       loadSlot(set, get, 'server', settingsApi.serverSettings),

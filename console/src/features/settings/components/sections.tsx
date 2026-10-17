@@ -8,6 +8,7 @@ import { ApiEndpointsSection } from './api-endpoints-section';
 import { AuditSection } from './audit-section';
 import { ConfigSection } from './config-section';
 import { HealthSection } from './health-section';
+import { NodeSection } from './node-section';
 import { AdminMcpCard } from './admin-mcp-card';
 import { DangerSection } from './danger-section';
 import { EncryptionCard } from './encryption-card';
@@ -159,6 +160,15 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
         icon: 'plug',
         description: 'Which endpoints apps may call, how requests and responses are handled, and streaming.',
         render: () => <ApiEndpointsSection />,
+      },
+      {
+        id: 'node',
+        permission: 'config:read',
+        label: 'Node',
+        icon: 'server',
+        description:
+          'Listeners, the console, the store and the cluster, as the configuration file sets them.',
+        render: () => <NodeSection />,
       },
       {
         id: 'configuration',

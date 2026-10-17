@@ -12,6 +12,7 @@ import { pickOption, signInAs } from '@/test/utils';
 
 import { ApiEndpointsSection, ENDPOINT_GROUPS } from '../components/api-endpoints-section';
 import { ClientAddressCard, RateLimitCard } from '../components/gateway-forms';
+import { NodeSection, nodeValue } from '../components/node-section';
 import { ProvisioningSection, SCIM_OVERLAPS } from '../components/org-sections';
 import { useGatewaySettings, useOrgSettings } from '../store';
 
@@ -284,5 +285,55 @@ describe('API & endpoints', () => {
     const socket = await screen.findByRole('switch', { name: 'Responses over WebSocket endpoint' });
     expect(socket).toBeDisabled();
     expect(socket).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
+describe('Node', () => {
+  beforeEach(() => {
+    signInAs(['config:read']);
+    useGatewaySettings.setState({
+      server: emptySlot(),
+      admin: emptySlot(),
+      store: emptySlot(),
+      cluster: emptySlot(),
+    });
+  });
+
+  it('marks a value the file leaves unset as the default, and words what it means', () => {
+    const fact = { label: 'Mode', path: 'mode', words: { standalone: 'One node' } };
+    expect(nodeValue({}, { mode: 'standalone' }, fact)).toEqual({
+      text: 'One node',
+      mono: false,
+      isDefault: true,
+    });
+    expect(
+      nodeValue({ listen: '0.0.0.0:8080' }, { listen: '0.0.0.0:8081' }, { label: 'L', path: 'listen' }),
+    ).toEqual({ text: '0.0.0.0:8080', mono: true, isDefault: false });
+    expect(nodeValue({}, { public_url: null }, { label: 'P', path: 'public_url' })).toEqual({
+      text: 'Not set',
+      mono: false,
+      isDefault: false,
+    });
+  });
+
+  it('shows the startup settings read-only, from the file or the defaults', async () => {
+    server.use(
+      http.get('*/admin/v1/settings/server', () => settings({ listen: '0.0.0.0:8080' })),
+      http.get('*/admin/v1/settings/admin', () =>
+        settings({ listen: '0.0.0.0:8081', ui: { data_plane_url: 'http://localhost:18080' } }),
+      ),
+      http.get('*/admin/v1/settings/store', () =>
+        settings({ backend: 'embedded', embedded: { path: '/var/lib/antirion/data' } }),
+      ),
+      http.get('*/admin/v1/settings/cluster', empty),
+    );
+    const { container } = render(<NodeSection />);
+    expect(await screen.findByText('/var/lib/antirion/data')).toBeInTheDocument();
+    expect(await screen.findByText('http://localhost:18080')).toBeInTheDocument();
+    expect(screen.getByText('One node')).toBeInTheDocument();
+    expect(screen.getAllByText('Set in the configuration file').length).toBe(5);
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(container.textContent).toContain('365d');
   });
 });

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Switch } from '@/components/ui/form';
+import { useCan } from '@/components/ui/gate';
 import { Section } from '@/components/ui/layout';
 import { Drawer } from '@/components/ui/overlay';
 import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
@@ -12,12 +13,14 @@ import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { auditActionLabel, auditActorKind, auditActorLabel, auditEntryLabel } from '@/lib/audit-words';
 import type { AuditEntry } from '@/lib/api/types';
 import { downloadCsv } from '@/lib/csv';
+import { formatDuration, parseDuration } from '@/lib/format';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { usePageShortcut } from '@/lib/shortcuts';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 
 import type { AuditQuery } from '../api';
-import { useAudit } from '../store';
+import { useAudit, useGatewaySettings } from '../store';
 import { useTokenNames } from '@/stores/actors';
 
 function exportAudit(entries: AuditEntry[]) {
@@ -59,6 +62,22 @@ export const OUTCOME_LABEL: Record<string, string> = {
 /** "keys.create" → "Key created"; "GET /admin/v1/auth/me/preferences" → "Read preferences". */
 export const actionLabel = auditActionLabel;
 
+/** How long the audit log keeps entries (`admin.audit.retention`, set in the configuration file). */
+function useAuditRetention(): string | null {
+  const canRead = useCan('getAdminSettings');
+  const admin = useGatewaySettings((s) => s.admin);
+  useEffect(() => {
+    if (canRead && !admin.data) void useGatewaySettings.getState().loadAdmin();
+  }, [canRead, admin.data]);
+  if (!canRead) return null;
+  const spec = admin.data?.spec;
+  const retention = spec?.audit?.retention ?? SETTINGS_DEFAULTS.admin.audit.retention;
+  const seconds = parseDuration(retention);
+  if (seconds === null) return retention;
+  const days = seconds / 86_400;
+  return Number.isInteger(days) ? `${days} ${days === 1 ? 'day' : 'days'}` : formatDuration(seconds);
+}
+
 /** The audit log: who did what to which resource, with filters, paging, export and the change set. */
 export function AuditSection() {
   const tokens = useTokenNames();
@@ -77,6 +96,7 @@ export function AuditSection() {
     setQuery(on ? rest : { ...rest, kind: 'write' });
   };
   const shown = entries.data ?? [];
+  const kept = useAuditRetention();
 
   useEffect(() => {
     void load();
@@ -87,11 +107,11 @@ export function AuditSection() {
     <>
       <Section
         title="Entries"
-        subtitle={
+        subtitle={`${
           showReads
-            ? 'Changes, denied actions and reads'
+            ? 'Changes, denied actions and reads.'
             : 'Changes and denied actions. Turn on Show reads to include reads.'
-        }
+        }${kept ? ` Kept for ${kept}.` : ''}`}
         actions={
           <>
             <Switch label="Show reads" checked={showReads} onChange={setShowReads} />
