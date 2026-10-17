@@ -137,6 +137,8 @@ pub struct Exhaustion {
     pub tag_filtered: bool,
     /// A conditional node matched no rule and had no default.
     pub no_match: bool,
+    /// Some position was a reference to a disabled route.
+    pub route_disabled: bool,
 }
 
 #[derive(Debug)]
@@ -314,6 +316,10 @@ impl<'r> AttemptPlan<'r> {
                 any
             }
             NodeKind::Block(_) => true,
+            NodeKind::Route { enabled: false, .. } => {
+                self.exhaustion.route_disabled = true;
+                false
+            }
             NodeKind::Member { eol_at, .. } => {
                 eol_at.is_none_or(|eol| cx.now < eol)
                     && n.children.iter().any(|&c| self.reachable(c, cx, elig))
@@ -357,7 +363,11 @@ impl<'r> AttemptPlan<'r> {
             k => k,
         };
         match kind {
-            NodeKind::Route(_) => Order::Children { node: i, pos: 0 },
+            NodeKind::Route { enabled: false, .. } => {
+                self.exhaustion.route_disabled = true;
+                Order::EMPTY
+            }
+            NodeKind::Route { .. } => Order::Children { node: i, pos: 0 },
             NodeKind::Member { eol_at, .. } => {
                 if eol_at.is_some_and(|eol| cx.now >= eol) {
                     Order::EMPTY

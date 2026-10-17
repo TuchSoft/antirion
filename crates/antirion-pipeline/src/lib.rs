@@ -156,6 +156,7 @@ pub mod reasons {
         CAP_CONTEXT_WINDOW = "context_window" => UnsupportedCapability,
         ROUTER_UNAVAILABLE = "router_unavailable" => DependencyUnavailable,
         TAG_FILTER_EXCLUDED = "tag_filter_excluded" => Forbidden,
+        ROUTE_DISABLED = "route_disabled" => NoHealthyDeployment,
         DENY_PATTERN = "deny_pattern" => GuardrailBlocked,
         ALLOW_PATTERN = "allow_pattern" => GuardrailBlocked,
         KEYWORD = "keyword" => GuardrailBlocked,

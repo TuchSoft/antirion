@@ -1,5 +1,6 @@
 //! `tier` nodes: the enabled Models carrying a tier become the node's members, in name order,
 //! each inlined as its route tree under a member node that stops serving at the Model's end of life.
+//! A Model served by a disabled named route is not a member.
 
 use std::sync::Arc;
 
@@ -77,6 +78,10 @@ impl Builder<'_, '_> {
                 let state = m.pointer("/lifecycle/state").and_then(Value::as_str);
                 m.get("tier").and_then(Value::as_str) == Some(tier.as_str())
                     && m.get("enabled").and_then(Value::as_bool) != Some(false)
+                    && !m
+                        .get("route")
+                        .and_then(Value::as_str)
+                        .is_some_and(|r| crate::route_off(doc, r))
                     && (include_preview || state != Some("preview"))
                     && !targets_a_tier(doc, m)
             })

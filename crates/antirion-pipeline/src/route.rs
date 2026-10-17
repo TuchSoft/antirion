@@ -596,6 +596,13 @@ pub(crate) fn exhausted(
             Message::Fixed("No deployment of this model carries the tags of this request."),
         );
     }
+    if x.route_disabled {
+        return GatewayError::with_reason(
+            reasons::ROUTE_DISABLED,
+            Stage::Route,
+            Message::Fixed("Every route that could serve this request is disabled."),
+        );
+    }
     let mut e = GatewayError::new(
         Code::NoHealthyDeployment,
         Stage::Route,

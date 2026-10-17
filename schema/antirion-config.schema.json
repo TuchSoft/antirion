@@ -5786,6 +5786,7 @@
         },
         "enabled": {
           "type": "boolean",
+          "description": "false keeps the route validated and referenceable, and no request is routed through it: a Model it serves answers 503 no_healthy_deployment with reason route_disabled, a tree node that references it is never a position (a fallback goes on to its next child, as past a disabled deployment), and a tier leaves out the Models it serves.",
           "default": true
         },
         "affinity": {

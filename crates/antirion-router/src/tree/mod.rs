@@ -85,8 +85,13 @@ pub enum NodeKind {
         provider: String,
         template: String,
     },
-    /// An inlined reference to another route (or a Model's anonymous route); one child.
-    Route(String),
+    /// An inlined reference to another route (or a Model's anonymous route); one child. A
+    /// reference to a disabled named route has no child: it is never a position, as a disabled
+    /// deployment is not.
+    Route {
+        name: String,
+        enabled: bool,
+    },
     Fallback,
     Weighted {
         algorithm: Algorithm,
@@ -133,7 +138,7 @@ impl NodeKind {
         match self {
             NodeKind::Deployment(_) => "deployment",
             NodeKind::ProviderModel { .. } => "provider_model",
-            NodeKind::Route(_) => "route",
+            NodeKind::Route { .. } => "route",
             NodeKind::Fallback => "fallback",
             NodeKind::Weighted { .. } => "weighted",
             NodeKind::LeastLatency { .. } => "least_latency",

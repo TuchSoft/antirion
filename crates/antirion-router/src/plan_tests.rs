@@ -413,3 +413,101 @@ fn sample_points_are_stable_and_uniform() {
     let below = (0..n).filter(|i| sample_point(1, &format!("r{i}")) < 0.1).count();
     assert!((1700..=2300).contains(&below), "{below}");
 }
+
+/// The deployments of every position of a plan over `r`, and why it ran out.
+fn positions(r: &CompiledRoute) -> (Vec<String>, Exhaustion) {
+    let sticky = |_: &str| None;
+    let state = RoutingState::default();
+    let cx = SelectCx {
+        state: &state,
+        facts: &NoFacts,
+        cost: &NoCost,
+        slot: Slot::E2e,
+        default_estimate: [500.0, 50.0, 500.0],
+        hash_seed: 1,
+        sticky: &sticky,
+        captures: None,
+        now: antirion_core::UtcMicros(0),
+        dry: false,
+    };
+    let mut plan = AttemptPlan::new(r, 3);
+    let mut elig = Down(vec![]);
+    let mut out = Vec::new();
+    while let Some(s) = plan.next(&cx, &mut elig) {
+        out.push(s.deployment);
+    }
+    (out, plan.exhaustion().clone())
+}
+
+#[test]
+fn a_disabled_route_is_never_a_position() {
+    let absent = json!({"field": "request.nothing", "exists": false});
+    let doc = json!({
+        "deployments": {"a": {}, "b": {}, "c": {}},
+        "routes": {
+            "off": {"tree": "a", "enabled": false},
+            "on": {"tree": "c", "enabled": true},
+            "chain": {"tree": {"type": "fallback", "children": [{"route": "off"}, "b"]}},
+            "only": {"tree": {"type": "fallback", "children": [{"route": "off"}]}},
+            "split": {"tree": {"type": "weighted", "children": [
+                {"route": "off", "weight": 9}, {"route": "on", "weight": 1}
+            ]}},
+            "rule": {"tree": {"type": "conditional", "rules": [
+                {"when": absent, "target": {"route": "off"}}
+            ], "default": "b"}}
+        },
+        "models": {
+            "served": {"route": "off"},
+            "inline": {"target": {"route": "off"}},
+            "live": {"route": "on"},
+            "fast": {"target": {"type": "tier", "tier": "fast", "strategy": "fallback"}},
+            "m1": {"tier": "fast", "route": "off"},
+            "m2": {"tier": "fast", "target": "b"}
+        }
+    });
+    let snap = crate::compile(&doc).expect("a disabled route stays referenceable");
+    let tree = |name: &str| &snap.route(name).expect("compiled").tree;
+
+    let off = snap.route("off").expect("compiled");
+    assert!(!off.enabled && snap.route("on").is_some_and(|r| r.enabled));
+    assert_eq!(
+        positions(&off.tree).0,
+        ["a"],
+        "its own tree is compiled for simulation"
+    );
+
+    let (chain, _) = positions(tree("chain"));
+    assert_eq!(chain, ["b"], "a fallback skips it to its next child");
+    let (split, _) = positions(tree("split"));
+    assert_eq!(
+        split,
+        ["c"],
+        "a weighted node never picks it, whatever its weight"
+    );
+    for name in ["only", "rule", "inline"] {
+        let (found, why) = positions(tree(name));
+        assert!(found.is_empty(), "{name}: {found:?}");
+        assert!(
+            why.route_disabled,
+            "{name}: the plan says a disabled route stopped it"
+        );
+    }
+
+    let served = &snap.models["served"];
+    assert!(snap.route_of(served).is_none() && snap.route_disabled(served));
+    let live = &snap.models["live"];
+    assert!(snap.route_of(live).is_some() && !snap.route_disabled(live));
+    let inline = &snap.models["inline"];
+    assert!(snap.route_of(inline).is_some() && !snap.route_disabled(inline));
+    assert!(
+        snap.listed().iter().any(|(n, _)| *n == "served"),
+        "the Model stays listed; only its route is off"
+    );
+
+    let (tier, _) = positions(tree("fast"));
+    assert_eq!(
+        tier,
+        ["b"],
+        "a Model served by a disabled route is not a tier member"
+    );
+}

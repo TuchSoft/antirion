@@ -250,6 +250,14 @@ impl Builder<'_, '_> {
                 if let Some(n) = self.nodes.get_mut(index) {
                     n.path.clone_from(&inner_path);
                 }
+                if crate::route_off(self.cx.doc, &name) {
+                    // Its own compilation reports the disabled route's errors.
+                    if let Some(n) = self.nodes.get_mut(index) {
+                        n.kind = NodeKind::Route { name, enabled: false };
+                    }
+                    self.finish(index);
+                    return index;
+                }
                 self.stack.push(name.clone());
                 let root_id = tree.get("id").and_then(Value::as_str).map(str::to_owned);
                 let child = self.node(
@@ -264,7 +272,7 @@ impl Builder<'_, '_> {
                 self.stack.pop();
                 if let Some(n) = self.nodes.get_mut(index) {
                     n.children = vec![child];
-                    n.kind = NodeKind::Route(name);
+                    n.kind = NodeKind::Route { name, enabled: true };
                 }
                 self.finish(index);
                 return index;

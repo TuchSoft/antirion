@@ -119,6 +119,16 @@ pub(super) fn unserved(endpoint: &Endpoint, requested: &str) -> GatewayError {
     )
 }
 
+/// The error of a request for a Model whose named route is disabled: a disabled route serves
+/// nothing, as a disabled deployment does not.
+pub(crate) fn route_disabled(requested: &str) -> GatewayError {
+    GatewayError::with_reason(
+        reasons::ROUTE_DISABLED,
+        Stage::Resolve,
+        Message::built(format!("The model `{requested}` is served by a disabled route.")),
+    )
+}
+
 /// What the requested name resolved to, for routing.
 pub(crate) struct Resolution {
     pub(crate) model_name: String,
@@ -138,6 +148,9 @@ pub(crate) fn resolution(
     Ok(match target {
         Target::Model(resolved) => {
             let model = &resolved.model;
+            if snap.routing.route_disabled(model) {
+                return Err(route_disabled(requested));
+            }
             let route = snap.routing.route_of(model).cloned().ok_or_else(|| {
                 GatewayError::new(
                     Code::ModelNotFound,

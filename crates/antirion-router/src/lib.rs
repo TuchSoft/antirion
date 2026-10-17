@@ -72,6 +72,9 @@ pub struct AffinitySettings {
 #[derive(Clone, Debug)]
 pub struct RouteRt {
     pub tree: CompiledRoute,
+    /// A disabled named route serves no request; its tree is still compiled, so it stays
+    /// validated, referenceable and simulable.
+    pub enabled: bool,
     /// The route's `policies` block (none for a Model's anonymous route).
     pub policies: Option<Value>,
     pub affinity: AffinitySettings,
@@ -89,6 +92,7 @@ pub struct RouteRt {
 impl RouteRt {
     fn new(
         tree: CompiledRoute,
+        enabled: bool,
         policies: Option<Value>,
         affinity: AffinitySettings,
         tag_filter: Option<String>,
@@ -114,6 +118,7 @@ impl RouteRt {
         });
         RouteRt {
             tree,
+            enabled,
             policies,
             affinity,
             tag_filter,
@@ -149,6 +154,7 @@ impl RouteRt {
                     body_edit: None,
                 }],
             },
+            enabled: true,
             policies: None,
             affinity: AffinitySettings {
                 session: false,
@@ -244,14 +250,20 @@ impl RoutingSnapshot {
         })
     }
 
-    /// The route that serves a Model.
+    /// The route that serves a Model; none when its named route is disabled.
     #[must_use]
     pub fn route_of(&self, model: &ModelRt) -> Option<&Arc<RouteRt>> {
         if model.named_route {
-            self.routes.get(&model.route)
+            self.routes.get(&model.route).filter(|r| r.enabled)
         } else {
             self.model_routes.get(&model.name)
         }
+    }
+
+    /// Whether a Model is served by a named route that is disabled.
+    #[must_use]
+    pub fn route_disabled(&self, model: &ModelRt) -> bool {
+        model.named_route && self.routes.get(&model.route).is_some_and(|r| !r.enabled)
     }
 
     /// A route by name: a named route, else a Model's anonymous route.
@@ -396,6 +408,18 @@ fn tag_filter(spec: &Value) -> Option<String> {
     })
 }
 
+/// A named route's `enabled`.
+fn route_enabled(spec: &Value) -> bool {
+    spec.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+}
+
+/// Whether `name` is a named route turned off with `enabled: false`.
+pub(crate) fn route_off(doc: &Value, name: &str) -> bool {
+    doc.pointer("/routes")
+        .and_then(|r| r.get(name))
+        .is_some_and(|r| !route_enabled(r))
+}
+
 fn names(doc: &Value, key: &str) -> HashSet<String> {
     doc.get(key)
         .and_then(Value::as_object)
@@ -491,6 +515,7 @@ pub fn compile(doc: &Value) -> Result<RoutingSnapshot, Vec<ConfigError>> {
             name.clone(),
             Arc::new(RouteRt::new(
                 compiled,
+                route_enabled(r),
                 r.get("policies").cloned(),
                 affinity(doc, Some(r)),
                 tag_filter(r),
@@ -519,7 +544,7 @@ pub fn compile(doc: &Value) -> Result<RoutingSnapshot, Vec<ConfigError>> {
             let compiled = tree::compile_route(name, t, &at.key("target"), &mut cx);
             out.model_routes.insert(
                 name.clone(),
-                Arc::new(RouteRt::new(compiled, None, affinity(doc, None), None)),
+                Arc::new(RouteRt::new(compiled, true, None, affinity(doc, None), None)),
             );
         }
         let mut aliases = Vec::new();
