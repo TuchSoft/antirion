@@ -3,6 +3,19 @@ import type { components } from '@/lib/api/schema';
 
 type S = components['schemas'];
 export type LedgerLine = S['LedgerLine'];
+export type SpendSummaryRow = S['SpendSummaryRow'];
+
+/** What the ledger's spend can be broken down by: who is billed for it. */
+export type ChargebackBy = 'team' | 'project' | 'key';
+
+/** Exact totals of the lines a filter matches, however many of them were loaded. */
+export interface SpendTotals {
+  requests: number;
+  lines: number;
+  billed: number;
+  cost: number;
+  cacheSaved: number;
+}
 
 export interface LedgerQuery {
   from: string;
@@ -31,11 +44,40 @@ export const ledgerApi = {
         query: { limit: 200, cursor },
       }),
     ),
-  page: (query: LedgerQuery, cursor?: string) => {
-    const q = Object.fromEntries(Object.entries(query).filter(([, v]) => v !== undefined && v !== ''));
-    return api.get('/reports/spend/ledger', { query: { ...q, limit: PAGE, cursor } });
-  },
+  page: (query: LedgerQuery, cursor?: string) =>
+    api.get('/reports/spend/ledger', { query: { ...defined(query), limit: PAGE, cursor } }),
+  /**
+   * The spend of every line the ledger lists for the same window and filters, summed by the gateway:
+   * one row, or one per group with `by`.
+   */
+  summary: (query: LedgerQuery, by?: ChargebackBy): Promise<SpendSummaryRow[]> =>
+    listAll((cursor) =>
+      api.get('/reports/spend/summary', {
+        query: { ...defined(query), ...(by ? { group_by: [by] } : {}), limit: 200, cursor },
+      }),
+    ),
 };
+
+/** The filters that are set; an empty one is no filter. */
+function defined(query: LedgerQuery): LedgerQuery {
+  return Object.fromEntries(
+    Object.entries(query).filter(([, v]) => v !== undefined && v !== ''),
+  ) as unknown as LedgerQuery;
+}
+
+/** Summary rows added up: the totals of a filter, or of every group. */
+export function spendTotals(rows: SpendSummaryRow[]): SpendTotals {
+  return rows.reduce<SpendTotals>(
+    (t, r) => ({
+      requests: t.requests + r.requests,
+      lines: t.lines + r.lines,
+      billed: t.billed + (Number(r.cost.billed_usd) || 0),
+      cost: t.cost + (Number(r.cost.cost_usd) || 0),
+      cacheSaved: t.cacheSaved + (Number(r.cache_saved_usd) || 0),
+    }),
+    { requests: 0, lines: 0, billed: 0, cost: 0, cacheSaved: 0 },
+  );
+}
 
 export const STATUS_LABEL: Record<LedgerLine['status'], string> = {
   success: 'Succeeded',
