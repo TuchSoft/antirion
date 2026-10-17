@@ -52,6 +52,8 @@ export interface BudgetFormValues {
   partitionBy: string[];
   /** `on_missing`: what a request without a value of the split counts in. */
   onMissing: 'shared' | 'skip' | 'reject';
+  /** Rolling windows: how many steps the window slides in; empty for one an hour. */
+  precision: string;
   /** Calendar periods: the zone the period starts in; empty for UTC. */
   timezone: string;
   /** Weekly periods: the day a week starts; empty for Monday. */
@@ -112,6 +114,7 @@ export const EMPTY_BUDGET: BudgetFormValues = {
   excludeEndpoints: [],
   partitionBy: [],
   onMissing: 'shared',
+  precision: '',
   timezone: '',
   weekStart: '',
   onStoreUnavailable: '',
@@ -167,6 +170,7 @@ export const budgetSchema = z
     excludeEndpoints: z.array(z.string()),
     partitionBy: z.array(z.string()),
     onMissing: z.enum(['shared', 'skip', 'reject']),
+    precision: z.string().trim(),
     timezone: z.string().trim(),
     weekStart: z.string(),
     onStoreUnavailable: z.enum(['', 'fail_closed', 'local_share']),
@@ -175,6 +179,10 @@ export const budgetSchema = z
   .refine((v) => v.partitionBy.every((p) => PARTITION.test(p)), {
     path: ['partitionBy'],
     message: 'Name the tag to split by: letters, digits and :_.-',
+  })
+  .refine((v) => v.precision === '' || (/^\d+$/.test(v.precision) && Number(v.precision) >= 1), {
+    path: ['precision'],
+    message: 'A whole number from 1',
   })
   .refine((v) => v.timezone === '' || /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(v.timezone), {
     path: ['timezone'],
@@ -274,6 +282,7 @@ export function toDeclarations(
   }
   if (changed('onMissing') && (v.partitionBy.length > 0 || pristine))
     base.on_missing = v.onMissing === 'shared' ? null : v.onMissing;
+  if (changed('precision') && rolling) base.precision = v.precision ? Number(v.precision) : null;
   if (changed('timezone') && !rolling && v.period !== 'lifetime') base.timezone = v.timezone.trim() || null;
   if (changed('weekStart', 'period') && v.period === 'weekly') base.week_start = v.weekStart || null;
   if (changed('onStoreUnavailable')) base.on_store_unavailable = v.onStoreUnavailable || null;
@@ -420,6 +429,7 @@ export function fromDeclaration(
     excludeEndpoints: listOf(exclude.endpoints),
     partitionBy: listOf(d.partition_by),
     onMissing: d.on_missing === 'skip' || d.on_missing === 'reject' ? d.on_missing : 'shared',
+    precision: typeof d.precision === 'number' ? String(d.precision) : '',
     timezone: typeof d.timezone === 'string' ? d.timezone : '',
     weekStart: typeof d.week_start === 'string' ? d.week_start : '',
     onStoreUnavailable:

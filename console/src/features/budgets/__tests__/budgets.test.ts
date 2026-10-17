@@ -196,6 +196,19 @@ describe('budget form', () => {
     });
     expect(budgetSchema.safeParse({ ...stored, owner: 'acme', partitionBy: ['tag:'] }).success).toBe(false);
   });
+  it('writes the steps of a rolling window and keeps them when the window changes', () => {
+    const decl = { unit: 'usd', amount: '5', period: '7d', algorithm: 'sliding_window', precision: 168 };
+    const stored = fromDeclaration('team', 'core', 'r', decl, undefined);
+    expect(stored.precision).toBe('168');
+    expect(toDeclarations({ ...stored, precision: '24' }, stored).r).toEqual({ precision: 24 });
+    expect(toDeclarations({ ...stored, window: '30d' }, stored).r).toEqual({
+      period: '30d',
+      algorithm: 'sliding_window',
+      timezone: null,
+      week_start: null,
+    });
+    expect(budgetSchema.safeParse({ ...stored, precision: '0' }).success).toBe(false);
+  });
   it('writes the time zone, week start and store choices', () => {
     const stored = fromDeclaration(
       'team',

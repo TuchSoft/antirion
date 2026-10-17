@@ -123,6 +123,7 @@ const ADVANCED_FIELDS = [
   'matchEndpoints',
   'excludeEndpoints',
   'timezone',
+  'precision',
 ] as const;
 
 /** The split choice a `partition_by` list shows as: one of SPLITS, or `kept` for any other list. */
@@ -392,6 +393,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
     values.matchEndpoints.length +
     values.excludeEndpoints.length +
     (values.timezone ? 1 : 0) +
+    (values.precision ? 1 : 0) +
     (values.weekStart ? 1 : 0) +
     (values.onStoreUnavailable ? 1 : 0) +
     (values.allowAboveParent ? 1 : 0);
@@ -928,6 +930,22 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                     />
                   </Field>
                 </div>
+                {values.period === 'rolling' ? (
+                  <Field
+                    label="Steps in the window"
+                    optional
+                    error={errors.precision}
+                    hint="The window slides in this many steps. Blank for one step an hour."
+                  >
+                    <Input
+                      mono
+                      inputMode="numeric"
+                      value={values.precision}
+                      onChange={(e) => set('precision', e.target.value)}
+                      placeholder="e.g. 24"
+                    />
+                  </Field>
+                ) : null}
                 {values.period !== 'rolling' && values.period !== 'lifetime' ? (
                   <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                     <Field
