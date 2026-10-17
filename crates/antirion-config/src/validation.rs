@@ -75,4 +75,28 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn a_saved_single_key_follows_the_provider_into_a_key_list() {
+        let provider = |auth: serde_json::Value| json!({"version": 1, "providers": {"p": {"type": "openai", "base_url": "http://127.0.0.1:9/v1", "auth": auth}}});
+        let stored = provider(json!({"api_key": "sk-saved"}));
+        let mut doc = provider(json!({"api_keys": [
+            {"name": "default", "key": crate::secrets::REDACTED}, {"name": "new", "key": "sk-new"}
+        ]}));
+        let v = validate(&mut doc, &stored);
+        assert!(v.errors.is_empty(), "{:?}", v.errors);
+        assert_eq!(
+            doc.pointer("/providers/p/auth/api_keys/0/key"),
+            Some(&json!("sk-saved"))
+        );
+        // Removing the first of two saved keys leaves the second with its own secret.
+        let stored = doc.clone();
+        let mut doc = provider(json!({"api_keys": [{"name": "new", "key": crate::secrets::REDACTED}]}));
+        let v = validate(&mut doc, &stored);
+        assert!(v.errors.is_empty(), "{:?}", v.errors);
+        assert_eq!(
+            doc.pointer("/providers/p/auth/api_keys/0/key"),
+            Some(&json!("sk-new"))
+        );
+    }
 }

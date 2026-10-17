@@ -5,6 +5,7 @@ use std::borrow::Cow;
 
 use serde_json::Value;
 
+use crate::path::Seg;
 use crate::{ConfigError, DetailCode, DocPath};
 
 /// What reads and exports show instead of a literal secret; written back, it keeps the stored value.
@@ -233,17 +234,96 @@ pub fn redact(doc: &Value, secret_paths: &[DocPath]) -> Value {
     out
 }
 
-/// Replaces [`REDACTED`] at each secret path of `doc` with the value stored at the same path of
-/// `previous`; a placeholder without a stored value is `secret_required`.
+/// The members that name a list item: a provider key's `name`, an MCP session key's `id`.
+const ITEM_IDS: [&str; 2] = ["name", "id"];
+
+/// The name of the single provider key, `auth.api_key`, among `auth.api_keys`.
+const SINGLE_KEY: &str = "default";
+
+/// What names a list item, when it has a name.
+fn item_id(item: &Value) -> Option<(&'static str, &Value)> {
+    ITEM_IDS.iter().find_map(|k| {
+        item.get(*k)
+            .filter(|v| v.is_string() || v.is_number())
+            .map(|v| (*k, v))
+    })
+}
+
+/// The stored value a secret at `path` of `doc` stands for in `previous`. A named list item is
+/// found by its name, whatever its position: removing or reordering items keeps every secret with
+/// its item. A list of provider keys that replaced a single `auth.api_key` finds that key under the
+/// item named `default`, or under the first item when no item is named so.
+fn stored_at<'a>(path: &DocPath, doc: &Value, previous: &'a Value) -> Option<&'a Value> {
+    let segments = path.segments();
+    let mut here = doc;
+    let mut there = Some(previous);
+    for (at, seg) in segments.iter().enumerate() {
+        match seg {
+            Seg::Key(k) => {
+                here = here.get(k)?;
+                there = there.and_then(|t| t.get(k));
+            }
+            Seg::Index(i) => {
+                let items = here.as_array()?;
+                let item = items.get(*i)?;
+                let rest = segments.get(at + 1..).unwrap_or_default();
+                here = item;
+                there = match (item_id(item), there.and_then(Value::as_array)) {
+                    (None, Some(stored)) => stored.get(*i),
+                    (Some((field, id)), Some(stored)) => stored.iter().find(|s| s.get(field) == Some(id)),
+                    (_, None) => return single_key(segments.get(..at)?, previous, items, *i, rest),
+                };
+            }
+        }
+    }
+    there
+}
+
+/// The stored `auth.api_key` that the `index`th item of a new `auth.api_keys` list stands for.
+fn single_key<'a>(
+    list: &[Seg],
+    previous: &'a Value,
+    items: &[Value],
+    index: usize,
+    rest: &[Seg],
+) -> Option<&'a Value> {
+    let (Some(Seg::Key(last)), [Seg::Key(field)]) = (list.last(), rest) else {
+        return None;
+    };
+    if last != "api_keys" || field != "key" {
+        return None;
+    }
+    let named = |item: &Value| item.get("name").and_then(Value::as_str) == Some(SINGLE_KEY);
+    let ours = match items.iter().position(named) {
+        Some(p) => p == index,
+        None => index == 0,
+    };
+    if !ours {
+        return None;
+    }
+    let mut auth = DocPath::root();
+    for seg in list.get(..list.len() - 1)? {
+        match seg {
+            Seg::Key(k) => auth.push_key(k),
+            Seg::Index(i) => auth.push_index(*i),
+        }
+    }
+    auth.get(previous)?.get("api_key")
+}
+
+/// Replaces [`REDACTED`] at each secret path of `doc` with the value stored for it in `previous`
+/// (the same path, or the same named list item); a placeholder without a stored value is
+/// `secret_required`.
 pub fn restore_redacted(doc: &mut Value, previous: &Value, secret_paths: &[DocPath]) -> Vec<ConfigError> {
     let mut errors = Vec::new();
     for path in secret_paths {
-        let Some(slot) = path.get_mut(doc) else { continue };
-        if slot.as_str() != Some(REDACTED) {
+        if path.get(doc).and_then(Value::as_str) != Some(REDACTED) {
             continue;
         }
-        match path.get(previous) {
-            Some(Value::String(stored)) if stored != REDACTED => *slot = Value::String(stored.clone()),
+        let stored = stored_at(path, doc, previous).cloned();
+        let Some(slot) = path.get_mut(doc) else { continue };
+        match stored {
+            Some(Value::String(stored)) if stored != REDACTED => *slot = Value::String(stored),
             _ => errors.push(ConfigError::new(
                 path,
                 DetailCode::SecretRequired,
@@ -261,6 +341,106 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn key_paths(n: usize) -> Vec<DocPath> {
+        let list = DocPath::root()
+            .key("providers")
+            .key("p")
+            .key("auth")
+            .key("api_keys");
+        (0..n).map(|i| list.index(i).key("key")).collect()
+    }
+
+    fn keys(doc: &Value) -> Vec<&str> {
+        doc.pointer("/providers/p/auth/api_keys")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|k| k["key"].as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn redacted_provider_keys_are_restored_by_name() {
+        let stored = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "a", "key": "sk-a"}, {"name": "b", "key": "sk-b"}, {"name": "c", "key": "sk-c"}
+        ]}}}});
+        // The middle key removed: the later ones keep their own secrets.
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "a", "key": REDACTED}, {"name": "c", "key": REDACTED}
+        ]}}}});
+        assert!(restore_redacted(&mut doc, &stored, &key_paths(2)).is_empty());
+        assert_eq!(keys(&doc), ["sk-a", "sk-c"]);
+        // Reordered, with a new literal key added in front.
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "new", "key": "sk-new"}, {"name": "c", "key": REDACTED}, {"name": "a", "key": REDACTED}
+        ]}}}});
+        assert!(restore_redacted(&mut doc, &stored, &key_paths(3)).is_empty());
+        assert_eq!(keys(&doc), ["sk-new", "sk-c", "sk-a"]);
+        // A placeholder for a name that was never stored is not some other key's secret.
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "a", "key": REDACTED}, {"name": "d", "key": REDACTED}
+        ]}}}});
+        let errors = restore_redacted(&mut doc, &stored, &key_paths(2));
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, DetailCode::SecretRequired);
+        assert_eq!(errors[0].path, "providers.p.auth.api_keys[1].key");
+        assert_eq!(
+            doc.pointer("/providers/p/auth/api_keys/1/key"),
+            Some(&json!(REDACTED))
+        );
+    }
+
+    #[test]
+    fn a_single_provider_key_becomes_the_default_item_of_a_list() {
+        let stored = json!({"providers": {"p": {"auth": {"api_key": "sk-single"}}}});
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "extra", "key": "sk-extra"}, {"name": "default", "key": REDACTED}
+        ]}}}});
+        assert!(restore_redacted(&mut doc, &stored, &key_paths(2)).is_empty());
+        assert_eq!(keys(&doc), ["sk-extra", "sk-single"]);
+        // With no item named `default`, the first item is the saved key.
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "primary", "key": REDACTED}, {"name": "extra", "key": "sk-extra"}
+        ]}}}});
+        assert!(restore_redacted(&mut doc, &stored, &key_paths(2)).is_empty());
+        assert_eq!(keys(&doc), ["sk-single", "sk-extra"]);
+        // Any other item has nothing stored.
+        let mut doc = json!({"providers": {"p": {"auth": {"api_keys": [
+            {"name": "primary", "key": "sk-new"}, {"name": "extra", "key": REDACTED}
+        ]}}}});
+        assert_eq!(restore_redacted(&mut doc, &stored, &key_paths(2)).len(), 1);
+    }
+
+    #[test]
+    fn mcp_session_keys_are_restored_by_id_and_unnamed_lists_by_position() {
+        let stored = json!({
+            "mcp": {"session": {"keys": [{"id": 1, "secret": "one"}, {"id": 2, "secret": "two"}]}},
+            "security": {"secrets": {"encryption_keys": ["k0", "k1"]}}
+        });
+        let mut doc = json!({
+            "mcp": {"session": {"keys": [{"id": 2, "secret": REDACTED}]}},
+            "security": {"secrets": {"encryption_keys": [REDACTED, REDACTED]}}
+        });
+        let enc = DocPath::root()
+            .key("security")
+            .key("secrets")
+            .key("encryption_keys");
+        let paths = [
+            DocPath::root()
+                .key("mcp")
+                .key("session")
+                .key("keys")
+                .index(0)
+                .key("secret"),
+            enc.index(0),
+            enc.index(1),
+        ];
+        assert!(restore_redacted(&mut doc, &stored, &paths).is_empty());
+        assert_eq!(doc.pointer("/mcp/session/keys/0/secret"), Some(&json!("two")));
+        assert_eq!(
+            doc.pointer("/security/secrets/encryption_keys"),
+            Some(&json!(["k0", "k1"]))
+        );
+    }
 
     #[test]
     fn host_reads_are_env_and_file_references() {
