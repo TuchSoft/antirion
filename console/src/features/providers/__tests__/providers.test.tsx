@@ -469,8 +469,10 @@ describe('Providers › keys and limits', () => {
     expect(within(table).getByText('Replace now')).toBeInTheDocument();
     await userEvent.click(within(table).getByRole('row', { name: 'openai: keys and limits' }));
     const drawer = await screen.findByRole('dialog', { name: 'openai' });
-    expect(within(drawer).getByText('Tier 4')).toBeInTheDocument();
-    expect(within(drawer).getByText('Replace keys every 30 days')).toBeInTheDocument();
+    expect(within(drawer).getByLabelText(/^Account tier/)).toHaveValue('Tier 4');
+    expect(within(drawer).getByRole('combobox', { name: 'Warn when a key is older than' })).toHaveTextContent(
+      '30 days',
+    );
     expect(within(drawer).getByText(/120 of 500 left/)).toBeInTheDocument();
     expect(within(drawer).getByText('Not working')).toBeInTheDocument();
     expect(within(drawer).getByText(/the provider refused it/)).toBeInTheDocument();

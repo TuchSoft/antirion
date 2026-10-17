@@ -26,6 +26,9 @@ export const providersApi = {
   setEnabled: (name: string, enabled: boolean, etag: string | undefined) =>
     api.patch('/providers/{name}', { path: { name }, body: { spec: { enabled } }, ifMatch: etag }),
   /** Tests a saved provider's credential (the provider's own list of models, else a minimal call). */
+  /** A merge patch of the provider's spec, against the ETag it was read with. */
+  patch: (name: string, spec: Record<string, unknown>, etag: string | undefined): Promise<ProviderResource> =>
+    api.patch('/providers/{name}', { path: { name }, body: { spec }, ifMatch: etag }),
   test: (name: string, credential?: string): Promise<ProviderTestResult> =>
     api.post('/providers/{name}:test', { path: { name }, ...(credential ? { body: { credential } } : {}) }),
   /** Tests a provider that is not saved: the form's values, as a create would check them. */

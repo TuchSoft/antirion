@@ -14,6 +14,8 @@ interface ProvidersState {
   health: Slot<DeploymentHealth[]>;
   /** The last test of each provider in this session, the freshest word on its key. */
   tests: Record<string, ProviderTestResult>;
+  /** The last test of each key in this session, by `provider/key`. */
+  keyTests: Record<string, ProviderTestResult>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
   loadTypes: () => Promise<void>;
   create: (name: string, spec: ProviderSpec) => Promise<ProviderResource>;
@@ -22,6 +24,14 @@ interface ProvidersState {
   resetKey: (provider: string, key: string) => Promise<void>;
   /** Tests a saved provider; the table shows the outcome at once and reads the gateway's again. */
   test: (name: string) => Promise<ProviderTestResult>;
+  /** Tests one saved key of a provider. */
+  testKey: (name: string, key: string) => Promise<ProviderTestResult>;
+  /** Saves a merge patch of a provider's spec with the ETag it was read with. */
+  update: (
+    name: string,
+    patch: Record<string, unknown>,
+    etag: string | undefined,
+  ) => Promise<ProviderResource>;
 }
 
 /**
@@ -35,6 +45,7 @@ export const useProviders = create<ProvidersState>()((set, get) => ({
   deployments: emptySlot(),
   health: emptySlot(),
   tests: {},
+  keyTests: {},
 
   async load(options) {
     await Promise.all([
@@ -100,6 +111,26 @@ export const useProviders = create<ProvidersState>()((set, get) => ({
       useProviderModels.getState().remember(name, result.models, result.tested_at);
     void loadSlot(set, get, 'status', providersApi.status, { quiet: true });
     return result;
+  },
+
+  async testKey(name, key) {
+    const result = await providersApi.test(name, key);
+    set((s) => ({ keyTests: { ...s.keyTests, [`${name}/${key}`]: result } }));
+    void loadSlot(set, get, 'status', providersApi.status, { quiet: true });
+    return result;
+  },
+
+  async update(name, patch, etag) {
+    const saved = await providersApi.patch(name, patch, etag);
+    set((s) => ({
+      providers: {
+        ...s.providers,
+        data: (s.providers.data ?? []).map((x) => (x.name === name ? saved : x)),
+      },
+    }));
+    void loadSlot(set, get, 'status', providersApi.status, { quiet: true });
+    void loadSlot(set, get, 'health', providersApi.health, { quiet: true });
+    return saved;
   },
 
   async remove(name, reason) {

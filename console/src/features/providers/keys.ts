@@ -83,21 +83,38 @@ export function providerKeyStatus(
 }
 
 /**
- * A key's state with the provider's last test: a provider with one key that passed is working,
- * one that failed is not, where its deployments have no evidence of their own yet.
+ * Keys' states with the tests of this session: a key's own test, or the provider's when it has
+ * one key. A passing test is evidence where its deployments have none yet; a failing one wins.
  */
-export function withTest(keys: ProviderKeyRow[], test: ProviderTestResult | undefined): ProviderKeyRow[] {
-  if (!test || keys.length !== 1) return keys;
-  return keys.map((k) =>
-    k.health.state === 'untested' || k.health.state === 'unknown'
-      ? {
-          ...k,
-          health: test.ok
-            ? { state: 'working', reason: null, until: null }
-            : { state: 'not_working', reason: null, until: null },
-        }
-      : k,
-  );
+export function withTest(
+  keys: ProviderKeyRow[],
+  test: ProviderTestResult | undefined,
+  keyTests: Record<string, ProviderTestResult | undefined> = {},
+): ProviderKeyRow[] {
+  return keys.map((k) => {
+    const t = keyTests[k.name] ?? (keys.length === 1 ? test : undefined);
+    if (!t) return k;
+    if (!t.ok) return { ...k, health: { state: 'not_working', reason: 'test', until: null } };
+    return k.health.state === 'untested' || k.health.state === 'unknown'
+      ? { ...k, health: { state: 'working', reason: null, until: null } }
+      : k;
+  });
+}
+
+/**
+ * A key's state as the gateway reports it on `/runtime/providers`, when it does: working, cooling
+ * down (rate limited) until a time, dead (the provider refused it) or not tested.
+ */
+function reportedState(credential: unknown): KeyState | null {
+  const c = credential as { state?: unknown; until?: unknown; reason?: unknown };
+  if (typeof c.state !== 'string') return null;
+  const until = typeof c.until === 'string' ? c.until : null;
+  const reason = typeof c.reason === 'string' ? c.reason : null;
+  if (c.state === 'working' || c.state === 'valid') return { state: 'working', reason: null, until: null };
+  if (c.state === 'cooling' || c.state === 'rate_limited') return { state: 'resting', reason, until };
+  if (c.state === 'dead' || c.state === 'failed') return { state: 'not_working', reason, until };
+  if (c.state === 'untested') return { state: 'untested', reason: null, until: null };
+  return null;
 }
 
 /** Each key of a provider with its last replacement, its state and its latest rate-limit reading. */
@@ -112,14 +129,17 @@ export function providerKeys(
   const hints = (p.metadata.secret_hints ?? {}) as Record<string, string>;
   const credentials = status?.credentials ?? [];
   const named = keyNames(p);
-  const rows: ProviderKeyRow[] = named.map((k) => ({
-    name: k.name,
-    hint: hints[k.hintPath],
-    weight: k.weight,
-    rotatedAt: rotated[k.name] ?? null,
-    health: keyState(k.name, mine, health),
-    readings: (credentials.find((c) => c.name === k.name)?.rate_limits as RateLimits | undefined) ?? null,
-  }));
+  const rows: ProviderKeyRow[] = named.map((k) => {
+    const reported = credentials.find((c) => c.name === k.name);
+    return {
+      name: k.name,
+      hint: hints[k.hintPath],
+      weight: k.weight,
+      rotatedAt: rotated[k.name] ?? null,
+      health: (reported && reportedState(reported)) ?? keyState(k.name, mine, health),
+      readings: (reported?.rate_limits as RateLimits | undefined) ?? null,
+    };
+  });
   for (const c of credentials) {
     if (rows.some((r) => r.name === c.name)) continue;
     rows.push({
