@@ -26,6 +26,7 @@ import {
   type StoreKind,
 } from './connection-drawers';
 import { DeliveryLog } from './delivery-log';
+import { PrometheusDrawer, prometheusValues } from './prometheus-drawer';
 import { Card } from './parts';
 
 type Obj = Record<string, unknown>;
@@ -33,6 +34,7 @@ const obj = (v: unknown): Obj => (typeof v === 'object' && v !== null && !Array.
 
 type Open =
   | { kind: 'otlp' }
+  | { kind: 'prometheus' }
   | { kind: 'sink'; sink: SinkKind; name: string | null }
   | { kind: 'store'; store: StoreKind }
   | null;
@@ -219,7 +221,24 @@ export function ConnectionsSection() {
         : undefined,
   }));
 
+  const scrape = prometheusValues(obs.metrics);
   const telemetry: Item[] = [
+    {
+      id: 'prometheus',
+      name: 'Prometheus endpoint',
+      icon: 'chart',
+      detail: "Let Prometheus scrape the gateway's metrics from the admin listener.",
+      connected: scrape.enabled ? [scrape.path] : [],
+      targets: ['observability.metrics'],
+      open: () => setOpen({ kind: 'prometheus' }),
+      many: false,
+      canWrite: canObs,
+      writeOp: 'patchObservabilitySettings',
+      note:
+        scrape.enabled && !scrape.token
+          ? 'Open to anyone who can reach the admin listener: no token is asked for.'
+          : undefined,
+    },
     {
       id: 'otlp',
       name: 'OpenTelemetry collector',
@@ -300,6 +319,7 @@ export function ConnectionsSection() {
         </p>
       </div>
       {open?.kind === 'otlp' ? <OtlpDrawer onClose={() => setOpen(null)} /> : null}
+      {open?.kind === 'prometheus' ? <PrometheusDrawer onClose={() => setOpen(null)} /> : null}
       {open?.kind === 'sink' ? (
         <SinkDrawer
           kind={open.sink}

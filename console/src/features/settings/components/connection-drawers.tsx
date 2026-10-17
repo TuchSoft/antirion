@@ -17,6 +17,15 @@ import { detailErrors, str, mergePatch, NAME_RE, URL_RE } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { useEdited } from '@/lib/hooks';
 
+import { deepMerge } from '../choices';
+import {
+  traceOptions,
+  traceOptionsErrors,
+  traceOptionsSpec,
+  type TraceOptions,
+  TraceOptionsFields,
+} from './trace-options';
+
 export const REDACTED = '[REDACTED]';
 const SECRET_HINT = 'Stored encrypted and never shown again. A reference such as ${env:NAME} also works.';
 
@@ -162,6 +171,7 @@ interface OtlpForm {
   logs: boolean;
   logSink: string;
   logContent: boolean;
+  trace: TraceOptions;
 }
 
 /**
@@ -190,6 +200,7 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
     logs: logSpec !== undefined,
     logSink: logName,
     logContent: log.include_content === true,
+    trace: traceOptions(traces),
   };
   const [form, setForm] = useState(start);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -208,6 +219,7 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
     const ratio = Number(form.ratio);
     if (form.traces && !(ratio >= 0 && ratio <= 100)) e.ratio = 'Enter a share from 0 to 100';
     if (form.logs && !NAME_RE.test(form.logSink)) e.logSink = 'Use letters, digits, . _ and -';
+    if (form.traces) Object.assign(e, traceOptionsErrors(form.trace));
     setErrors(e);
     if (Object.keys(e).length) return;
     setBusy(true);
@@ -229,12 +241,16 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
             : { enabled: false },
         },
         traces: form.traces
-          ? mergePatch(traces, {
-              ...traces,
-              enabled: true,
-              exporter: { ...exporter, endpoint, protocol: form.protocol, headers },
-              sampler: { ...obj(traces.sampler), ratio: ratio / 100 },
-            })
+          ? deepMerge(
+              mergePatch(traces, {
+                ...traces,
+                enabled: true,
+                exporter: { ...exporter, endpoint, protocol: form.protocol, headers },
+                sampler: { ...obj(traces.sampler), ratio: ratio / 100 },
+              }),
+              // The trace details are written only once changed, so their defaults stay defaults.
+              mergePatch(traceOptionsSpec(start.trace), traceOptionsSpec(form.trace)),
+            )
           : { enabled: false },
         request_logs: {
           sinks: {
@@ -265,6 +281,8 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
           'observability.traces.exporter.endpoint': 'endpoint',
           [`observability.request_logs.sinks.otlp.${form.logSink}.endpoint`]: 'endpoint',
           'observability.traces.sampler': 'ratio',
+          'observability.traces.service_name': 'serviceName',
+          'observability.traces.viewer_url': 'viewerUrl',
         }),
       );
     } finally {
@@ -393,6 +411,14 @@ export function OtlpDrawer({ onClose }: { onClose: () => void }) {
             ) : null}
           </div>
         </fieldset>
+        {form.traces ? (
+          <TraceOptionsFields
+            value={form.trace}
+            errors={errors}
+            disabled={disabled}
+            onChange={(trace) => set('trace', trace)}
+          />
+        ) : null}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>
