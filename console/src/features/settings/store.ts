@@ -139,7 +139,8 @@ interface RuntimeState {
   auditSinks: Slot<AuditSinkStatus[]>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
   loadProviders: () => Promise<void>;
-  resetDeployment: (name: string) => Promise<void>;
+  /** Re-reads the deployments' health, after one is turned off, on or resumed. */
+  loadDeployments: () => Promise<void>;
   setProviderEnabled: (name: string, enabled: boolean) => Promise<void>;
 }
 
@@ -166,8 +167,7 @@ export const useRuntime = create<RuntimeState>()((set, get) => ({
       loadSlot(set, get, 'auditSinks', settingsApi.auditSinks),
     ]);
   },
-  async resetDeployment(name) {
-    await settingsApi.resetDeployment(name);
+  async loadDeployments() {
     await loadSlot(set, get, 'deployments', settingsApi.deployments, { quiet: true });
   },
   async setProviderEnabled(name, enabled) {

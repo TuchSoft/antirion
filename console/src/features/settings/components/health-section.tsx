@@ -6,9 +6,10 @@ import { Badge, Dot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Meter } from '@/components/ui/charts';
-import { Gate } from '@/components/ui/gate';
+import { Gate, useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
 import { DefinitionGrid, Section } from '@/components/ui/layout';
+import { MenuButton } from '@/components/ui/menu';
 import { UpdatedAt } from '@/components/ui/misc';
 import { EmptyState, LoadError, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
@@ -18,6 +19,14 @@ import { formatRelative } from '@/lib/time';
 import { useShell } from '@/stores/shell';
 import { notify } from '@/stores/ui';
 
+import {
+  resumeNow,
+  RuntimeState,
+  TurnOffDialog,
+  turnOn,
+  useDisablesFor,
+} from '@/features/models/components/deployment-runtime';
+import { runtimeStatus, useDeploymentDisables } from '@/features/models/deployment-state';
 import { healthName } from '@/features/models/types';
 import { TestModePanel } from '@/features/test-mode/components/test-mode-panel';
 
@@ -37,7 +46,15 @@ export function HealthSection() {
   const providers = useRuntime((s) => s.providerStatus);
   const nodes = useRuntime((s) => s.nodes);
   const load = useRuntime((s) => s.load);
-  const resetDeployment = useRuntime((s) => s.resetDeployment);
+  const canAudit = useCan('listAudit');
+  const loadDeployments = useRuntime((s) => s.loadDeployments);
+  const loadDisables = useDeploymentDisables((s) => s.load);
+  const canDisable = useCan('disableDeployment');
+  const [turningOff, setTurningOff] = useState<string | null>(null);
+  useDisablesFor(deployments.data);
+  const reloadDeployments = async () => {
+    await Promise.all([loadDeployments(), canAudit ? loadDisables() : Promise.resolve()]);
+  };
   const status = useShell((s) => s.status);
   const [draining, setDraining] = useState<string | null>(null);
 
@@ -204,7 +221,7 @@ export function HealthSection() {
       />
       <Section
         title="Deployments"
-        subtitle="A deployment that keeps failing is paused for a while, then tried again."
+        subtitle="A deployment that keeps failing is paused for a while, then tried again. One turned off by hand stays off until someone turns it on."
       >
         <LoadError of={deployments} subject="Deployment health" size="sm" />
         {deployments.data?.length === 0 ? <EmptyState size="sm" title="No deployments yet" /> : null}
@@ -216,55 +233,78 @@ export function HealthSection() {
                 <Th>Status</Th>
                 <Th numeric>Errors / requests</Th>
                 <Th numeric>Times paused</Th>
-                <Th>Tried again</Th>
+                <Th>Until</Th>
                 <Th>
                   <span className="sr-only">Actions</span>
                 </Th>
               </tr>
             </thead>
             <tbody>
-              {deployments.data.map((d) => (
-                <Tr key={healthName(d)}>
-                  <Td mono>{healthName(d)}</Td>
-                  <Td>
-                    <span className="flex items-center gap-1.5">
-                      <Dot
-                        tone={d.state === 'closed' ? 'success' : d.state === 'half_open' ? 'warn' : 'error'}
-                      />
-                      {d.state === 'closed'
-                        ? 'Healthy'
-                        : d.state === 'half_open'
-                          ? 'Testing again'
-                          : 'Paused after errors'}
-                    </span>
-                  </Td>
-                  <Td numeric>
-                    {d.window.failures} / {d.window.requests}
-                  </Td>
-                  <Td numeric>{d.trips}</Td>
-                  <Td muted>{d.cooldown_until ? formatRelative(d.cooldown_until) : '—'}</Td>
-                  <Td className="text-right">
-                    {d.state !== 'closed' ? (
-                      <Gate operation="resetDeployment" mode="hide">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void resetDeployment(healthName(d)).then(() =>
-                              notify('success', 'Deployment resumed', healthName(d)),
-                            )
-                          }
-                        >
-                          Resume now
-                        </Button>
-                      </Gate>
-                    ) : null}
-                  </Td>
-                </Tr>
-              ))}
+              {deployments.data.map((d) => {
+                const name = healthName(d);
+                const state = runtimeStatus(d);
+                return (
+                  <Tr key={name}>
+                    <Td mono>{name}</Td>
+                    <Td>
+                      <RuntimeState name={name} health={d} withUntil={false} />
+                    </Td>
+                    <Td numeric>
+                      {d.window.failures} / {d.window.requests}
+                    </Td>
+                    <Td numeric>{d.trips}</Td>
+                    <Td muted>{state.until ? formatRelative(state.until) : '—'}</Td>
+                    <Td className="text-right">
+                      <span className="flex items-center justify-end gap-1">
+                        {state.action === 'enable' ? (
+                          <Gate operation="enableDeployment" mode="hide">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void turnOn(name, reloadDeployments)}
+                            >
+                              Turn on
+                            </Button>
+                          </Gate>
+                        ) : null}
+                        {state.action === 'reset' ? (
+                          <Gate operation="resetDeployment" mode="hide">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => void resumeNow(name, reloadDeployments)}
+                            >
+                              Resume now
+                            </Button>
+                          </Gate>
+                        ) : null}
+                        {state.kind !== 'off' && canDisable ? (
+                          <MenuButton
+                            iconOnly
+                            icon="more"
+                            variant="ghost"
+                            size="sm"
+                            align="right"
+                            label={`Actions for ${name}`}
+                            items={[
+                              { label: 'Turn off…', icon: 'pause', onSelect: () => setTurningOff(name) },
+                            ]}
+                          />
+                        ) : null}
+                      </span>
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         ) : null}
+        <TurnOffDialog
+          name={turningOff ?? ''}
+          open={turningOff !== null}
+          onClose={() => setTurningOff(null)}
+          onDone={reloadDeployments}
+        />
       </Section>
       <Section title="Provider keys" subtitle="Whether the gateway's key for each provider works.">
         <LoadError of={providers} subject="Provider status" size="sm" />

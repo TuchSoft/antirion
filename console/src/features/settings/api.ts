@@ -66,7 +66,6 @@ export const settingsApi = {
       path: { name },
       body: { credential: secret, retire_after: overlap },
     }),
-  resetDeployment: (name: string) => api.post('/runtime/deployments/{name}:reset', { path: { name } }),
   organization: (name: string): Promise<OrganizationResource> =>
     api.get('/organizations/{name}', { path: { name } }),
   patchOrganization: (

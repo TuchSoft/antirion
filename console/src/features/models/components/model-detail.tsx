@@ -54,6 +54,7 @@ import { healthName, type ModelView, rate, statusOf, STATUS_LABEL, STATUS_TONE, 
 import { AccessDrawer, AccessPanel } from './access-panel';
 import { ActivityList } from './activity-tab';
 import { AliasDialog, RemoveAliasDialog } from './alias-dialog';
+import { RuntimeState, useDisablesFor } from './deployment-runtime';
 import { FallbackEditor } from './fallback-editor';
 import { MigrationPanel } from './migration-panel';
 import { ModelUsage } from './model-usage';
@@ -139,12 +140,6 @@ export interface ModelDetailProps {
   onOpenModel?: (name: string) => void;
 }
 
-const HEALTH: Record<string, { label: string; tone: 'success' | 'error' | 'warn' }> = {
-  closed: { label: 'Healthy', tone: 'success' },
-  open: { label: 'Paused after errors', tone: 'error' },
-  half_open: { label: 'Recovering', tone: 'warn' },
-};
-
 /** A spec cell: the figure large, what it is above, a detail under. */
 function SpecCell({
   label,
@@ -176,6 +171,7 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
   const providers = useProviderMap();
   const routes = useRouteMap();
   const health = useCatalog((s) => s.health.data);
+  useDisablesFor(health);
   const prices = useCatalog((s) => s.prices);
   const capabilities = useCatalog((s) => s.capabilities);
   const loadPrices = useCatalog((s) => s.loadPrices);
@@ -566,7 +562,6 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
                 {view.leaves.map((leaf) => {
                   const dep = deployments.get(leaf);
                   const h = health?.find((x) => healthName(x) === leaf);
-                  const hs = h ? (HEALTH[h.state] ?? { label: h.state, tone: 'warn' as const }) : null;
                   const leafPrice = prices[leaf];
                   return (
                     <Tr key={leaf}>
@@ -587,14 +582,7 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
                         {dep?.spec.model ?? '—'}
                       </Td>
                       <Td>
-                        {hs ? (
-                          <span className="flex items-center gap-1.5">
-                            <Dot tone={hs.tone} />
-                            {hs.label}
-                          </span>
-                        ) : (
-                          <span className="text-muted">No traffic yet</span>
-                        )}
+                        <RuntimeState name={leaf} health={h} />
                       </Td>
                       <Td numeric>
                         {leafPrice
