@@ -587,3 +587,42 @@ export function anomalies(): S['Anomaly'][] {
     },
   ];
 }
+
+const model = (
+  id: string,
+  name: string | null,
+  context: number | null,
+  price: [string, string, string | null, string | null] | null,
+  listed = true,
+  output = ['text'],
+): S['ProviderModel'] => ({
+  id,
+  name,
+  listed_by_provider: listed,
+  context_window: context,
+  max_output_tokens: context === null ? null : Math.min(context, 16_384),
+  modalities: { input: id.includes('embedding') ? ['text'] : ['text', 'image'], output },
+  price: price ? { input: price[0], output: price[1], cache_read: price[2], cache_write: price[3] } : null,
+  price_source: price ? 'catalog' : null,
+  release_date: null,
+});
+
+/**
+ * The models an OpenAI-type provider lists, with the catalog's details where it has them, and one
+ * model only the catalog knows (an older id the provider no longer lists).
+ */
+export function providerModels(): S['ProviderModel'][] {
+  return [
+    model('gpt-4.1', 'GPT-4.1', 1_047_576, ['2', '8', '0.5', null]),
+    model('gpt-4.1-mini', 'GPT-4.1 mini', 1_047_576, ['0.4', '1.6', '0.1', null]),
+    model('gpt-4.1-nano', 'GPT-4.1 nano', 1_047_576, ['0.1', '0.4', '0.025', null]),
+    model('gpt-4o', 'GPT-4o', 128_000, ['2.5', '10', '1.25', null]),
+    model('gpt-4o-mini', 'GPT-4o mini', 128_000, ['0.15', '0.6', '0.075', null]),
+    model('o3', 'o3', 200_000, ['2', '8', '0.5', null]),
+    model('o4-mini', 'o4-mini', 200_000, ['1.1', '4.4', '0.275', null]),
+    model('text-embedding-3-large', 'Text Embedding 3 Large', 8191, ['0.13', '0', null, null], true, []),
+    model('text-embedding-3-small', null, 8191, ['0.02', '0', null, null], true, []),
+    model('ft:gpt-4o-mini-2024-07-18:acme::support-v3', null, null, null),
+    model('gpt-4-turbo', 'GPT-4 Turbo', 128_000, ['10', '30', null, null], false),
+  ];
+}

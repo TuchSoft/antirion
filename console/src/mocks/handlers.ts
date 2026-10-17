@@ -13,10 +13,13 @@ import {
   guardrails,
   loginOptions,
   noise,
+  providerModels,
   safetyEvents,
   tiers,
   usageBuckets,
 } from './fixtures';
+import { http, HttpResponse } from 'msw';
+
 import { mock } from './http';
 
 type S = components['schemas'];
@@ -101,11 +104,102 @@ function updateAlert(id: string, patch: Partial<S['Alert']>, entry: S['AlertTime
   return next;
 }
 
+/** How long a mock provider takes to answer, so a test shows its "Testing…" for a moment. */
+const PROVIDER_LATENCY = 412;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A provider test, as the mock answers it: a key with "bad" in it is refused (401), a base URL
+ * with "offline" in it doesn't answer, anything else lists the provider's models.
+ */
+function testOutcome(apiKey: string | undefined, baseUrl: string | undefined): S['ProviderTestResult'] {
+  const tested_at = now();
+  if (baseUrl?.includes('offline'))
+    return {
+      ok: false,
+      method: 'list_models',
+      status_code: null,
+      latency_ms: 10_000,
+      error: `connect error: ${baseUrl}: connection refused`,
+      models: null,
+      tested_at,
+    };
+  if (apiKey?.includes('bad'))
+    return {
+      ok: false,
+      method: 'list_models',
+      status_code: 401,
+      latency_ms: 188,
+      error:
+        '{"error":{"message":"Incorrect API key provided: sk-bad…. You can find your API key at the provider\'s dashboard.","type":"invalid_request_error","code":"invalid_api_key"}}',
+      models: null,
+      tested_at,
+    };
+  return {
+    ok: true,
+    method: 'list_models',
+    status_code: 200,
+    latency_ms: PROVIDER_LATENCY,
+    error: null,
+    models: providerModels().filter((m) => m.listed_by_provider),
+    tested_at,
+  };
+}
+
+/** The provider tests and model lists: the saved provider's test, an unsaved one's, its models. */
+function providerTestHandlers(): HttpHandler[] {
+  return [
+    // A create's checks: a provider without a type is refused with the details, as a create would.
+    http.post(/\/admin\/v1\/providers:test$/, async ({ request }) => {
+      const body = (await request.json()) as {
+        name: string;
+        spec: { type?: string; base_url?: string; auth?: { api_key?: string } };
+      };
+      if (!body.spec.type)
+        return HttpResponse.json(
+          {
+            error: {
+              code: 'invalid_request',
+              message: 'The provider is not valid.',
+              details: [
+                { path: `providers.${body.name}.type`, code: 'required', message: 'Select a provider type' },
+              ],
+            },
+          },
+          { status: 400 },
+        );
+      await pause(PROVIDER_LATENCY);
+      return HttpResponse.json(testOutcome(body.spec.auth?.api_key, body.spec.base_url));
+    }),
+    mock('post', '/providers/{name}:test', async ({ params }) => {
+      await pause(PROVIDER_LATENCY);
+      return testOutcome(undefined, params.name?.includes('offline') ? 'https://offline.example' : undefined);
+    }),
+    mock('get', '/providers/{name}/models', async ({ params, query }) => {
+      if (query.get('refresh') === 'true') await pause(PROVIDER_LATENCY);
+      const offline = params.name?.includes('offline') ?? false;
+      let items = providerModels().map((m) => (offline ? { ...m, listed_by_provider: false } : m));
+      const id = query.get('id');
+      const q = query.get('q')?.toLowerCase();
+      if (id) items = items.filter((m) => m.id === id);
+      if (q) items = items.filter((m) => m.id.includes(q) || (m.name?.toLowerCase().includes(q) ?? false));
+      return {
+        items,
+        source: offline ? ('catalog' as const) : ('provider' as const),
+        fetched_at: offline ? null : now(),
+        error: offline ? 'The provider didn’t answer: connection refused' : null,
+      };
+    }),
+  ];
+}
+
 /**
  * Handlers for contract operations the development mock answers itself. They run only in
  * development (`pnpm dev:mock`) and in tests; the production build contains none of this.
  */
 export const contractHandlers: HttpHandler[] = [
+  ...providerTestHandlers(),
   mock('get', '/analytics/usage', ({ query }) => ({ items: usageBuckets(query), next_cursor: null })),
   mock('get', '/reports/provider_pressure', ({ query }) => {
     const to = query.get('to') ? new Date(query.get('to') ?? '') : new Date();

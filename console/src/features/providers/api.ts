@@ -5,10 +5,13 @@ import type { DeploymentHealth, DeploymentResource, ProviderResource, ProviderTy
 type S = components['schemas'];
 export type ProviderSpec = S['Provider'];
 export type ProviderStatus = S['ProviderStatus'];
+export type ProviderTestResult = S['ProviderTestResult'];
+export type ProviderModel = S['ProviderModel'];
+export type ProviderModelList = S['ProviderModelList'];
 
 /**
- * The gateway's upstream providers: the list, the supported types, create, enable, test, rotate,
- * delete, and the runtime state of their keys (health and reset).
+ * The gateway's upstream providers: the list, the supported types, create, enable, test (saved or
+ * not), rotate, delete, the models each offers, and the runtime state of their keys (health and reset).
  */
 export const providersApi = {
   list: (): Promise<ProviderResource[]> =>
@@ -22,7 +25,17 @@ export const providersApi = {
     api.post('/providers', { body: { name, spec } }),
   setEnabled: (name: string, enabled: boolean, etag: string | undefined) =>
     api.patch('/providers/{name}', { path: { name }, body: { spec: { enabled } }, ifMatch: etag }),
-  test: (name: string) => api.post('/providers/{name}:test', { path: { name } }),
+  /** Tests a saved provider's credential (the provider's own list of models, else a minimal call). */
+  test: (name: string, credential?: string): Promise<ProviderTestResult> =>
+    api.post('/providers/{name}:test', { path: { name }, ...(credential ? { body: { credential } } : {}) }),
+  /** Tests a provider that is not saved: the form's values, as a create would check them. */
+  testSpec: (name: string, spec: ProviderSpec): Promise<ProviderTestResult> =>
+    api.post('/providers:test', { body: { name, spec } }),
+  /** The models a provider offers: its own list with the catalog's details, else the catalog's. */
+  models: (
+    name: string,
+    query: { refresh?: boolean; q?: string; id?: string } = {},
+  ): Promise<ProviderModelList> => api.get('/providers/{name}/models', { path: { name }, query }),
   rotateCredential: (name: string, secret: string, overlap: string, key?: string) =>
     api.post('/providers/{name}:rotate_credential', {
       path: { name },
