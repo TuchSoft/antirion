@@ -383,7 +383,12 @@ function ExportStatus() {
       </div>
       {running ? <Meter value={job.progress ?? 0} max={1} label="Export progress" /> : null}
       {job.state === 'failed' ? (
-        <p className="text-caption text-error">{job.error ?? 'The export stopped. Try again.'}</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-caption text-error">{job.error ?? 'The export stopped. Try again.'}</p>
+          <Button size="sm" variant="ghost" onClick={clearJob}>
+            Dismiss
+          </Button>
+        </div>
       ) : null}
       {job.state === 'succeeded' && job.download_url ? (
         <div className="flex flex-wrap items-center gap-3">

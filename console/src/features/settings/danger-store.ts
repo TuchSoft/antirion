@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { isApiError } from '@/lib/api/client';
 import type { OrganizationResource, Status } from '@/lib/api/types';
 import { emptySlot, loadSlot, type Slot } from '@/lib/slot';
 import { useShell } from '@/stores/shell';
@@ -19,7 +20,7 @@ interface DangerState {
   /** The organization the export and deletion cards act on, with its pending deletion. */
   target: Slot<OrganizationResource>;
   pending: Slot<ChangeRequest[]>;
-  /** The export started in this browser session, followed until it ends. */
+  /** The last export started in this browser, followed until it ends and kept across reloads. */
   job: Job | null;
   jobOrganization: string | null;
   load: () => Promise<void>;
@@ -32,7 +33,43 @@ interface DangerState {
   setDryRun: (on: boolean, reason?: string) => Promise<void>;
   startExport: (organization: string) => Promise<void>;
   pollJob: () => Promise<void>;
+  /** Picks the stored export back up after a reload: its state, progress or download link. */
+  resumeJob: () => Promise<void>;
   clearJob: () => void;
+}
+
+/** Where the browser keeps the export it started, so a reload can follow it again. */
+export const EXPORT_JOB_KEY = 'antirion.console.export-job';
+
+interface StoredJob {
+  id: string;
+  organization: string;
+}
+
+function storedJob(): StoredJob | null {
+  try {
+    const raw = localStorage.getItem(EXPORT_JOB_KEY);
+    const v = raw ? (JSON.parse(raw) as Partial<StoredJob>) : null;
+    return v && typeof v.id === 'string' && typeof v.organization === 'string'
+      ? { id: v.id, organization: v.organization }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeJob(job: StoredJob | null) {
+  try {
+    if (job) localStorage.setItem(EXPORT_JOB_KEY, JSON.stringify(job));
+    else localStorage.removeItem(EXPORT_JOB_KEY);
+  } catch {
+    // Storage blocked: the export is still followed until the page is left.
+  }
+}
+
+/** A finished export whose download link has lapsed: nothing left to show. */
+function lapsed(job: Job): boolean {
+  return job.state === 'succeeded' && !!job.expires_at && Date.parse(job.expires_at) <= Date.now();
 }
 
 /** The danger zone's state: gateway status, governance, the target organization and held actions. */
@@ -51,6 +88,7 @@ export const useDanger = create<DangerState>()((set, get) => ({
       loadSlot(set, get, 'governance', settingsApi.governance),
       loadSlot(set, get, 'organizations', settingsApi.organizations),
       get().loadPending(),
+      get().resumeJob(),
     ]);
   },
 
@@ -82,6 +120,7 @@ export const useDanger = create<DangerState>()((set, get) => ({
 
   async startExport(organization) {
     const job = await settingsApi.exportOrganization(organization);
+    storeJob({ id: job.id, organization });
     set({ job, jobOrganization: organization });
   },
 
@@ -91,7 +130,26 @@ export const useDanger = create<DangerState>()((set, get) => ({
     set({ job: await settingsApi.job(job.id) });
   },
 
-  clearJob: () => set({ job: null, jobOrganization: null }),
+  async resumeJob() {
+    if (get().job) return;
+    const stored = storedJob();
+    if (!stored) return;
+    try {
+      const job = await settingsApi.job(stored.id);
+      // An export started meanwhile wins over the one being picked up.
+      if (get().job) return;
+      if (lapsed(job)) storeJob(null);
+      else set({ job, jobOrganization: stored.organization });
+    } catch (e) {
+      // Gone (expired and swept, or another gateway's): forget it. Anything else may pass; keep it.
+      if (isApiError(e) && e.status === 404) storeJob(null);
+    }
+  },
+
+  clearJob: () => {
+    storeJob(null);
+    set({ job: null, jobOrganization: null });
+  },
 }));
 
 /** What a held action does, in words, from the call its change request carries. */
