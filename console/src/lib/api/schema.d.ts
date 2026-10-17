@@ -2481,6 +2481,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["testUnsavedProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{name}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProviderModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/reports/alerts/{alert_id}/signal": {
         parameters: {
             query?: never;
@@ -5794,15 +5826,47 @@ export interface components {
                 };
             };
         };
+        ProviderModel: {
+            id: string;
+            name: string | null;
+            listed_by_provider: boolean;
+            context_window: number | null;
+            max_output_tokens: number | null;
+            modalities: {
+                input: string[];
+                output: string[];
+            } | null;
+            price: {
+                input: string;
+                output: string;
+                cache_read: string | null;
+                cache_write: string | null;
+            } | null;
+            price_source: "catalog" | null;
+            release_date: string | null;
+        };
+        ProviderModelList: {
+            items: components["schemas"]["ProviderModel"][];
+            source: "provider" | "catalog";
+            fetched_at: components["schemas"]["Timestamp"] | null;
+            error: string | null;
+        };
         ProviderTestResult: {
             ok: boolean;
+            method: "list_models" | "minimal_call";
             status_code: number | null;
-            latency_ms: number | null;
-            upstream_request_id: string | null;
-            error: {
-                class: "auth" | "not_found" | "timeout" | "rate_limited" | "server_error" | "caller_error" | "connect" | "config";
-                message: string;
-            } | null;
+            latency_ms: number;
+            error: string | null;
+            models: components["schemas"]["ProviderModel"][] | null;
+            tested_at: components["schemas"]["Timestamp"];
+            upstream_request_id?: string | null;
+        };
+        ProviderKeyTest: {
+            key: string | null;
+            ok: boolean;
+            method: "list_models" | "minimal_call";
+            tested_at: components["schemas"]["Timestamp"];
+            error: string | null;
         };
         ProviderStatus: {
             name: string;
@@ -5814,7 +5878,9 @@ export interface components {
                 expires_at?: components["schemas"]["Timestamp"] | null;
                 refresh_at?: components["schemas"]["Timestamp"] | null;
                 last_error?: string | null;
+                last_test?: components["schemas"]["ProviderKeyTest"];
             };
+            tests?: components["schemas"]["ProviderKeyTest"][];
             credentials?: {
                 name: string;
                 rate_limits: Record<string, unknown>;
@@ -12165,7 +12231,10 @@ export type SchemaProviderCreate = components['schemas']['ProviderCreate'];
 export type SchemaProviderList = components['schemas']['ProviderList'];
 export type SchemaProviderReplace = components['schemas']['ProviderReplace'];
 export type SchemaProviderResource = components['schemas']['ProviderResource'];
+export type SchemaProviderModel = components['schemas']['ProviderModel'];
+export type SchemaProviderModelList = components['schemas']['ProviderModelList'];
 export type SchemaProviderTestResult = components['schemas']['ProviderTestResult'];
+export type SchemaProviderKeyTest = components['schemas']['ProviderKeyTest'];
 export type SchemaProviderStatus = components['schemas']['ProviderStatus'];
 export type SchemaProviderStatusList = components['schemas']['ProviderStatusList'];
 export type SchemaProviderTest = components['schemas']['ProviderTest'];
@@ -20223,7 +20292,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["ProviderTest"];
             };
@@ -20246,6 +20315,69 @@ export interface operations {
             429: components["responses"]["RateLimited"];
             500: components["responses"]["Internal"];
             503: components["responses"]["StoreUnavailable"];
+        };
+    };
+    testUnsavedProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderCreate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-antirion-version": components["headers"]["XAntirionVersion"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listProviderModels: {
+        parameters: {
+            query?: {
+                refresh?: boolean;
+                q?: string;
+                id?: string;
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ProviderName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    "x-antirion-version": components["headers"]["XAntirionVersion"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderModelList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["Internal"];
         };
     };
     getAlertSignal: {

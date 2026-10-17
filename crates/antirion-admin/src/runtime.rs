@@ -1,7 +1,9 @@
-//! Runtime state of providers: how the gateway authenticates to each one and whether it verifies
-//! the upstream's TLS certificate.
+//! Runtime state of providers: how the gateway authenticates to each one, the outcome of the
+//! latest credential test of each key on this node, and whether it verifies the upstream's TLS
+//! certificate.
 
 use antirion_identity::rbac::Scope;
+use antirion_providers::listing::TestRecord;
 use antirion_providers::{ProviderRt, UpstreamAuth};
 use axum::response::Response;
 use http::{Method, StatusCode};
@@ -35,8 +37,21 @@ fn status(call: &Call, p: &ProviderRt) -> Value {
         }
         UpstreamAuth::Unsupported(_) => "failed",
     };
+    let tests = call.rt.state.provider_checks.tests(&p.name);
+    let latest = tests.iter().max_by_key(|t| t.at);
+    let state = match latest {
+        Some(t) if !t.ok => "failed",
+        Some(_) if matches!(state, "implicit" | "failed") => "valid",
+        _ => state,
+    };
     if let Some(obj) = credential.as_object_mut() {
         obj.insert("state".into(), Value::from(state));
+        if let Some(t) = latest {
+            obj.insert("last_test".into(), test_json(t));
+            if !t.ok {
+                obj.insert("last_error".into(), json!(t.error));
+            }
+        }
     }
     let now = call.rt.now();
     let readings = call.rt.state.headroom.of(&p.name);
@@ -63,6 +78,18 @@ fn status(call: &Call, p: &ProviderRt) -> Value {
         "account_tier": account_tier,
         "rate_limits": latest,
         "credentials": credentials,
+        "tests": tests.iter().map(test_json).collect::<Vec<_>>(),
+    })
+}
+
+/// A credential test as the status shows it.
+fn test_json(t: &TestRecord) -> Value {
+    json!({
+        "key": t.key,
+        "ok": t.ok,
+        "method": t.method.as_str(),
+        "tested_at": t.at.to_rfc3339_seconds(),
+        "error": t.error,
     })
 }
 

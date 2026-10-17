@@ -68,6 +68,7 @@ mod playground;
 mod pressure;
 mod pricing;
 mod probes;
+mod provider_check;
 mod provider_ops;
 mod push;
 mod recost;

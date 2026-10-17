@@ -19,8 +19,8 @@ use crate::{
     access_requests, access_routes, analytics, budget_routes, budgets, cache, cache_routes, catalog,
     catalog_read, change_requests, danger_routes, delivery, device, document, export, guardtest, health,
     invitations, keys, logfeedback, logs, mcp, me, mfa, models, nodes, oidc, ops, playground, pressure,
-    pricing, provider_ops, push, recost, resources, role_bindings, runtime, safety_routes, saml, scim,
-    session, sessions, settings, simulate, spend, tail, testmode, users, views,
+    pricing, provider_check, provider_ops, push, recost, resources, role_bindings, runtime, safety_routes,
+    saml, scim, session, sessions, settings, simulate, spend, tail, testmode, users, views,
 };
 
 /// An operation's future, boxed where it is built.
@@ -182,8 +182,10 @@ fn runtime_state<'a>(call: &'a Call, segs: &'a [&'a str]) -> Option<Handled<'a>>
         ["routing", "tiers"] => done(models::tiers(call)),
         ["change_requests"] => Box::pin(change_requests::collection(call)),
         ["change_requests", segment] => Box::pin(change_requests::one(call, segment)),
+        ["providers:test"] => Box::pin(provider_check::test_unsaved(call)),
+        ["providers", name, "models"] => Box::pin(provider_check::models(call, name)),
         ["providers", action] if action.ends_with(":test") => {
-            Box::pin(provider_ops::test(call, action.trim_end_matches(":test")))
+            Box::pin(provider_check::test(call, action.trim_end_matches(":test")))
         }
         ["providers", action] if action.ends_with(":rotate_credential") => Box::pin(provider_ops::rotate(
             call,

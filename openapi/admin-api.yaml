@@ -10028,19 +10028,25 @@ paths:
     post:
       operationId: testProvider
       summary: Test a provider credential
+      description: >-
+        Without `deployment`, the credential is proven by listing the provider's models (`method: list_models`, with
+        `models` filled), or, for a type without a listing call, by the cheapest call that proves it (`minimal_call`);
+        neither needs a deployment. With `deployment`, that deployment's own call is made. The outcome is recorded per
+        key on the node that ran the test and shown by `GET /runtime/providers`.
       tags:
         - Providers and deployments
       parameters:
         - $ref: '#/components/parameters/ProviderName'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/ProviderTest'
       responses:
         '200':
-          description: OK.
+          description: >-
+            OK.
           headers:
             x-antirion-version:
               $ref: '#/components/headers/XAntirionVersion'
@@ -10065,6 +10071,109 @@ paths:
         '503':
           $ref: '#/components/responses/StoreUnavailable'
       x-antirion-permission: providers:write
+  /providers:test:
+    post:
+      operationId: testUnsavedProvider
+      summary: Test a provider before saving it
+      description: >-
+        Compiles `spec` as a create would (the same validation errors), runs the test of `POST /providers/{name}:test`
+        without a deployment and stores nothing. Secrets may be literal values or references. A `[REDACTED]` value
+        stands for the saved provider's secret and is accepted only when the spec keeps the saved provider's type and
+        base URL. When change control governs providers, only literal secrets are accepted. The audit entry records
+        the provider's name, type and outcome, never a secret.
+      tags:
+        - Providers and deployments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderCreate'
+      responses:
+        '200':
+          description: >-
+            OK.
+          headers:
+            x-antirion-version:
+              $ref: '#/components/headers/XAntirionVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderTestResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      x-antirion-permission: providers:write
+  /providers/{name}/models:
+    get:
+      operationId: listProviderModels
+      summary: List a provider's models
+      description: >-
+        The provider's own model list (`source: provider`, `listed_by_provider: true`), filled in with the catalog's
+        name, limits, modalities and price where the catalog knows a model. When the type has no listing call or the
+        listing fails, the catalog's models of the provider's type (`source: catalog`, `listed_by_provider: false`),
+        with `error` set when a listing call failed. A node keeps a provider's list for 5 minutes.
+      tags:
+        - Providers and deployments
+      parameters:
+        - $ref: '#/components/parameters/ProviderName'
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: >-
+            Fetch the list again instead of the one kept.
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            Case-insensitive substring of the model's id or name.
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            One model by its exact id, when the provider lists it or the catalog knows it; else no item.
+      responses:
+        '200':
+          description: >-
+            OK.
+          headers:
+            x-antirion-version:
+              $ref: '#/components/headers/XAntirionVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderModelList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      x-antirion-permission: providers:read
   /reports/alerts/{alert_id}/signal:
     get:
       operationId: getAlertSignal
@@ -22395,49 +22504,179 @@ components:
         - name
         - spec
         - metadata
+    ProviderModel:
+      type: object
+      description: A model of a provider. Prices are decimal strings in USD per million tokens.
+      properties:
+        id:
+          type: string
+        name:
+          type:
+            - string
+            - 'null'
+        listed_by_provider:
+          type: boolean
+          description: The provider's own model list has it; `false` for a model the catalog knows.
+        context_window:
+          type:
+            - integer
+            - 'null'
+        max_output_tokens:
+          type:
+            - integer
+            - 'null'
+        modalities:
+          oneOf:
+            - type: object
+              properties:
+                input:
+                  type: array
+                  items:
+                    type: string
+                output:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - input
+                - output
+            - type: 'null'
+        price:
+          oneOf:
+            - type: object
+              properties:
+                input:
+                  type: string
+                output:
+                  type: string
+                cache_read:
+                  type:
+                    - string
+                    - 'null'
+                cache_write:
+                  type:
+                    - string
+                    - 'null'
+              required:
+                - input
+                - output
+                - cache_read
+                - cache_write
+            - type: 'null'
+        price_source:
+          oneOf:
+            - enum:
+                - catalog
+            - type: 'null'
+        release_date:
+          type:
+            - string
+            - 'null'
+      required:
+        - id
+        - name
+        - listed_by_provider
+        - context_window
+        - max_output_tokens
+        - modalities
+        - price
+        - price_source
+        - release_date
+    ProviderModelList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderModel'
+        source:
+          enum:
+            - provider
+            - catalog
+        fetched_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+          description: When the provider's list was fetched; `null` for the catalog's.
+        error:
+          type:
+            - string
+            - 'null'
+          description: Why the provider's list could not be read, when a listing call failed.
+      required:
+        - items
+        - source
+        - fetched_at
+        - error
     ProviderTestResult:
       type: object
       description: A provider credential test.
       properties:
         ok:
           type: boolean
+        method:
+          enum:
+            - list_models
+            - minimal_call
         status_code:
           type:
             - integer
             - 'null'
+          description: The provider's last status; `null` when it did not answer.
         latency_ms:
+          type: number
+        error:
           type:
-            - number
+            - string
             - 'null'
+          description: Why the test failed, scrubbed of the provider's secrets.
+        models:
+          oneOf:
+            - type: array
+              items:
+                $ref: '#/components/schemas/ProviderModel'
+            - type: 'null'
+          description: The provider's models, when listing them worked.
+        tested_at:
+          $ref: '#/components/schemas/Timestamp'
         upstream_request_id:
           type:
             - string
             - 'null'
-        error:
-          oneOf:
-            - type: object
-              properties:
-                class:
-                  enum:
-                    - auth
-                    - not_found
-                    - timeout
-                    - rate_limited
-                    - server_error
-                    - caller_error
-                    - connect
-                    - config
-                message:
-                  type: string
-              required:
-                - class
-                - message
-            - type: 'null'
       required:
         - ok
+        - method
         - status_code
         - latency_ms
-        - upstream_request_id
+        - error
+        - models
+        - tested_at
+    ProviderKeyTest:
+      type: object
+      description: The latest credential test of one key on this node.
+      properties:
+        key:
+          type:
+            - string
+            - 'null'
+          description: The key's name (`default` for `auth.api_key`); `null` for a method without named keys.
+        ok:
+          type: boolean
+        method:
+          enum:
+            - list_models
+            - minimal_call
+        tested_at:
+          $ref: '#/components/schemas/Timestamp'
+        error:
+          type:
+            - string
+            - 'null'
+      required:
+        - key
+        - ok
+        - method
+        - tested_at
         - error
     ProviderStatus:
       type: object
@@ -22484,10 +22723,19 @@ components:
               type:
                 - string
                 - 'null'
-              description: Scrubbed; never the secret.
+              description: Scrubbed; never the secret. The latest test's error when it failed.
+            last_test:
+              $ref: '#/components/schemas/ProviderKeyTest'
+              description: The latest credential test on this node, of any key. A failed test sets `state` to
+                `failed`; a test that worked sets it to `valid` unless the access token's own state says otherwise.
           required:
             - method
             - state
+        tests:
+          type: array
+          description: The latest credential test of each key on this node.
+          items:
+            $ref: '#/components/schemas/ProviderKeyTest'
         credentials:
           type: array
           description: The last rate-limit reading of each credential that reported one; `rate_limits` is the most recent
@@ -23179,7 +23427,8 @@ components:
           $ref: '#/components/schemas/NextCursor'
         unmatched:
           description: >-
-            What the route does with a request its root's rules do not match, `error` when a root without a default answers
+            What the route does with a request its root's rules do not match, `error` when a root without a default
+            answers
             400 `no_route_matched`, `default` for the root's default target, `none` when the root is not a rule list.
           enum:
             - error
