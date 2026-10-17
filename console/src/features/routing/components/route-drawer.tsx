@@ -177,7 +177,7 @@ export function NewRouteDrawer({
           error={errors.routeName}
           hint="Models name it to send their requests here. It can’t change later."
         >
-          <Input mono value={name} onChange={(e) => setName(e.target.value)} placeholder="support" />
+          <Input mono value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Sends requests">
           <Segmented<RootKind>
@@ -405,12 +405,7 @@ export function RouteSettingsDrawer({ route, onClose }: { route: RouteResource; 
                 error={errors.sources}
                 hint="header:<name> or body:<path>, in order. Empty: the gateway’s list."
               >
-                <ListInput
-                  noun="place"
-                  placeholder="header:x-session-id"
-                  value={v.sources}
-                  onChange={(sources) => put({ sources })}
-                />
+                <ListInput noun="place" value={v.sources} onChange={(sources) => put({ sources })} />
               </Field>
               {v.mode === 'prefer' ? (
                 <Switch
@@ -437,7 +432,7 @@ export function RouteSettingsDrawer({ route, onClose }: { route: RouteResource; 
                   error={errors.ttl}
                   hint="1s to 30d. Empty: the gateway’s, 1h unless set."
                 >
-                  <Input mono value={v.ttl} placeholder="1h" onChange={(e) => put({ ttl: e.target.value })} />
+                  <Input mono value={v.ttl} onChange={(e) => put({ ttl: e.target.value })} />
                 </Field>
               </div>
             </>

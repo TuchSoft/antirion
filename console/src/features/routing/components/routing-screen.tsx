@@ -795,7 +795,7 @@ export function RoutingScreen() {
                 ) : (
                   <span>the route&apos;s default</span>
                 )}
-                {canEdit && reach?.models?.length !== 0 ? (
+                {canEdit ? (
                   <Button
                     size="sm"
                     variant="ghost"
