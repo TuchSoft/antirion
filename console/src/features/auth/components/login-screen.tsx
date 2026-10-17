@@ -11,10 +11,12 @@ import { formatRelative } from '@/lib/time';
 import { useSession } from '@/stores/session';
 import { LAST_ORGANIZATION_KEY } from '@/stores/scope';
 
+import { callbackError } from '../callback-error';
 import { safeNext } from '../next';
 import { useLogin } from '../store';
 import { EnrollStep, ForgotStep, MfaStep, RecoveryCodesStep, ResetStep } from './login-steps';
 import { CliStep } from './cli-step';
+import { ErrorStrip } from './parts';
 import { MethodsStep, OrganizationStep, TokenStep } from './login-methods';
 
 /**
@@ -130,8 +132,10 @@ export function LoginScreen({ entry }: { entry?: 'reset' | 'invitation' } = {}) 
   const onlyToken = options?.methods.every((m) => m.type === 'token') ?? false;
   // No account exists yet: only the bootstrap token can sign in, so the page opens on it.
   const setup = options?.setup_required ?? false;
-  const showExpired =
-    expired !== null && (step.kind === 'start' || step.kind === 'methods' || step.kind === 'token');
+  const atStart = step.kind === 'start' || step.kind === 'methods' || step.kind === 'token';
+  // A single sign-on that failed comes back here as ?error=<code>&message=<text>.
+  const failed = atStart ? callbackError(params.get('error'), params.get('message')) : null;
+  const showExpired = expired !== null && atStart && failed === null;
 
   return (
     <Frame
@@ -142,6 +146,11 @@ export function LoginScreen({ entry }: { entry?: 'reset' | 'invitation' } = {}) 
         </>
       }
     >
+      {failed ? (
+        <div className="mb-5">
+          <ErrorStrip message={failed.title} detail={failed.detail} />
+        </div>
+      ) : null}
       {showExpired ? (
         <p
           role="status"

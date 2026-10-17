@@ -7,7 +7,7 @@ import { Icon, type IconName } from '@/components/ui/icon';
 import { cn } from '@/lib/cn';
 
 /** One message for a failed step, in plain words, announced to assistive technology. */
-export function ErrorStrip({ message }: { message: string | null }) {
+export function ErrorStrip({ message, detail }: { message: string | null; detail?: string }) {
   if (!message) return null;
   return (
     <p
@@ -17,7 +17,10 @@ export function ErrorStrip({ message }: { message: string | null }) {
       <span className="mt-px shrink-0 text-error">
         <Icon name="alert" size={14} />
       </span>
-      <span>{message}</span>
+      <span>
+        {message}
+        {detail ? <span className="mt-0.5 block text-caption text-muted">{detail}</span> : null}
+      </span>
     </p>
   );
 }
