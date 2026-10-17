@@ -281,7 +281,7 @@ fn catalog(args: Vec<String>) -> anyhow::Result<()> {
     let snapshot = data.to_snapshot();
     let path = root().join(SNAPSHOT);
     std::fs::write(&path, &snapshot).with_context(|| format!("cannot write {}", path.display()))?;
-    println!(
+    eprintln!(
         "{SNAPSHOT}: {} models, {} bytes, dated {date}",
         data.len(),
         snapshot.len()
