@@ -155,12 +155,14 @@ pub(crate) async fn ledger(call: &Call) -> Result<Response, AdminError> {
     page(call, "spend_ledger", &lines)
 }
 
-/// `GET /reports/spend/summary?group_by=<attrs>`.
+/// `GET /reports/spend/summary?group_by=<attrs>`, over the lines the ledger's filters select.
 pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
     if call.method != Method::GET {
         return Err(AdminError::method_not_allowed("GET"));
     }
-    call.allow_params(&["limit", "cursor", "from", "to", "group_by"])?;
+    let mut allowed = vec!["limit", "cursor", "from", "to", "group_by"];
+    allowed.extend(FILTERS);
+    call.allow_params(&allowed)?;
     require_any(call)?;
     let group_by: Vec<String> = call
         .param("group_by")
@@ -175,11 +177,7 @@ pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
             "group_by: unknown attribute {bad:?}"
         )));
     }
-    let f = LedgerFilter {
-        from: time_param(call, "from")?,
-        to: time_param(call, "to")?,
-        ..LedgerFilter::default()
-    };
+    let f = filter(call)?;
     let lines: Vec<Arc<LedgerLine>> = call
         .rt
         .spend_lines(&f)

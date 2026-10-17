@@ -10585,6 +10585,8 @@ paths:
     get:
       operationId: getSpendSummary
       summary: Aggregated spend
+      description: The lines summed are the ones `GET /reports/spend/ledger` lists with the same filters, so a total
+        matches the filtered ledger whatever was loaded of it.
       tags:
         - Limits, budgets and spend
       parameters:
@@ -10593,6 +10595,16 @@ paths:
         - $ref: '#/components/parameters/GroupBy'
         - $ref: '#/components/parameters/From'
         - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/Ledger_organization'
+        - $ref: '#/components/parameters/Ledger_team'
+        - $ref: '#/components/parameters/Ledger_project'
+        - $ref: '#/components/parameters/Ledger_key'
+        - $ref: '#/components/parameters/Ledger_user'
+        - $ref: '#/components/parameters/Ledger_end_user'
+        - $ref: '#/components/parameters/Ledger_model'
+        - $ref: '#/components/parameters/Ledger_deployment'
+        - $ref: '#/components/parameters/Ledger_tag'
+        - $ref: '#/components/parameters/Ledger_status'
       responses:
         '200':
           description: One row per group.

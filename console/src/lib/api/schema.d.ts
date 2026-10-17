@@ -20648,6 +20648,16 @@ export interface operations {
                 group_by?: components["parameters"]["GroupBy"];
                 from?: components["parameters"]["From"];
                 to?: components["parameters"]["To"];
+                organization?: components["parameters"]["Ledger_organization"];
+                team?: components["parameters"]["Ledger_team"];
+                project?: components["parameters"]["Ledger_project"];
+                key?: components["parameters"]["Ledger_key"];
+                user?: components["parameters"]["Ledger_user"];
+                end_user?: components["parameters"]["Ledger_end_user"];
+                model?: components["parameters"]["Ledger_model"];
+                deployment?: components["parameters"]["Ledger_deployment"];
+                tag?: components["parameters"]["Ledger_tag"];
+                status?: components["parameters"]["Ledger_status"];
             };
             header?: never;
             path?: never;
