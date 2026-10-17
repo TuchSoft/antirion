@@ -38,6 +38,7 @@ import {
   TYPE_LABEL,
 } from '../form';
 import { usePlugins } from '../store';
+import { AttachedTo } from './attached-to';
 import { describeError } from '@/lib/api/client';
 import { useEdited } from '@/lib/hooks';
 
@@ -117,9 +118,10 @@ function PluginView({ plugin }: { plugin: PluginResource }) {
               : attached
                 ? 'Attached: it runs on every request. '
                 : 'Not attached at the gateway level. '}
-            An organization, team, project, key, Model or route can attach or detach it in its own policies,
-            under plugins.
+            An organization, team, project, key, Model or route can also attach it, or detach it, in its own
+            policies.
           </p>
+          <AttachedTo name={plugin.name} />
         </div>
       </Section>
       <Section title="Settings">

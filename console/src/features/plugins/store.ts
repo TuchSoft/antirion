@@ -7,6 +7,10 @@ import {
   type PluginResource,
   type PluginRuntime,
   type PluginSpec,
+  listOwners,
+  type Owner,
+  type OwnerKind,
+  patchOwnerAttach,
   pluginsApi,
   type PoliciesSettings,
 } from './api';
@@ -15,6 +19,11 @@ interface PluginsState {
   plugins: Slot<PluginResource[]>;
   runtime: Slot<PluginRuntime[]>;
   policies: Slot<PoliciesSettings>;
+  /** The levels below the gateway, with what their policies attach and detach. */
+  owners: Slot<Owner[]>;
+  loadOwners: (kinds: OwnerKind[], options?: { quiet?: boolean }) => Promise<void>;
+  /** Attaches a plugin at one level, or takes it off that level's attach list. */
+  attachAt: (owner: Owner, name: string, attached: boolean) => Promise<void>;
   load: (options?: { quiet?: boolean }) => Promise<void>;
   save: (name: string, spec: PluginSpec, existing: PluginResource | null) => Promise<void>;
   setEnabled: (name: string, enabled: boolean) => Promise<void>;
@@ -27,6 +36,26 @@ export const usePlugins = create<PluginsState>()((set, get) => ({
   plugins: emptySlot(),
   runtime: emptySlot(),
   policies: emptySlot(),
+  owners: emptySlot(),
+
+  async loadOwners(kinds, options) {
+    await loadSlot(set, get, 'owners', () => listOwners(kinds), options);
+  },
+
+  async attachAt(owner, name, attached) {
+    const has = owner.attach.some((a) => attachmentName(a) === name);
+    if (has === attached) return;
+    const next = attached ? [...owner.attach, name] : owner.attach.filter((a) => attachmentName(a) !== name);
+    const updated = await patchOwnerAttach(owner, next);
+    set((s) => ({
+      owners: {
+        ...s.owners,
+        data: (s.owners.data ?? []).map((o) =>
+          o.kind === owner.kind && o.name === owner.name ? updated : o,
+        ),
+      },
+    }));
+  },
 
   async load(options) {
     await Promise.all([
