@@ -152,6 +152,76 @@ describe('budget form', () => {
     expect(stored.hardCap).toBe('');
     expect(toDeclarations({ ...stored, amount: '600' }, stored)).not.toHaveProperty('monthly_cap');
   });
+  it('changes the Models covered and keeps the other match lists', () => {
+    const decl = {
+      unit: 'usd',
+      amount: '50',
+      period: 'monthly',
+      match: { models: ['gpt-*'], tags: ['env:prod'], mcp_servers: ['github'] },
+    };
+    const stored = fromDeclaration('team', 'core', 'monthly', decl, undefined);
+    const patch = toDeclarations(
+      { ...stored, matchModels: ['claude-*'], excludeModels: ['claude-3*'] },
+      stored,
+    );
+    expect(mergePatch({ monthly: decl }, patch)).toEqual({
+      monthly: {
+        ...decl,
+        match: { models: ['claude-*'], tags: ['env:prod'], mcp_servers: ['github'] },
+        exclude: { models: ['claude-3*'] },
+      },
+    });
+  });
+  it('splits a budget, and drops the amounts of the old split when it changes', () => {
+    const created = toDeclarations({
+      ...EMPTY_BUDGET,
+      owner: 'core',
+      amount: '5',
+      partitionBy: ['tag:customer'],
+      onMissing: 'reject',
+    }).monthly;
+    expect(created).toMatchObject({ partition_by: ['tag:customer'], on_missing: 'reject' });
+    expect(created).not.toHaveProperty('match');
+    const decl = {
+      unit: 'usd',
+      amount: '5',
+      period: 'monthly',
+      partition_by: ['user'],
+      overrides: { ada: '9' },
+    };
+    const stored = fromDeclaration('organization', 'acme', 'monthly', decl, undefined);
+    expect(toDeclarations({ ...stored, partitionBy: ['key'] }, stored).monthly).toEqual({
+      partition_by: ['key'],
+      overrides: null,
+    });
+    expect(budgetSchema.safeParse({ ...stored, owner: 'acme', partitionBy: ['tag:'] }).success).toBe(false);
+  });
+  it('writes the time zone, week start and store choices', () => {
+    const stored = fromDeclaration(
+      'team',
+      'core',
+      'w',
+      { unit: 'usd', amount: '5', period: 'weekly' },
+      undefined,
+    );
+    expect(
+      toDeclarations(
+        {
+          ...stored,
+          timezone: 'America/Sao_Paulo',
+          weekStart: 'sunday',
+          onStoreUnavailable: 'fail_closed',
+          allowAboveParent: true,
+        },
+        stored,
+      ).w,
+    ).toEqual({
+      timezone: 'America/Sao_Paulo',
+      week_start: 'sunday',
+      on_store_unavailable: 'fail_closed',
+      allow_above_parent: true,
+    });
+  });
   it('writes only what changed, so a saved budget keeps every member as stored', () => {
     const decl = {
       unit: 'tokens',

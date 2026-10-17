@@ -41,7 +41,50 @@ export interface BudgetFormValues {
   downgradeTier: string;
   /** `cache_hits_bypass_budgets`: a request this budget refuses may still be served from the cache. */
   cacheBypass: boolean;
+  /** `match` / `exclude`: the Models (globs), request tags (globs) and endpoints the budget counts. */
+  matchModels: string[];
+  excludeModels: string[];
+  matchTags: string[];
+  excludeTags: string[];
+  matchEndpoints: string[];
+  excludeEndpoints: string[];
+  /** `partition_by`: one amount per value of these attributes; empty for one shared amount. */
+  partitionBy: string[];
+  /** `on_missing`: what a request without a value of the split counts in. */
+  onMissing: 'shared' | 'skip' | 'reject';
+  /** Calendar periods: the zone the period starts in; empty for UTC. */
+  timezone: string;
+  /** Weekly periods: the day a week starts; empty for Monday. */
+  weekStart: string;
+  /** `on_store_unavailable`: empty for the gateway's default. */
+  onStoreUnavailable: '' | 'fail_closed' | 'local_share';
+  /** `allow_above_parent`: the amount may exceed the budget it sits in. */
+  allowAboveParent: boolean;
 }
+
+/** The endpoints a budget can be limited to (`Match.endpoints`). */
+export const BUDGET_ENDPOINTS = [
+  'chat_completions',
+  'responses',
+  'messages',
+  'completions',
+  'embeddings',
+  'images',
+  'audio',
+  'moderations',
+  'rerank',
+  'files',
+  'batches',
+  'realtime',
+  'count_tokens',
+  'models',
+  'gemini',
+  'bedrock',
+] as const;
+
+/** The attributes a budget is split by (`tag:<name>` splits by one tag's value). */
+const PARTITION =
+  /^(key|project|team|organization|user|end_user|model|ip|endpoint|mcp_server|mcp_tool|a2a_agent|tag:[A-Za-z0-9:_.-]{1,64})$/;
 
 export const EMPTY_BUDGET: BudgetFormValues = {
   level: 'team',
@@ -61,6 +104,18 @@ export const EMPTY_BUDGET: BudgetFormValues = {
   downgradeModel: '',
   downgradeTier: 'fast',
   cacheBypass: false,
+  matchModels: [],
+  excludeModels: [],
+  matchTags: [],
+  excludeTags: [],
+  matchEndpoints: [],
+  excludeEndpoints: [],
+  partitionBy: [],
+  onMissing: 'shared',
+  timezone: '',
+  weekStart: '',
+  onStoreUnavailable: '',
+  allowAboveParent: false,
 };
 
 const percentList = z
@@ -104,6 +159,26 @@ export const budgetSchema = z
     downgradeModel: z.string(),
     downgradeTier: z.string(),
     cacheBypass: z.boolean(),
+    matchModels: z.array(z.string()),
+    excludeModels: z.array(z.string()),
+    matchTags: z.array(z.string()),
+    excludeTags: z.array(z.string()),
+    matchEndpoints: z.array(z.string()),
+    excludeEndpoints: z.array(z.string()),
+    partitionBy: z.array(z.string()),
+    onMissing: z.enum(['shared', 'skip', 'reject']),
+    timezone: z.string().trim(),
+    weekStart: z.string(),
+    onStoreUnavailable: z.enum(['', 'fail_closed', 'local_share']),
+    allowAboveParent: z.boolean(),
+  })
+  .refine((v) => v.partitionBy.every((p) => PARTITION.test(p)), {
+    path: ['partitionBy'],
+    message: 'Name the tag to split by: letters, digits and :_.-',
+  })
+  .refine((v) => v.timezone === '' || /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(v.timezone), {
+    path: ['timezone'],
+    message: 'A time zone such as Europe/Lisbon',
   })
   .refine((v) => v.level !== 'gateway' || v.owner === GATEWAY_OWNER, { path: ['owner'] })
   .refine((v) => ['gateway', 'model'].includes(v.level) || resourceName.safeParse(v.owner).success, {
@@ -185,6 +260,24 @@ export function toDeclarations(
   }
   if (changed('budgetOwner')) base.owner = v.budgetOwner ? v.budgetOwner : null;
   if (changed('cacheBypass')) base.cache_hits_bypass_budgets = v.cacheBypass ? true : null;
+  // A merge patch of `match` changes only the lists the drawer shows; MCP and agent lists stay.
+  if (changed('matchModels', 'matchTags', 'matchEndpoints'))
+    base.match = matchPatch(v.matchModels, v.matchTags, v.matchEndpoints, Boolean(pristine));
+  if (changed('excludeModels', 'excludeTags', 'excludeEndpoints'))
+    base.exclude = matchPatch(v.excludeModels, v.excludeTags, v.excludeEndpoints, Boolean(pristine));
+  if (base.match === undefined) delete base.match;
+  if (base.exclude === undefined) delete base.exclude;
+  if (changed('partitionBy')) {
+    base.partition_by = listOrNull(v.partitionBy);
+    // Amounts of their own belong to the values of the old split.
+    if (pristine) base.overrides = null;
+  }
+  if (changed('onMissing') && (v.partitionBy.length > 0 || pristine))
+    base.on_missing = v.onMissing === 'shared' ? null : v.onMissing;
+  if (changed('timezone') && !rolling && v.period !== 'lifetime') base.timezone = v.timezone.trim() || null;
+  if (changed('weekStart', 'period') && v.period === 'weekly') base.week_start = v.weekStart || null;
+  if (changed('onStoreUnavailable')) base.on_store_unavailable = v.onStoreUnavailable || null;
+  if (changed('allowAboveParent')) base.allow_above_parent = v.allowAboveParent ? true : null;
   const out: Record<string, Record<string, unknown> | null> = { [v.name]: base };
   const capName = capNameOf(v.name);
   if (v.hardCap) {
@@ -204,6 +297,21 @@ export function toDeclarations(
     out[capName] = null;
   }
   return out;
+}
+
+/** The `match` or `exclude` patch; a new budget that matches everything states none. */
+function matchPatch(
+  models: string[],
+  tags: string[],
+  endpoints: string[],
+  stored: boolean,
+): Record<string, string[] | null> | undefined {
+  const patch = { models: listOrNull(models), tags: listOrNull(tags), endpoints: listOrNull(endpoints) };
+  return stored || Object.values(patch).some((l) => l !== null) ? patch : undefined;
+}
+
+function listOrNull(list: string[]): string[] | null {
+  return list.length > 0 ? list : null;
 }
 
 /** The name of a budget's hard twin. */
@@ -277,6 +385,8 @@ export function fromDeclaration(
   const capAmount =
     twin && (typeof twin.amount === 'string' || typeof twin.amount === 'number') ? Number(twin.amount) : null;
   const period = typeof d.period === 'string' ? d.period : 'monthly';
+  const match = (d.match ?? {}) as Record<string, unknown>;
+  const exclude = (d.exclude ?? {}) as Record<string, unknown>;
   const rolling = d.algorithm === 'sliding_window' || !PERIODS.includes(period);
   return {
     level,
@@ -302,7 +412,26 @@ export function fromDeclaration(
     downgradeModel: downgrade?.to_model ?? '',
     downgradeTier: downgrade?.to_tier ?? 'fast',
     cacheBypass: d.cache_hits_bypass_budgets === true,
+    matchModels: listOf(match.models),
+    excludeModels: listOf(exclude.models),
+    matchTags: listOf(match.tags),
+    excludeTags: listOf(exclude.tags),
+    matchEndpoints: listOf(match.endpoints),
+    excludeEndpoints: listOf(exclude.endpoints),
+    partitionBy: listOf(d.partition_by),
+    onMissing: d.on_missing === 'skip' || d.on_missing === 'reject' ? d.on_missing : 'shared',
+    timezone: typeof d.timezone === 'string' ? d.timezone : '',
+    weekStart: typeof d.week_start === 'string' ? d.week_start : '',
+    onStoreUnavailable:
+      d.on_store_unavailable === 'fail_closed' || d.on_store_unavailable === 'local_share'
+        ? d.on_store_unavailable
+        : '',
+    allowAboveParent: d.allow_above_parent === true,
   };
+}
+
+function listOf(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
 /** The Models a declaration covers, in words ("All Models", "gpt-4o*, claude-*", "All but …"). */

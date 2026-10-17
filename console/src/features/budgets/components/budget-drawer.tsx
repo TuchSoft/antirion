@@ -29,6 +29,7 @@ import {
   type BudgetFormValues,
   type BudgetUnit,
   type Enforcement,
+  BUDGET_ENDPOINTS,
   budgetPath,
   EMPTY_BUDGET,
   fromDeclaration,
@@ -101,6 +102,45 @@ const LEVELS = [
 ] as const;
 
 const DAY = 86_400_000;
+
+const SPLITS = [
+  { value: '', label: 'Nothing: one amount for all' },
+  { value: 'user', label: 'Each person' },
+  { value: 'end_user', label: 'Each end user' },
+  { value: 'key', label: 'Each key' },
+  { value: 'project', label: 'Each project' },
+  { value: 'team', label: 'Each team' },
+  { value: 'model', label: 'Each Model' },
+  { value: 'tag', label: 'Each value of a tag' },
+];
+
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+const ADVANCED_FIELDS = [
+  'name',
+  'matchTags',
+  'excludeTags',
+  'matchEndpoints',
+  'excludeEndpoints',
+  'timezone',
+] as const;
+
+/** The split choice a `partition_by` list shows as: one of SPLITS, or `kept` for any other list. */
+function splitChoice(partitionBy: string[]): string {
+  const [first, ...rest] = partitionBy;
+  if (first === undefined) return '';
+  if (rest.length > 0) return 'kept';
+  if (first.startsWith('tag:')) return 'tag';
+  return SPLITS.some((s) => s.value === first) ? first : 'kept';
+}
+
+/** The `partition_by` list a split choice writes; `kept` keeps the stored one. */
+function splitOf(choice: string, stored: string[]): string[] {
+  if (choice === '') return [];
+  if (choice === 'kept') return stored;
+  if (choice === 'tag') return stored[0]?.startsWith('tag:') ? [stored[0]] : ['tag:'];
+  return [choice];
+}
 
 /** "an" before a vowel sound, else "a". */
 function article(word: string): string {
@@ -309,7 +349,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
     const result = validate(budgetSchema, values);
     if (!result.ok) {
       setErrors(result.errors);
-      if (result.errors.name) setAdvanced(true);
+      if (ADVANCED_FIELDS.some((f) => result.errors[f])) setAdvanced(true);
       return;
     }
     setErrors({});
@@ -341,6 +381,20 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
               : keys.map((k) => k.name);
 
   const levelLabel = LEVEL_LABEL[values.level] ?? 'Owner';
+  const split = splitChoice(values.partitionBy);
+  const overridesDropped =
+    stored !== undefined &&
+    Object.keys(decl?.overrides ?? {}).length > 0 &&
+    JSON.stringify(values.partitionBy) !== JSON.stringify(stored.partitionBy);
+  const advancedSet =
+    values.matchTags.length +
+    values.excludeTags.length +
+    values.matchEndpoints.length +
+    values.excludeEndpoints.length +
+    (values.timezone ? 1 : 0) +
+    (values.weekStart ? 1 : 0) +
+    (values.onStoreUnavailable ? 1 : 0) +
+    (values.allowAboveParent ? 1 : 0);
   // "Model" keeps its capital; the other levels read in lower case.
   const ownerNoun = values.level === 'model' ? levelLabel : levelLabel.toLowerCase();
   const amountError = errors.amount
@@ -542,6 +596,79 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 )}
               </div>
             )}
+            <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+              <Field
+                label="Only these Models"
+                optional
+                hint="Leave blank to count every Model. Use * as a wildcard, e.g. gpt-4o*."
+              >
+                <MultiSelect
+                  mono
+                  creatable
+                  noun="Model"
+                  placeholder="All Models"
+                  options={models.map((m) => modelOption(m))}
+                  value={values.matchModels}
+                  onChange={(v) => set('matchModels', v)}
+                />
+              </Field>
+              <Field label="Not these Models" optional hint="Requests to these Models aren't counted.">
+                <MultiSelect
+                  mono
+                  creatable
+                  noun="Model"
+                  placeholder="None"
+                  options={models.map((m) => modelOption(m))}
+                  value={values.excludeModels}
+                  onChange={(v) => set('excludeModels', v)}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+              <Field
+                label="Split by"
+                error={split === 'tag' ? undefined : errors.partitionBy}
+                hint={
+                  overridesDropped
+                    ? 'The amounts set for single values of the current split are removed.'
+                    : 'Each value gets the whole amount; set one its own amount from its row.'
+                }
+              >
+                <Select
+                  value={split}
+                  onChange={(v) => set('partitionBy', splitOf(v, stored?.partitionBy ?? []))}
+                  options={[
+                    ...SPLITS,
+                    ...(split === 'kept'
+                      ? [{ value: 'kept', label: `As declared (${values.partitionBy.join(', ')})` }]
+                      : []),
+                  ]}
+                />
+              </Field>
+              {split === 'tag' ? (
+                <Field label="Tag" required error={errors.partitionBy}>
+                  <Input
+                    mono
+                    value={values.partitionBy[0]?.slice(4) ?? ''}
+                    onChange={(e) => set('partitionBy', [`tag:${e.target.value.trim()}`])}
+                    placeholder="e.g. customer"
+                  />
+                </Field>
+              ) : null}
+              {values.partitionBy.length > 0 ? (
+                <Field label="A request without a value">
+                  <Select
+                    value={values.onMissing}
+                    onChange={(v) => set('onMissing', v as BudgetFormValues['onMissing'])}
+                    options={[
+                      { value: 'shared', label: 'Counts in one shared amount' },
+                      { value: 'skip', label: "Isn't counted" },
+                      { value: 'reject', label: 'Is refused' },
+                    ]}
+                  />
+                </Field>
+              ) : null}
+            </div>
             {row ? null : (
               <div className="flex flex-col gap-1.5">
                 <span className="text-ui font-medium text-fg">Counts</span>
@@ -726,7 +853,7 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
             {whatIf.crossesCap ? '' : whatIf.crossesAlert ? ' It will cross an alert threshold.' : ''}
           </p>
         ) : null}
-        {row ? null : (
+        {partition ? null : (
           <div className="flex flex-col gap-3 border-t border-line pt-4">
             <button
               type="button"
@@ -740,16 +867,117 @@ export function BudgetDrawer({ row, parent, enforcement, onClose }: BudgetDrawer
                 className={cn('text-muted transition-transform', advanced && 'rotate-90')}
               />
               <span className="text-ui font-semibold text-fg">Advanced</span>
-              <span className="text-caption text-muted">Budget name</span>
+              <span className="text-caption text-muted">
+                {advancedSet > 0
+                  ? `${plural(advancedSet, 'setting')} on`
+                  : `${row ? '' : 'Budget name, '}${row ? 'Request tags' : 'request tags'}, endpoints, time zone and when the store is down`}
+              </span>
             </button>
             {advanced ? (
-              <Field
-                label="Name"
-                error={errors.name ? 'Use lowercase letters, numbers and _' : undefined}
-                hint="Tells budgets on the same owner apart."
-              >
-                <Input mono value={values.name} onChange={(e) => set('name', e.target.value)} />
-              </Field>
+              <div className="flex flex-col gap-4">
+                {row ? null : (
+                  <Field
+                    label="Name"
+                    error={errors.name ? 'Use lowercase letters, numbers and _' : undefined}
+                    hint="Tells budgets on the same owner apart."
+                  >
+                    <Input mono value={values.name} onChange={(e) => set('name', e.target.value)} />
+                  </Field>
+                )}
+                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+                  <Field label="Only requests tagged" optional hint="Use * as a wildcard, e.g. env:*.">
+                    <MultiSelect
+                      mono
+                      creatable
+                      noun="tag"
+                      placeholder="Any tags"
+                      options={[]}
+                      value={values.matchTags}
+                      onChange={(v) => set('matchTags', v)}
+                    />
+                  </Field>
+                  <Field label="Not requests tagged" optional>
+                    <MultiSelect
+                      mono
+                      creatable
+                      noun="tag"
+                      placeholder="None"
+                      options={[]}
+                      value={values.excludeTags}
+                      onChange={(v) => set('excludeTags', v)}
+                    />
+                  </Field>
+                  <Field label="Only these endpoints" optional>
+                    <MultiSelect
+                      mono
+                      noun="endpoint"
+                      placeholder="All endpoints"
+                      options={BUDGET_ENDPOINTS.map((e) => ({ value: e, label: e }))}
+                      value={values.matchEndpoints}
+                      onChange={(v) => set('matchEndpoints', v)}
+                    />
+                  </Field>
+                  <Field label="Not these endpoints" optional>
+                    <MultiSelect
+                      mono
+                      noun="endpoint"
+                      placeholder="None"
+                      options={BUDGET_ENDPOINTS.map((e) => ({ value: e, label: e }))}
+                      value={values.excludeEndpoints}
+                      onChange={(v) => set('excludeEndpoints', v)}
+                    />
+                  </Field>
+                </div>
+                {values.period !== 'rolling' && values.period !== 'lifetime' ? (
+                  <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+                    <Field
+                      label="Time zone"
+                      optional
+                      error={errors.timezone}
+                      hint="Where the period starts at midnight. Blank for UTC."
+                    >
+                      <Input
+                        mono
+                        value={values.timezone}
+                        onChange={(e) => set('timezone', e.target.value)}
+                        placeholder="UTC"
+                      />
+                    </Field>
+                    {values.period === 'weekly' ? (
+                      <Field label="Weeks start on">
+                        <Select
+                          value={values.weekStart || 'monday'}
+                          onChange={(v) => set('weekStart', v === 'monday' && !stored?.weekStart ? '' : v)}
+                          options={WEEKDAYS.map((d) => ({
+                            value: d,
+                            label: d.charAt(0).toUpperCase() + d.slice(1),
+                          }))}
+                        />
+                      </Field>
+                    ) : null}
+                  </div>
+                ) : null}
+                <Field
+                  label="If the budget store can't be reached"
+                  hint="With several gateway nodes, spend is counted in a shared store."
+                >
+                  <Select
+                    value={values.onStoreUnavailable}
+                    onChange={(v) => set('onStoreUnavailable', v as BudgetFormValues['onStoreUnavailable'])}
+                    options={[
+                      { value: '', label: "The gateway's default" },
+                      { value: 'fail_closed', label: 'Refuse the requests this budget counts' },
+                      { value: 'local_share', label: 'Count on each node, against its share' },
+                    ]}
+                  />
+                </Field>
+                <Checkbox
+                  checked={values.allowAboveParent}
+                  onChange={(v) => set('allowAboveParent', v)}
+                  label="May be larger than the budget it sits in"
+                  description="Without this, the gateway refuses an amount above the parent's."
+                />
+              </div>
             ) : null}
           </div>
         )}
