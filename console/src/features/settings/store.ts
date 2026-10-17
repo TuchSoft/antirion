@@ -269,6 +269,8 @@ interface OrgSettingsState {
     reason?: string,
   ) => Promise<void>;
   loadSettings: () => Promise<void>;
+  /** Only `observability`, for pages that need nothing else. */
+  loadObservability: () => Promise<void>;
   saveAuth: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
   saveObservability: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
   saveSecurity: (spec: Record<string, unknown>, reason?: string) => Promise<void>;
@@ -301,6 +303,7 @@ export const useOrgSettings = create<OrgSettingsState>()((set, get) => ({
       loadSlot(set, get, 'security', settingsApi.securitySettings),
     ]);
   },
+  loadObservability: () => loadSlot(set, get, 'observability', settingsApi.observabilitySettings),
   async saveAuth(spec, reason) {
     await settingsApi.patchAuthSettings(spec, get().auth.data?.metadata.etag, reason);
     await loadSlot(set, get, 'auth', settingsApi.authSettings, { quiet: true });

@@ -8,7 +8,8 @@ import { server } from '@/mocks/node';
 import { signInAs } from '@/test/utils';
 
 import { ConfigSection } from '../components/config-section';
-import { useConfigDoc, useGatewaySettings } from '../store';
+import { ObjectivesSection } from '../components/objectives-section';
+import { useConfigDoc, useGatewaySettings, useOrgSettings } from '../store';
 
 const meta = { etag: '"7"', generation: 7, created_at: null, updated_at: null, managed_by: 'api' };
 const list = (items: unknown[]) => HttpResponse.json({ items, next_cursor: null });
@@ -149,5 +150,118 @@ describe('Configuration: review and apply', () => {
     );
     expect(await screen.findByText(/Applied as version 8, reaching every node/)).toBeInTheDocument();
     expect(asked).toHaveLength(0);
+  });
+});
+
+describe('Objectives', () => {
+  beforeEach(() => {
+    useOrgSettings.setState({ observability: emptySlot() });
+  });
+
+  function serveSlos() {
+    const patches: unknown[] = [];
+    let slos: Record<string, unknown> = {
+      'chat-availability': {
+        kind: 'availability',
+        objective: 0.999,
+        window: '30d',
+        scope: { model: 'gpt-4.1' },
+      },
+    };
+    let generation = 7;
+    server.use(
+      http.get('*/admin/v1/settings/observability', () =>
+        HttpResponse.json({ spec: { slos }, metadata: { ...meta, generation, etag: `"${generation}"` } }),
+      ),
+      http.patch('*/admin/v1/settings/observability', async ({ request }) => {
+        const body = (await request.json()) as { spec: { slos: Record<string, unknown> } };
+        patches.push(body.spec);
+        for (const [k, v] of Object.entries(body.spec.slos)) {
+          if (v === null) {
+            const { [k]: _, ...rest } = slos;
+            slos = rest;
+          } else slos = { ...slos, [k]: { ...(slos[k] as object), ...(v as object) } };
+        }
+        generation += 1;
+        return HttpResponse.json({ spec: { slos }, metadata: { ...meta, generation } });
+      }),
+      http.get('*/admin/v1/runtime/slos', () =>
+        list([
+          {
+            name: 'chat-availability',
+            kind: 'availability',
+            objective: 0.999,
+            attained: 0.9994,
+            error_budget_remaining: 0.4,
+            burn_rate_1h: 2.5,
+            burn_rate_6h: 0.7,
+            window: '30d',
+          },
+        ]),
+      ),
+    );
+    return patches;
+  }
+
+  it('lists objectives with their status, then adds, edits and removes one', async () => {
+    signInAs(['config:read', 'config:apply', 'analytics:read', 'health:read']);
+    const patches = serveSlos();
+    render(<ObjectivesSection />);
+    const table = await screen.findByRole('table', { name: 'Objectives' });
+    const row = within(table).getByText('chat-availability').closest('tr') ?? table;
+    expect(within(row).getByText('99.9%')).toBeInTheDocument();
+    expect(await within(row).findByText('99.940%')).toBeInTheDocument();
+    expect(within(row).getByText('40%')).toBeInTheDocument();
+    expect(within(row).getByText('2.5×')).toBeInTheDocument();
+    expect(within(row).getByText('Model gpt-4.1')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add objective' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Add objective' });
+    await userEvent.type(within(drawer).getByRole('textbox', { name: 'Name' }), 'chat-latency');
+    await userEvent.click(within(drawer).getByRole('radio', { name: 'Requests answered in time' }));
+    await userEvent.type(
+      within(drawer).getByRole('spinbutton', { name: 'In time means within (ms)' }),
+      '2000',
+    );
+    const target = within(drawer).getByRole('spinbutton', { name: 'Target (%)' });
+    await userEvent.clear(target);
+    await userEvent.type(target, '95');
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Add objective' }));
+    await waitFor(() =>
+      expect(patches[0]).toEqual({
+        slos: {
+          'chat-latency': { kind: 'latency', objective: 0.95, latency_threshold_ms: 2000, window: '30d' },
+        },
+      }),
+    );
+    expect(await within(table).findByText('chat-latency')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for chat-availability' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    const edit = await screen.findByRole('dialog', { name: 'Objective chat-availability' });
+    await userEvent.click(within(edit).getByRole('button', { name: 'Remove condition 1' }));
+    await userEvent.click(within(edit).getByRole('button', { name: 'Save objective' }));
+    await waitFor(() => expect(patches[1]).toEqual({ slos: { 'chat-availability': { scope: null } } }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Actions for chat-latency' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove objective' }));
+    const confirm = await screen.findByRole('alertdialog');
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Remove objective' }));
+    await waitFor(() => expect(patches[2]).toEqual({ slos: { 'chat-latency': null } }));
+  });
+
+  it('refuses a target of 100% or more', async () => {
+    signInAs(['config:read', 'config:apply']);
+    const patches = serveSlos();
+    render(<ObjectivesSection />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Add objective' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Add objective' });
+    await userEvent.type(within(drawer).getByRole('textbox', { name: 'Name' }), 'perfect');
+    const target = within(drawer).getByRole('spinbutton', { name: 'Target (%)' });
+    await userEvent.clear(target);
+    await userEvent.type(target, '100');
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Add objective' }));
+    expect(await within(drawer).findByText(/above 0 and below 100/)).toBeInTheDocument();
+    expect(patches).toHaveLength(0);
   });
 });
