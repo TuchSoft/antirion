@@ -146,6 +146,8 @@ pub struct RuntimeState {
     pub guard_tests: guardtest::GuardrailTests,
     /// The rate-limit headers each provider credential's answers carried last.
     pub headroom: antirion_providers::headroom::Headroom,
+    /// The latest credential test of each provider key and the model lists fetched recently.
+    pub provider_checks: antirion_providers::listing::ProviderChecks,
     /// The key reminders this node has sent or seen claimed.
     pub key_reminders: people::reminders::Claimed,
     /// Key anomaly detection: what keys did since the last evaluation, and their history.
@@ -590,6 +592,7 @@ impl Runtime {
         }
         if has("health") {
             self.state.headroom.clear();
+            self.state.provider_checks.clear();
             self.store.clear_pressure().await?;
             self.state.routing.reset();
             self.store.clear_bandits().await?;

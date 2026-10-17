@@ -195,6 +195,36 @@ impl Runtime {
         Ok(checked)
     }
 
+    /// Compiles the provider `name` of a candidate document as a commit of it would (the same
+    /// validation, the same secret resolution, references read from their stores), and stores
+    /// nothing: for testing a provider before it is saved.
+    ///
+    /// # Errors
+    /// The validation errors a commit of the candidate would report.
+    pub async fn compile_provider(
+        &self,
+        candidate: Value,
+        previous: &ConfigState,
+        name: &str,
+    ) -> Result<Arc<antirion_providers::ProviderRt>, Vec<ConfigError>> {
+        let shaped = self.check_unread(candidate.clone(), &previous.doc)?;
+        let refused = crate::secretstores::check_api_write(&previous.doc, &shaped.doc);
+        if !refused.is_empty() {
+            return Err(refused);
+        }
+        Box::pin(self.prefetch_secrets(&candidate)).await;
+        let checked = self.check(candidate, &previous.doc)?;
+        let resolved = antirion_config::secrets::expand_document(&checked.doc, self.secrets.as_ref())?;
+        let table = antirion_providers::compile(&resolved)?;
+        table.providers.get(name).cloned().ok_or_else(|| {
+            vec![ConfigError::new(
+                &DocPath::root().key("name"),
+                DetailCode::Required,
+                "the provider is not in the candidate document",
+            )]
+        })
+    }
+
     /// Applies `build` to the current configuration under the write lock and commits the result.
     pub async fn mutate<E>(
         &self,
