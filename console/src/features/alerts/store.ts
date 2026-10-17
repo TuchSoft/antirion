@@ -43,6 +43,7 @@ interface AlertsState {
   deleteRule: (rule: AlertRuleResource) => Promise<void>;
   saveChannel: (name: string, spec: ChannelSpec, existing: AlertChannelResource | null) => Promise<void>;
   deleteChannel: (channel: AlertChannelResource) => Promise<void>;
+  setChannelEnabled: (channel: AlertChannelResource, enabled: boolean) => Promise<void>;
   testChannel: (name: string) => Promise<TestResult>;
   saveWebhook: (name: string, spec: Partial<WebhookSpec>) => Promise<void>;
   deleteWebhook: (name: string) => Promise<void>;
@@ -159,6 +160,11 @@ export const useAlerts = create<AlertsState>()((set, get) => {
     async saveChannel(name, spec, existing) {
       if (existing) await alertsApi.replaceChannel(name, spec, existing.metadata.etag);
       else await alertsApi.createChannel(name, spec);
+      await Promise.all([reload('channels'), reload('channelStatus')]);
+    },
+
+    async setChannelEnabled(channel, enabled) {
+      await alertsApi.setChannelEnabled(channel.name, enabled, channel.metadata.etag);
       await Promise.all([reload('channels'), reload('channelStatus')]);
     },
 

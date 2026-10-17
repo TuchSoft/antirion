@@ -225,6 +225,32 @@ describe('Alerts: channels and events', () => {
     });
   });
 
+  it('turns a channel off and on with a patch of its state alone', async () => {
+    signInAs(WRITE);
+    const sent: { body: unknown; ifMatch: string | null }[] = [];
+    server.use(
+      http.patch('*/admin/v1/alerts/channels/:channel', async ({ request }) => {
+        sent.push({ body: await request.clone().json(), ifMatch: request.headers.get('if-match') });
+        return undefined;
+      }),
+    );
+    render(<AlertsScreen />);
+    const table = await screen.findByRole('table', { name: 'Notification channels' });
+    const row = () => {
+      const r = within(table).getByText('pager').closest('tr');
+      if (!r) throw new Error('row');
+      return r;
+    };
+    await userEvent.click(within(row()).getByRole('button', { name: /Actions for pager/ }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Turn off' }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ body: { spec: { enabled: false } }, ifMatch: '"c1"' });
+    await userEvent.click(within(row()).getByRole('button', { name: /Actions for pager/ }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Turn on' }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]?.body).toEqual({ spec: { enabled: null } });
+  });
+
   it('lists event webhooks and subscribes one to a built-in event', async () => {
     signInAs(WRITE);
     let patched: unknown = null;

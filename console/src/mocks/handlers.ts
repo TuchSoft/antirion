@@ -338,6 +338,16 @@ export const contractHandlers: HttpHandler[] = [
     },
     204,
   ),
+  mock('patch', '/alerts/channels/{channel}', ({ params, body }) => {
+    const patch = (body as { spec?: Record<string, unknown> } | undefined)?.spec ?? {};
+    const was = state.channels.find((c) => c.name === params.channel);
+    if (!was) throw new Error('no channel');
+    const spec = { ...was.spec, ...patch };
+    for (const [k, v] of Object.entries(patch)) if (v === null) Reflect.deleteProperty(spec, k);
+    const next = { ...was, spec, metadata: { ...was.metadata, ...meta(was.metadata.generation + 1) } };
+    state.channels = state.channels.map((c) => (c.name === was.name ? next : c));
+    return next;
+  }),
   mock('post', '/alerts/channels/{channel}:test', () => ({
     ok: true,
     status_code: 200,

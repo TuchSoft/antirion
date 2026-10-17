@@ -12,7 +12,7 @@ import { MenuButton, type MenuItem } from '@/components/ui/menu';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
 import { EmptyState, ErrorState, LoadError, LoadingRows, isUnavailable } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
-import { describeError } from '@/lib/api/client';
+import { describeError, isChangeControl } from '@/lib/api/client';
 import type { AlertChannelResource } from '@/lib/api/types';
 import { formatCount, plural } from '@/lib/format';
 import { useNow } from '@/lib/hooks';
@@ -91,11 +91,13 @@ function ChannelsPanel() {
   const rules = useAlerts((s) => s.rules.data);
   const testChannel = useAlerts((s) => s.testChannel);
   const deleteChannel = useAlerts((s) => s.deleteChannel);
+  const setChannelEnabled = useAlerts((s) => s.setChannelEnabled);
   const show = useAlertEditors((s) => s.show);
   const now = useNow(30_000);
   const canCreate = useCan('createAlertChannel');
   const canTest = useCan('testAlertChannel');
   const canDelete = useCan('deleteAlertChannel');
+  const canPatch = useCan('patchAlertChannel');
   const [deleting, setDeleting] = useState<AlertChannelResource | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const list = channels.data ?? [];
@@ -157,6 +159,20 @@ function ChannelsPanel() {
               const enabled = c.spec.enabled !== false;
               const items: MenuItem[] = [
                 { label: 'Edit', icon: 'edit', onSelect: () => show({ kind: 'channel', name: c.name }) },
+                {
+                  label: enabled ? 'Turn off' : 'Turn on',
+                  icon: enabled ? 'pause' : 'play',
+                  disabled: !canPatch,
+                  disabledReason: canPatch ? undefined : "You don't have permission to change channels.",
+                  onSelect: () =>
+                    void setChannelEnabled(c, !enabled).then(
+                      () => notify('success', enabled ? 'Channel turned off' : 'Channel turned on', c.name),
+                      (e: unknown) => {
+                        if (!isChangeControl(e))
+                          notify('error', "Couldn't change the channel", describeError(e));
+                      },
+                    ),
+                },
                 {
                   label: 'Delete',
                   icon: 'trash',

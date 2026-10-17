@@ -76,6 +76,13 @@ export const alertsApi = {
   createChannel: (name: string, spec: ChannelSpec) => api.post('/alerts/channels', { body: { name, spec } }),
   replaceChannel: (name: string, spec: ChannelSpec, etag: string | undefined) =>
     api.put('/alerts/channels/{channel}', { path: { channel: name }, body: { spec }, ifMatch: etag }),
+  /** Turns a channel on or off without sending the rest of it back. */
+  setChannelEnabled: (name: string, enabled: boolean, etag: string | undefined) =>
+    api.patch('/alerts/channels/{channel}', {
+      path: { channel: name },
+      body: { spec: { enabled: enabled ? null : false } },
+      ifMatch: etag,
+    }),
   deleteChannel: (name: string, etag: string | undefined) =>
     api.delete('/alerts/channels/{channel}', { path: { channel: name }, ifMatch: etag }),
   testChannel: (name: string): Promise<TestResult> =>
