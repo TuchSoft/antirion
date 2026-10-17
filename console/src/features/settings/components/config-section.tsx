@@ -2,18 +2,29 @@
 
 import { useEffect, useState } from 'react';
 
+import { useSettingsHref } from '@/components/layout/url-sync';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Gate } from '@/components/ui/gate';
+import { Icon } from '@/components/ui/icon';
 import { Section } from '@/components/ui/layout';
 import { EmptyState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { downloadText } from '@/lib/csv';
 import { notify } from '@/stores/ui';
 
-import { useConfigDoc } from '../store';
+import { useConfigDoc, useGatewaySettings } from '../store';
 import { useReportUnsaved } from '../unsaved';
 import { ChangeRow } from './change-row';
 import { VersionsPanel } from './versions-panel';
+
+/** Whether `admin.config.lock_applied` is on (a startup setting from the configuration file). */
+function useAppliedLock(): boolean {
+  const admin = useGatewaySettings((s) => s.admin);
+  useEffect(() => {
+    if (!admin.data) void useGatewaySettings.getState().loadAdmin();
+  }, [admin.data]);
+  return admin.data?.spec.config?.lock_applied === true;
+}
 
 /** The configuration document as JSON: edit it, see the diff against the running generation, apply. */
 export function ConfigSection() {
@@ -32,10 +43,21 @@ export function ConfigSection() {
   useEffect(() => {
     void loadDocument();
   }, [loadDocument]);
+  const nodeHref = useSettingsHref('node');
+  const locked = useAppliedLock();
 
   const changes = diff.data?.changes ?? [];
   return (
     <div className="flex flex-col">
+      {locked ? (
+        <p className="flex items-start gap-2 border-b border-line bg-raised px-5 py-3 text-ui text-fg max-sm:px-gutter-sm">
+          <Icon name="lock" size={16} className="mt-0.5 shrink-0 text-muted" />
+          <span>
+            Settings applied from the configuration file are locked: changes to them here are refused. Change
+            them in the file instead.
+          </span>
+        </p>
+      ) : null}
       <Section
         title="Document"
         subtitle={
@@ -147,8 +169,13 @@ export function ConfigSection() {
         ) : null}
         {diff.data && diff.data.static_ignored.length > 0 ? (
           <p className="mb-2 text-caption text-muted">
-            Not changed until the gateway restarts:{' '}
-            <span className="mono">{diff.data.static_ignored.join(', ')}</span>
+            Ignored: <span className="mono">{diff.data.static_ignored.join(', ')}</span>{' '}
+            {diff.data.static_ignored.length === 1 ? 'is' : 'are'} read from the configuration file when the
+            gateway starts. Change {diff.data.static_ignored.length === 1 ? 'it' : 'them'} there, then restart
+            the gateway.{' '}
+            <a href={nodeHref} className="text-accent hover:underline">
+              See the node&apos;s settings
+            </a>
           </p>
         ) : null}
         <ul>

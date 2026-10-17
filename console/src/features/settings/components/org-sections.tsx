@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -480,8 +480,8 @@ export function ProvisioningSection() {
 export function ApiAccessSection() {
   useSettingsLoad();
   const dataPlane = useShell((s) => s.status?.data_plane_url ?? null);
-  const configHref = useSettingsHref('configuration');
-  const notSet = (hint: string) => ({ value: <span className="text-muted">Not set</span>, hint });
+  const nodeHref = useSettingsHref('node');
+  const notSet = (hint: ReactNode) => ({ value: <span className="text-muted">Not set</span>, hint });
   return (
     <>
       <Card title="Gateway URL" description="Where your apps send requests.">
@@ -500,14 +500,17 @@ export function ApiAccessSection() {
               : {
                   label: 'Address',
                   ...notSet(
-                    'Set the public URL in the configuration so code snippets show the right address.',
+                    <>
+                      Set <span className="mono">admin.ui.data_plane_url</span> in the gateway&apos;s
+                      configuration file, then restart the gateway, so code snippets show the right address.
+                    </>,
                   ),
                 },
           ]}
         />
         {dataPlane ? null : (
-          <a href={configHref} className="mt-3 inline-block text-ui text-accent hover:underline">
-            Open the configuration
+          <a href={nodeHref} className="mt-3 inline-block text-ui text-accent hover:underline">
+            See the node&apos;s settings
           </a>
         )}
       </Card>
