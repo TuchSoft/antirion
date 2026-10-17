@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -136,8 +136,31 @@ function WindowDialog({
   );
 }
 
-/** Maintenance windows: the current or next one from the status, and the list edited in governance. */
+export const MAINTENANCE_DESCRIPTION =
+  'Planned work. Alert rules set to stay quiet during maintenance notify no one while a window is on.';
+
+/** Maintenance windows in the danger zone's card. */
 export function MaintenanceCard() {
+  return (
+    <MaintenanceWindows>
+      {({ actions, body }) => (
+        <Card title="Maintenance windows" description={MAINTENANCE_DESCRIPTION} actions={actions}>
+          {body}
+        </Card>
+      )}
+    </MaintenanceWindows>
+  );
+}
+
+/**
+ * Maintenance windows: the current or next one from the status, and the list edited in governance.
+ * The caller frames it (the danger zone's card, the Alerts drawer) with the add button it is given.
+ */
+export function MaintenanceWindows({
+  children,
+}: {
+  children: (parts: { actions: ReactNode; body: ReactNode }) => ReactNode;
+}) {
   const governance = useDanger((s) => s.governance);
   const status = useDanger((s) => s.status);
   const saveGovernance = useDanger((s) => s.saveGovernance);
@@ -154,18 +177,13 @@ export function MaintenanceCard() {
 
   const save = (list: MaintenanceWindow[]) => saveGovernance({ maintenance_windows: list });
 
-  return (
-    <Card
-      title="Maintenance windows"
-      description="Planned work. Alert rules set to stay quiet during maintenance notify no one while a window is on."
-      actions={
-        canEdit ? (
-          <Button size="sm" icon="plus" onClick={() => setEditing({ index: null })}>
-            Add window
-          </Button>
-        ) : null
-      }
-    >
+  const actions = canEdit ? (
+    <Button size="sm" icon="plus" onClick={() => setEditing({ index: null })}>
+      Add window
+    </Button>
+  ) : null;
+  const body = (
+    <>
       <LoadError of={governance} subject="Maintenance windows" size="sm" />
       {next ? (
         <p className="mb-3 flex flex-wrap items-center gap-2 text-ui text-fg" role="status">
@@ -262,6 +280,7 @@ export function MaintenanceCard() {
           notify('success', 'Maintenance window removed');
         }}
       />
-    </Card>
+    </>
   );
+  return children({ actions, body });
 }

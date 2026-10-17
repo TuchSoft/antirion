@@ -7,8 +7,9 @@ import { Segmented } from '@/components/ui/form';
 import { SummaryStrip } from '@/components/ui/layout';
 import type { Alert } from '@/lib/api/types';
 import { formatCount, formatPercent, plural } from '@/lib/format';
-import { formatClock } from '@/lib/time';
+import { formatClock, formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
+import { useShell } from '@/stores/shell';
 
 import { dayMonth, spanWords } from '../describe';
 import {
@@ -104,7 +105,20 @@ function FiredChart({ history, now }: { history: Alert[]; now: number }) {
  * before, notifications of the last day by channel, noise, the error budget with its burn, and the
  * fires over time.
  */
-export function AlertsHero({ inbox, now, onFiring }: { inbox: Alert[]; now: number; onFiring: () => void }) {
+export function AlertsHero({
+  inbox,
+  now,
+  onFiring,
+  onMaintenance,
+}: {
+  inbox: Alert[];
+  now: number;
+  onFiring: () => void;
+  /** Opens the maintenance windows; absent when the principal may not read them. */
+  onMaintenance?: (() => void) | undefined;
+}) {
+  const timeZone = usePreferences((s) => s.timeZone);
+  const maintenance = useShell((s) => s.status?.maintenance_window ?? null);
   const history = useAlerts((s) => s.history);
   const slos = useAlerts((s) => s.slos.data);
   const availability = useAlerts((s) => s.availability.data);
@@ -195,6 +209,21 @@ export function AlertsHero({ inbox, now, onFiring }: { inbox: Alert[]; now: numb
                 ? `${slo.name}: ${formatPercent(slo.objective, 2)} ${slo.kind} target over ${slo.window}${slo.burn_rate_1h != null ? `, burning ${slo.burn_rate_1h.toFixed(1)}× in the last hour` : ''}`
                 : 'No availability target is set',
             },
+            // The current or next maintenance window: rules set to stay quiet notify no one in it.
+            ...(maintenance
+              ? [
+                  {
+                    label: 'Maintenance',
+                    value: maintenance.active ? 'On now' : formatRelative(maintenance.start),
+                    sub: maintenance.active
+                      ? `Until ${formatDateTime(maintenance.end, timeZone)}`
+                      : formatDateTime(maintenance.start, timeZone),
+                    tone: maintenance.active ? ('warn' as const) : ('neutral' as const),
+                    title: `${maintenance.description ?? 'Planned work'}: ${formatDateTime(maintenance.start, timeZone)} to ${formatDateTime(maintenance.end, timeZone)}. Rules set to stay quiet during maintenance notify no one then.`,
+                    ...(onMaintenance ? { onClick: onMaintenance } : {}),
+                  },
+                ]
+              : []),
           ]}
         />
       </div>

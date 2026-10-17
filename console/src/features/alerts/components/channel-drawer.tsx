@@ -11,7 +11,7 @@ import { DefinitionGrid } from '@/components/ui/layout';
 import { MenuButton } from '@/components/ui/menu';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { InlineError } from '@/components/ui/states';
-import { formatCount, plural } from '@/lib/format';
+import { plural } from '@/lib/format';
 import { useEdited, useNow } from '@/lib/hooks';
 import type { FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
@@ -27,6 +27,7 @@ import {
   type ChannelForm,
 } from '../form';
 import { useAlerts } from '../store';
+import { DeliveryCounts } from './delivery-counts';
 import { runTest } from './channels-view';
 
 const SECRET_HINT = 'Stored encrypted and never shown again. A reference such as ${env:NAME} also works.';
@@ -188,9 +189,7 @@ export function ChannelDrawer({ name, webhook }: { name: string | null; webhook?
               },
               {
                 label: 'Last 24 h',
-                value: st
-                  ? `${formatCount(st.deliveries_24h)} sent${st.failures_24h ? `, ${formatCount(st.failures_24h)} failed` : ''}`
-                  : '—',
+                value: <DeliveryCounts status={st} target={existing.name} kind="channel" />,
               },
               { label: 'Used by', value: used.length ? used.map((r) => r.name).join(', ') : 'No rule yet' },
             ]}

@@ -23,6 +23,8 @@ interface DangerState {
   job: Job | null;
   jobOrganization: string | null;
   load: () => Promise<void>;
+  /** Only what the maintenance windows need, for a page outside the danger zone. */
+  loadMaintenance: () => Promise<void>;
   loadStatus: () => Promise<void>;
   loadPending: () => Promise<void>;
   loadTarget: (name: string) => Promise<void>;
@@ -50,6 +52,10 @@ export const useDanger = create<DangerState>()((set, get) => ({
       loadSlot(set, get, 'organizations', settingsApi.organizations),
       get().loadPending(),
     ]);
+  },
+
+  async loadMaintenance() {
+    await Promise.all([get().loadStatus(), loadSlot(set, get, 'governance', settingsApi.governance)]);
   },
 
   async loadStatus() {

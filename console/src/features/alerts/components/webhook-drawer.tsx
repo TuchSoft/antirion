@@ -22,6 +22,7 @@ import { useAlertEditors } from '../editors';
 import { covers, EVENT_SOURCES, eventWords } from '../events';
 import { mapServerErrors, webhookErrors, webhookForm, type WebhookForm } from '../form';
 import { useAlerts } from '../store';
+import { DeliveryCounts } from './delivery-counts';
 import { runTest } from './channels-view';
 
 const TIMEOUTS = ['2s', '5s', '10s', '30s'];
@@ -267,9 +268,7 @@ export function WebhookDrawer({ name, events }: { name: string | null; events?: 
               },
               {
                 label: 'Last 24 h',
-                value: st
-                  ? `${formatCount(st.deliveries_24h)} sent${st.failures_24h ? `, ${formatCount(st.failures_24h)} failed` : ''}`
-                  : '—',
+                value: <DeliveryCounts status={st} target={name ?? ''} kind="webhook" />,
               },
               { label: 'Queued', value: st ? formatCount(st.queued) : '—' },
             ]}

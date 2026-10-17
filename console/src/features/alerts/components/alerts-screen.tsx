@@ -27,6 +27,10 @@ import { usePageShortcut } from '@/lib/shortcuts';
 import { useUrlFilters } from '@/lib/url-filters';
 import { Icon } from '@/components/ui/icon';
 import { KeyboardHints } from '@/components/ui/keyboard-hints';
+import { permissionOf, useCan } from '@/components/ui/gate';
+import { MenuButton } from '@/components/ui/menu';
+import { DeliveryLog } from '@/features/settings/components/delivery-log';
+import { noPermissionReason } from '@/lib/permissions';
 
 import { agoWords, scopeWords, severityWord, spanWords, STATUS_WORD } from '../describe';
 import { useAlertEditors, type Editor } from '../editors';
@@ -36,6 +40,7 @@ import { AlertDetail, durationOf, snoozed } from './alert-detail';
 import { ChannelDrawer } from './channel-drawer';
 import { ChannelsView } from './channels-view';
 import { AlertsHero } from './hero';
+import { MaintenanceDrawer } from './maintenance-drawer';
 import { RuleDrawer } from './rule-drawer';
 import { ManageRulesDialog, RulesView } from './rules-view';
 import { WebhookDrawer } from './webhook-drawer';
@@ -98,6 +103,7 @@ function AlertRow({ alert, now }: { alert: Alert; now: number }) {
 /** The open editors, each over the one under it. */
 function Editors() {
   const stack = useAlertEditors((s) => s.stack);
+  const close = useAlertEditors((s) => s.close);
   const one = (e: Editor, i: number) => {
     const key = `${i}-${e.kind}-${'name' in e ? (e.name ?? 'new') : ''}`;
     switch (e.kind) {
@@ -109,6 +115,18 @@ function Editors() {
         return <ChannelDrawer key={key} name={e.name} webhook={e.webhook} />;
       case 'webhook':
         return <WebhookDrawer key={key} name={e.name} events={e.events} />;
+      case 'deliveries':
+        return (
+          <DeliveryLog
+            key={key}
+            target={e.target ?? null}
+            kind={e.targetKind}
+            result={e.result ?? ''}
+            onClose={close}
+          />
+        );
+      case 'maintenance':
+        return <MaintenanceDrawer key={key} onClose={close} />;
     }
   };
   return <>{stack.map(one)}</>;
@@ -155,6 +173,8 @@ export function AlertsScreen() {
   const channels = useAlerts((s) => s.channels);
   const load = useAlerts((s) => s.load);
   const show = useAlertEditors((s) => s.show);
+  const canDeliveries = useCan('listAlertDeliveries');
+  const canMaintenance = useCan('getGovernanceSettings');
   const now = useNow(30_000);
   const wide = !useMediaQuery('(max-width: 1023px)');
   const [viewParam, setView] = useTabParam();
@@ -211,9 +231,35 @@ export function AlertsScreen() {
         <>
           <UpdatedAt at={alerts.at} />
           {unavailable ? null : (
-            <Button icon="sliders" onClick={() => show({ kind: 'manage' })} disabled={!rules.data}>
-              Manage rules
-            </Button>
+            <>
+              <Button icon="sliders" onClick={() => show({ kind: 'manage' })} disabled={!rules.data}>
+                Manage rules
+              </Button>
+              <MenuButton
+                label="More"
+                iconOnly
+                items={[
+                  {
+                    label: 'Delivery log',
+                    icon: 'send',
+                    disabled: !canDeliveries,
+                    disabledReason: canDeliveries
+                      ? undefined
+                      : noPermissionReason(permissionOf('listAlertDeliveries')),
+                    onSelect: () => show({ kind: 'deliveries' }),
+                  },
+                  {
+                    label: 'Maintenance windows',
+                    icon: 'calendar',
+                    disabled: !canMaintenance,
+                    disabledReason: canMaintenance
+                      ? undefined
+                      : noPermissionReason(permissionOf('getGovernanceSettings')),
+                    onSelect: () => show({ kind: 'maintenance' }),
+                  },
+                ]}
+              />
+            </>
           )}
         </>
       }
@@ -243,6 +289,7 @@ export function AlertsScreen() {
           inbox={list}
           now={now}
           onFiring={() => url.setWith({ status: 'firing' }, { tab: null, view: null })}
+          onMaintenance={canMaintenance ? () => show({ kind: 'maintenance' }) : undefined}
         />
       ) : null}
       <Tabs<View>

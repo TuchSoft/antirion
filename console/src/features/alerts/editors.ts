@@ -1,13 +1,25 @@
 import { create } from 'zustand';
 
+import type { DeliveryResult } from '@/features/settings/api';
+
 import type { RuleSpec } from './api';
 
-/** What the Alerts screen has open over it: a rule, channel or webhook editor, or the rule manager. */
+/**
+ * What the Alerts screen has open over it: a rule, channel or webhook editor, the rule manager,
+ * the delivery log (of one target or all) or the maintenance windows.
+ */
 export type Editor =
   | { kind: 'rule'; name: string | null; draft?: { name?: string; spec: Partial<RuleSpec> } }
   | { kind: 'channel'; name: string | null; webhook?: string }
   | { kind: 'webhook'; name: string | null; events?: string[] }
-  | { kind: 'manage' };
+  | { kind: 'manage' }
+  | {
+      kind: 'deliveries';
+      target?: string;
+      targetKind?: 'webhook' | 'channel';
+      result?: DeliveryResult | '';
+    }
+  | { kind: 'maintenance' };
 
 interface EditorsState {
   /** Open editors, bottom first; each stays mounted under the one opened over it. */

@@ -4,18 +4,25 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/form';
 import { permissionOf, useCan } from '@/components/ui/gate';
 import { noPermissionReason } from '@/lib/permissions';
 import { Drawer } from '@/components/ui/overlay';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ui/states';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
-import { eventWords } from '@/features/alerts/events';
+import { EVENT_TYPES, eventWords } from '@/features/alerts/events';
 import { describeError } from '@/lib/api/client';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
 import { notify } from '@/stores/ui';
 
-import { type AlertDelivery, settingsApi } from '../api';
+import { type AlertDelivery, type DeliveryResult, settingsApi } from '../api';
+
+const RESULTS: { value: DeliveryResult; label: string }[] = [
+  { value: 'failed', label: 'Failed' },
+  { value: 'timeout', label: 'Timed out' },
+  { value: 'delivered', label: 'Delivered' },
+];
 
 function resultTone(d: AlertDelivery): 'success' | 'warn' | 'error' {
   if (d.result === 'delivered') return 'success';
@@ -30,55 +37,91 @@ function resultWords(d: AlertDelivery): string {
 }
 
 /**
- * Every delivery attempt to one webhook or channel over the last 7 days, newest first, with a
- * redelivery of an event that failed.
+ * Every delivery attempt of the last 7 days, newest first, to one webhook or channel or to all of
+ * them, by result and event, with a redelivery of an event that failed. Settings and Alerts open
+ * the same log.
  */
 export function DeliveryLog({
-  target,
+  target = null,
   kind,
+  result: initialResult = '',
   onClose,
 }: {
-  target: string;
-  kind: 'webhook' | 'channel';
+  /** A webhook's or channel's name; null for every target. */
+  target?: string | null;
+  kind?: 'webhook' | 'channel';
+  /** The result the log opens on ("failed" from a failure count). */
+  result?: DeliveryResult | '';
   onClose: () => void;
 }) {
   const timeZone = usePreferences((s) => s.timeZone);
   const canRedeliver = useCan('redeliverAlert');
+  const [result, setResult] = useState<DeliveryResult | ''>(initialResult);
+  const [eventType, setEventType] = useState('');
   const [items, setItems] = useState<AlertDelivery[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const load = useCallback(
     (after?: string) => {
-      settingsApi.deliveries(target, after).then((page) => {
+      settingsApi.deliveries({ target, result, eventType }, after).then((page) => {
         setItems((prev) => (after ? [...(prev ?? []), ...page.items] : page.items));
         setCursor(page.next_cursor ?? null);
         setError(null);
       }, setError);
     },
-    [target],
+    [target, result, eventType],
   );
   useEffect(() => load(), [load]);
+  const filtered = result !== '' || eventType !== '';
+  const what = result === 'failed' ? 'failed ' : result === 'timeout' ? 'timed-out ' : '';
   return (
     <Drawer
       open
       onClose={onClose}
       width="lg"
-      title={`Deliveries to ${target}`}
-      subtitle={`Every attempt to this ${kind} in the last 7 days, newest first. A redelivery sends the same event again with its id.`}
+      title={target ? `Deliveries to ${target}` : 'Alert deliveries'}
+      subtitle={`Every ${what}attempt ${target ? `to this ${kind ?? 'target'}` : 'to a webhook or channel'} in the last 7 days, newest first. A redelivery sends the same event again with its id.`}
       headerActions={
         <Button size="sm" variant="ghost" icon="refresh" onClick={() => load()}>
           Refresh
         </Button>
       }
     >
+      <div className="mb-3 flex flex-wrap gap-2">
+        <div className="w-40">
+          <Select
+            aria-label="Result"
+            value={result}
+            onChange={(v) => {
+              setItems(null);
+              setResult(v as DeliveryResult | '');
+            }}
+            emptyOption="Any result"
+            options={RESULTS}
+          />
+        </div>
+        <div className="w-60 max-sm:w-full">
+          <Select
+            aria-label="Event"
+            value={eventType}
+            onChange={(v) => {
+              setItems(null);
+              setEventType(v);
+            }}
+            emptyOption="Any event"
+            searchable
+            options={EVENT_TYPES.map((ev) => ({ value: ev.type, label: ev.label }))}
+          />
+        </div>
+      </div>
       {error ? <ErrorState error={error} subject="Deliveries" size="sm" onRetry={() => load()} /> : null}
       {!items && !error ? <LoadingRows rows={5} /> : null}
       {items?.length === 0 ? (
         <EmptyState
           size="sm"
-          title="No deliveries in the last 7 days"
-          description="Send a test to see one."
+          title={filtered ? 'No deliveries match these filters' : 'No deliveries in the last 7 days'}
+          description={filtered ? undefined : target ? 'Send a test to see one.' : undefined}
         />
       ) : null}
       {items && items.length > 0 ? (
@@ -87,6 +130,7 @@ export function DeliveryLog({
             <thead>
               <tr>
                 <Th>When</Th>
+                {target ? null : <Th>To</Th>}
                 <Th>Event</Th>
                 <Th numeric>Attempt</Th>
                 <Th>Result</Th>
@@ -101,6 +145,16 @@ export function DeliveryLog({
                   <Td muted title={formatDateTime(d.time, timeZone)}>
                     {formatRelative(d.time)}
                   </Td>
+                  {target ? null : (
+                    <Td mono>
+                      {d.webhook}
+                      {d.target_kind ? (
+                        <span className="block font-sans text-caption text-dim">
+                          {d.target_kind === 'channel' ? 'Channel' : 'Webhook'}
+                        </span>
+                      ) : null}
+                    </Td>
+                  )}
                   <Td>
                     {d.event_type ? eventWords(d.event_type) : 'Event'}
                     <span className="mono block text-caption text-dim">{d.event_id.slice(0, 18)}…</span>

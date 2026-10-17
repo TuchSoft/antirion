@@ -25,6 +25,16 @@ export type ChangeRequest = S['ChangeRequest'];
 export type SamlStatus = S['SamlProviderStatus'];
 export type LimitSimulationResult = S['LimitSimulationResult'];
 export type AlertDelivery = S['AlertDelivery'];
+
+/** What a delivery attempt came to, as the gateway records it. */
+export type DeliveryResult = 'delivered' | 'failed' | 'timeout';
+
+export interface DeliveryFilter {
+  /** A webhook's or channel's name; empty for every target. */
+  target?: string | null;
+  result?: DeliveryResult | '';
+  eventType?: string;
+}
 export type TestResult = S['TestResult'];
 export type UserResource = S['UserResource'];
 
@@ -168,9 +178,16 @@ export const settingsApi = {
   simulate: (body: S['LimitSimulation']): Promise<LimitSimulationResult> =>
     api.post('/runtime/limits:simulate', { body }),
   models: () => listAll((cursor) => api.get('/models', { query: { limit: 200, cursor } })),
-  deliveries: async (target: string, cursor?: string) =>
+  /** Delivery attempts of the last 7 days: to one webhook or channel, or to all, by result and event. */
+  deliveries: async (filter: DeliveryFilter, cursor?: string) =>
     await api.get('/alerts/deliveries', {
-      query: { webhook: target, limit: 50, ...(cursor ? { cursor } : {}) },
+      query: {
+        ...(filter.target ? { webhook: filter.target } : {}),
+        ...(filter.result ? { result: filter.result } : {}),
+        ...(filter.eventType ? { event_type: filter.eventType } : {}),
+        limit: 50,
+        ...(cursor ? { cursor } : {}),
+      },
     }),
   redeliver: (eventId: string) =>
     api.post('/alerts/deliveries/{event_id}:redeliver', { path: { event_id: eventId } }),

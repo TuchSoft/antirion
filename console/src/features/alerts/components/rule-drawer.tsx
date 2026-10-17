@@ -206,6 +206,7 @@ export function RuleDrawer({
   const saveRule = useAlerts((s) => s.saveRule);
   const deleteRule = useAlerts((s) => s.deleteRule);
   const show = useAlertEditors((s) => s.show);
+  const canMaintenance = useCan('getGovernanceSettings');
   const canWrite = useCan(name ? 'replaceAlertRule' : 'createAlertRule');
   const canDelete = useCan('deleteAlertRule');
   const existing = name ? (rules?.find((r) => r.name === name) ?? null) : null;
@@ -587,7 +588,16 @@ export function RuleDrawer({
               />
               <p className="text-caption text-muted">
                 An alert that fires inside a maintenance window is snoozed until the window ends and notifies
-                no one.
+                no one.{' '}
+                {canMaintenance ? (
+                  <button
+                    type="button"
+                    className="text-accent hover:underline"
+                    onClick={() => show({ kind: 'maintenance' }, { over: true })}
+                  >
+                    Maintenance windows
+                  </button>
+                ) : null}
               </p>
               <Switch checked={form.enabled} onChange={(v) => set('enabled', v)} label="Rule is on" />
             </div>
