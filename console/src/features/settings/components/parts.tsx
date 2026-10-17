@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 
@@ -10,12 +11,15 @@ import { useReportUnsaved } from '../unsaved';
 /** A settings section: flat and full-bleed, a title row over its body, a hairline under it. */
 export function Card({
   title,
+  badge,
   description,
   actions,
   children,
   danger,
 }: {
   title: string;
+  /** A small mark after the title, such as {@link GatewayWide} or {@link FromFile}. */
+  badge?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   children?: ReactNode;
@@ -25,8 +29,15 @@ export function Card({
     <section className="border-b border-line bg-raised">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4 max-sm:px-gutter-sm">
         <div className="min-w-0 flex-[1_1_16rem]">
-          <h3 className={danger ? 'text-body font-semibold text-error' : 'text-body font-semibold text-fg'}>
+          <h3
+            className={
+              danger
+                ? 'flex flex-wrap items-center gap-2 text-body font-semibold text-error'
+                : 'flex flex-wrap items-center gap-2 text-body font-semibold text-fg'
+            }
+          >
             {title}
+            {badge}
           </h3>
           {description ? <p className="mt-0.5 text-ui text-muted">{description}</p> : null}
         </div>
@@ -38,6 +49,20 @@ export function Card({
         <div className="pb-4" />
       )}
     </section>
+  );
+}
+
+/** On a page that also holds one organization's settings: this card applies to every organization. */
+export function GatewayWide() {
+  return <Badge title="Shared by every organization on this gateway">Whole gateway</Badge>;
+}
+
+/** Settings read from the gateway's configuration file at startup, which nothing here can change. */
+export function FromFile() {
+  return (
+    <Badge tone="info" title="Change it in the configuration file, then restart the gateway">
+      Set in the configuration file
+    </Badge>
   );
 }
 

@@ -5,14 +5,15 @@ import { z } from 'zod';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm';
-import { Field, FileButton, Input, Select } from '@/components/ui/form';
+import { ConfirmDialog, useSwitchChanges } from '@/components/ui/confirm';
+import { Field, FileButton, Input, Select, Switch } from '@/components/ui/form';
 import { Icon } from '@/components/ui/icon';
 import { Gate, useCan } from '@/components/ui/gate';
 import { CopyButton } from '@/components/ui/misc';
 import { RevealOnceDialog } from '@/components/ui/reveal-once';
 import { ErrorState, InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { formatBytes, formatCount } from '@/lib/format';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { formatDate, formatRelative } from '@/lib/time';
 import { serverFieldErrors, validate, type FieldErrors } from '@/lib/validation';
 import { usePreferences } from '@/stores/preferences';
@@ -23,7 +24,7 @@ import { notify } from '@/stores/ui';
 import { settingsApi } from '../api';
 import { dataUrlBytes, LogoError, logoDataUrl } from '../logo';
 import { useOrgSettings } from '../store';
-import { Card, Facts, SaveBar, TechnicalDetails } from './parts';
+import { Card, Facts, GatewayWide, SaveBar, TechnicalDetails } from './parts';
 
 function useSettingsLoad() {
   const loadSettings = useOrgSettings((s) => s.loadSettings);
@@ -291,28 +292,102 @@ export function GeneralSection() {
   );
 }
 
-/** SCIM status and its token, generated or replaced with an overlap and shown once. */
+/** How the old SCIM token may keep working after a new one is made: the API takes at most 1h. */
+export const SCIM_OVERLAPS = [
+  { value: '0s', label: 'Stop it now' },
+  { value: '15m', label: '15 minutes' },
+  { value: '1h', label: '1 hour' },
+];
+
+type ScimStatus = Awaited<ReturnType<typeof settingsApi.scim>>;
+type AuthSpec = { admin?: { scim?: { enabled?: boolean; token?: unknown } } };
+
+/**
+ * SCIM: on or off (the SCIM endpoints answer only while it is on), its URL, and its token,
+ * generated or replaced with a short overlap and shown once. Whether a token exists comes from
+ * when it was last made (or a token set by reference in the file), not from SCIM being on.
+ */
 export function ProvisioningSection() {
-  const [status, setStatus] = useState<Awaited<ReturnType<typeof settingsApi.scim>> | null>(null);
+  useSettingsLoad();
+  const auth = useOrgSettings((s) => s.auth);
+  const saveAuth = useOrgSettings((s) => s.saveAuth);
+  const canEdit = useCan('patchAuthSettings');
+  const [status, setStatus] = useState<ScimStatus | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [token, setToken] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
-  const [overlap, setOverlap] = useState('24h');
+  const [overlap, setOverlap] = useState('0s');
+  const [busy, setBusy] = useState(false);
+  const { change, dialog } = useSwitchChanges();
+  const loadStatus = () => settingsApi.scim().then(setStatus, setError);
   useEffect(() => {
     settingsApi.scim().then(setStatus, setError);
   }, []);
   const base = typeof window === 'undefined' ? '' : `${window.location.origin}/scim/v2`;
-  const hasToken = Boolean(status?.enabled);
+  const spec = (auth.data?.spec ?? {}) as AuthSpec;
+  const meta = (auth.data?.metadata ?? {}) as { scim_token_rotated_at?: string | null };
+  const enabled = status?.enabled ?? spec.admin?.scim?.enabled ?? SETTINGS_DEFAULTS.auth.admin.scim.enabled;
+  const byReference = spec.admin?.scim?.token !== undefined && spec.admin.scim.token !== null;
+  const rotatedAt = meta.scim_token_rotated_at ?? null;
+  const hasToken = byReference || rotatedAt !== null;
+
+  async function setEnabled(next: boolean) {
+    setBusy(true);
+    try {
+      await saveAuth({ admin: { scim: { enabled: next } } });
+      await loadStatus();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card
       title="User provisioning (SCIM)"
+      badge={<GatewayWide />}
       description="Sync users and groups from your identity provider automatically."
       actions={
-        <Gate operation="rotateScimToken" mode="hide">
-          <Button size="sm" onClick={() => setConfirm(true)}>
-            {hasToken ? 'Replace token' : 'Generate token'}
-          </Button>
-        </Gate>
+        <>
+          <Gate operation="rotateScimToken" mode="hide">
+            <Button
+              size="sm"
+              disabled={byReference}
+              disabledReason="The token is set by reference in the configuration file. Change it there."
+              onClick={() => {
+                setOverlap('0s');
+                setConfirm(true);
+              }}
+            >
+              {hasToken ? 'Replace token' : 'Generate token'}
+            </Button>
+          </Gate>
+          {status || auth.data ? (
+            <Switch
+              label="User provisioning"
+              hideLabel
+              checked={enabled}
+              disabled={!canEdit || busy}
+              disabledReason="Your role can't change sign-in settings"
+              onChange={(next) =>
+                change({
+                  name: 'user provisioning',
+                  apply: () => setEnabled(next),
+                  undo: () => setEnabled(!next),
+                  done: next ? 'User provisioning turned on' : 'User provisioning turned off',
+                  undone: next ? 'User provisioning turned off' : 'User provisioning turned on',
+                  ask: next
+                    ? undefined
+                    : {
+                        title: 'Turn off user provisioning?',
+                        effect:
+                          'Your identity provider can no longer create, update or deactivate people here. Its calls are refused until you turn this back on. People already synced keep their accounts.',
+                        confirmLabel: 'Turn off',
+                      },
+                })
+              }
+            />
+          ) : null}
+        </>
       }
     >
       <div className="flex flex-col gap-4">
@@ -327,21 +402,40 @@ export function ProvisioningSection() {
                   <CopyButton value={base} label="Copy the SCIM URL" />
                 </span>
               ),
+              hint: enabled ? undefined : 'It answers only while user provisioning is on.',
             },
+            ...(status || auth.data ? [{ label: 'Status', value: enabled ? 'On' : 'Off' }] : []),
+            ...(auth.data
+              ? [
+                  {
+                    label: 'Token',
+                    value: byReference
+                      ? 'Set in the configuration file'
+                      : rotatedAt
+                        ? `Generated ${formatRelative(rotatedAt)}`
+                        : 'None yet',
+                    hint:
+                      enabled && !hasToken
+                        ? 'Generate a token so your identity provider can connect.'
+                        : undefined,
+                  },
+                ]
+              : []),
             ...(status
               ? [
-                  { label: 'Status', value: status.enabled ? 'On' : 'Off' },
                   { label: 'Synced users', value: formatCount(status.users) },
                   { label: 'Synced groups', value: formatCount(status.groups) },
                   {
                     label: 'Last sync',
                     value: status.last_request_at ? formatRelative(status.last_request_at) : 'Never',
+                    hint: status.last_error ?? undefined,
                   },
                 ]
               : []),
           ]}
         />
       </div>
+      {dialog}
       <ConfirmDialog
         open={confirm}
         onClose={() => setConfirm(false)}
@@ -354,24 +448,19 @@ export function ProvisioningSection() {
             : "You'll see the token once. Paste it into your identity provider's SCIM settings."
         }
         onConfirm={async () => {
-          const r = await settingsApi.rotateScimToken(overlap);
+          const r = await settingsApi.rotateScimToken(hasToken ? overlap : '0s');
           setToken(
             (r as { token?: string; secret?: string }).token ?? (r as { secret?: string }).secret ?? null,
           );
+          await useOrgSettings.getState().loadSettings();
         }}
       >
         {hasToken ? (
-          <Field label="Old token keeps working for">
-            <Select
-              value={overlap}
-              onChange={(v) => setOverlap(v)}
-              options={[
-                { value: '0s', label: 'Stop it now' },
-                { value: '1h', label: '1 hour' },
-                { value: '24h', label: '24 hours' },
-                { value: '7d', label: '7 days' },
-              ]}
-            />
+          <Field
+            label="Old token keeps working for"
+            hint="At most an hour, while you update your identity provider."
+          >
+            <Select value={overlap} onChange={(v) => setOverlap(v)} options={SCIM_OVERLAPS} />
           </Field>
         ) : null}
       </ConfirmDialog>
