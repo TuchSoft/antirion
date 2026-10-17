@@ -49,6 +49,7 @@ import {
   TYPE_LABEL,
 } from '../rules';
 import { CATEGORY_LABEL, useSafety } from '../store';
+import { NamedBy } from './named-by';
 
 /** What the editor opens on: a new rule (of a method), or a guardrail, maybe with a prepared change. */
 export type EditorTarget =
@@ -1449,6 +1450,7 @@ function Editor({
               this rule.
             </p>
           )}
+          {original ? <NamedBy name={original.name} /> : null}
           {canAttach && !(draft.onInput && stages.input) && !(draft.onOutput && stages.output) ? (
             <p className="text-caption text-warn">
               It checks nothing until a policy names it: here, or in an organization, team or Model.

@@ -57,6 +57,13 @@ interface Owned {
   metadata: { etag?: string };
 }
 
+/** A level below the gateway with its `policies` as written. */
+export interface PolicyOwner {
+  kind: OwnerKind;
+  name: string;
+  policies: Record<string, unknown>;
+}
+
 function ownerOf(kind: OwnerKind, r: Owned): Owner {
   const spec = (r.spec ?? {}) as { policies?: { plugins?: S['PolicyPlugins'] } };
   const plugins = spec.policies?.plugins;
@@ -73,6 +80,18 @@ const page = { limit: 200 };
 
 /** Every level of these kinds with its attachments. */
 export async function listOwners(kinds: OwnerKind[]): Promise<Owner[]> {
+  return (await readOwners(kinds)).map(([kind, r]) => ownerOf(kind, r));
+}
+
+/** Every level of these kinds with its policies, for any member of them. */
+export async function listPolicyOwners(kinds: OwnerKind[]): Promise<PolicyOwner[]> {
+  return (await readOwners(kinds)).map(([kind, r]) => {
+    const spec = (r.spec ?? {}) as { policies?: Record<string, unknown> };
+    return { kind, name: r.name, policies: spec.policies ?? {} };
+  });
+}
+
+async function readOwners(kinds: OwnerKind[]): Promise<[OwnerKind, Owned][]> {
   const read = async (kind: OwnerKind): Promise<Owned[]> => {
     switch (kind) {
       case 'organization':
@@ -90,7 +109,9 @@ export async function listOwners(kinds: OwnerKind[]): Promise<Owner[]> {
     }
   };
   // A level that can't be read is left out rather than hiding the others.
-  const lists = await Promise.allSettled(kinds.map(async (k) => (await read(k)).map((r) => ownerOf(k, r))));
+  const lists = await Promise.allSettled(
+    kinds.map(async (k) => (await read(k)).map((r): [OwnerKind, Owned] => [k, r])),
+  );
   const fulfilled = lists.flatMap((l) => (l.status === 'fulfilled' ? [l.value] : []));
   if (fulfilled.length === 0 && lists[0]?.status === 'rejected') throw lists[0].reason;
   return fulfilled.flat();

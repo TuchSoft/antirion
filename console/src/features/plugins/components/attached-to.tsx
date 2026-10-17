@@ -15,7 +15,7 @@ import { attachmentName, type Owner, OWNER_KINDS, type OwnerKind } from '../api'
 import { usePlugins } from '../store';
 
 /** The levels the principal may read, and those it may change. */
-function useOwnerAccess(): { read: OwnerKind[]; write: Set<OwnerKind> } {
+export function useOwnerAccess(): { read: OwnerKind[]; write: Set<OwnerKind> } {
   const me = useSession((s) => s.me);
   const scope = useScope((s) => s.scope);
   return useMemo(() => {
