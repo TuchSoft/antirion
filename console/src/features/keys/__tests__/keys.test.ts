@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { KeyResource, UserResource } from '@/lib/api/types';
 
-import { EMPTY_KEY_FORM, fromKeySpec, keyFormSchema, toKeySpec } from '../form';
+import { EMPTY_KEY_FORM, fromKeySpec, keyFormSchema, limitWindow, toKeySpec } from '../form';
 import {
   budgetsFor,
   filterKeys,
@@ -80,6 +80,30 @@ describe('key form', () => {
       other: { limit: 5 },
       rpm: { unit: 'requests', limit: 120, per: '1m' },
     });
+  });
+  it('changes only the number of a declared rpm or tpm limit', () => {
+    const rpm = {
+      unit: 'requests' as const,
+      limit: 100,
+      per: '1h',
+      burst: 20,
+      match: { models: ['gpt-*'] },
+      partition_by: ['user'],
+    };
+    const tpm = { unit: 'tokens' as const, limit: 9000, per: '10s', tokens: 'output' as const };
+    const base = { project: 'p', policies: { limits: { rpm, tpm } } };
+    const values = { ...fromKeySpec('k', base), rpm: '150' };
+    const limits = toKeySpec(values, base, NOW, true).policies?.limits;
+    expect(limits?.rpm).toEqual({ ...rpm, limit: 150 });
+    expect(limits?.tpm).toEqual(tpm);
+  });
+  it('declares a new rpm limit per minute', () => {
+    const spec = toKeySpec({ ...EMPTY_KEY_FORM, name: 'k', rpm: '60' }, {}, NOW);
+    expect(spec.policies?.limits?.rpm).toEqual({ unit: 'requests', limit: 60, per: '1m' });
+  });
+  it('names the window of a declared limit', () => {
+    expect(limitWindow(undefined)).toBe('per minute');
+    expect(limitWindow({ per: '1h' })).toBe('per 1h');
   });
   it('drops empty lists and sets the expiry', () => {
     const spec = toKeySpec({ ...EMPTY_KEY_FORM, name: 'k', expiry: '30d' }, {}, NOW);

@@ -140,11 +140,10 @@ export function toKeySpec(
   now = Date.now(),
   keepExpiry = false,
 ): KeySpec {
-  const limits: Record<string, unknown> = { ...(base.policies?.limits ?? {}) };
-  if (values.rpm.trim()) limits.rpm = { unit: 'requests', limit: Number(values.rpm), per: '1m' };
-  else limits.rpm = undefined;
-  if (values.tpm.trim()) limits.tpm = { unit: 'tokens', limit: Number(values.tpm), per: '1m' };
-  else limits.tpm = undefined;
+  const declared = (base.policies?.limits ?? {}) as Record<string, unknown>;
+  const limits: Record<string, unknown> = { ...declared };
+  limits.rpm = values.rpm.trim() ? withLimit(declared.rpm, 'requests', values.rpm) : undefined;
+  limits.tpm = values.tpm.trim() ? withLimit(declared.tpm, 'tokens', values.tpm) : undefined;
   const policies: Record<string, unknown> = { ...(base.policies ?? {}), limits: compact(limits) };
   const spec: Record<string, unknown> = {
     ...base,
@@ -163,6 +162,23 @@ export function toKeySpec(
     policies: compact(policies),
   };
   return compact(spec) as KeySpec;
+}
+
+/**
+ * A limit with the form's number: the declared limit with only `limit` changed (its window, burst,
+ * match and the rest stay as written), or a new one per minute.
+ */
+function withLimit(declared: unknown, unit: 'requests' | 'tokens', limit: string): Record<string, unknown> {
+  if (declared && typeof declared === 'object')
+    return { ...(declared as Record<string, unknown>), limit: Number(limit) };
+  return { unit, limit: Number(limit), per: '1m' };
+}
+
+/** "per minute" for a limit counted per minute (or not yet declared), else its window ("per 1h"). */
+export function limitWindow(declared: { per?: string } | undefined): string {
+  const per = declared?.per;
+  if (per === undefined || per === '1m' || per === '60s') return 'per minute';
+  return `per ${per}`;
 }
 
 function clientCert(values: KeyFormValues): KeySpec['require_client_cert'] {

@@ -35,6 +35,7 @@ import {
   fromKeySpec,
   keyFormSchema,
   type KeyFormValues,
+  limitWindow,
   toKeySpec,
 } from '../form';
 import { createKey, useKeys, useKeysContext } from '../store';
@@ -113,6 +114,8 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
   const canGrant = usePermission('keys:grant_permissions');
   const team = projects.find((p) => p.name === values.project)?.spec.team;
   const ownerKind = users.find((u) => u.name === values.owner)?.spec.kind;
+  const declaredLimits = editing?.spec.policies?.limits as
+    Record<string, { per?: string } | undefined> | undefined;
 
   function set<K extends keyof KeyFormValues>(key: K, value: KeyFormValues[K]) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -377,7 +380,7 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
             <div id="key-advanced" className="flex flex-col gap-5">
               <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                 <Field
-                  label="Rate limit (requests per minute)"
+                  label={`Rate limit (requests ${limitWindow(declaredLimits?.rpm)})`}
                   optional
                   error={errors.rpm}
                   hint="Leave blank for no limit."
@@ -391,7 +394,7 @@ export function KeyFormDrawer({ open, onClose, editing, onCreated }: KeyFormDraw
                   />
                 </Field>
                 <Field
-                  label="Token limit (per minute)"
+                  label={`Token limit (${limitWindow(declaredLimits?.tpm)})`}
                   optional
                   error={errors.tpm}
                   hint="Leave blank for no limit."
