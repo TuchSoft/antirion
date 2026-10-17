@@ -198,10 +198,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="grid h-dvh grid-cols-[minmax(0,1fr)] grid-rows-[48px_minmax(0,1fr)] bg-canvas lg:grid-cols-[var(--spacing-sidebar)_minmax(0,1fr)]">
         <Topbar />
         <Sidebar />
+        {/* While a page shows its main empty, error or loading state, the view below the page's
+            content takes the raised surface, so that state's band runs to the bottom of the view. */}
         <main
           id="main"
           tabIndex={-1}
-          className="flex min-w-0 flex-col overflow-auto outline-none [&>*]:shrink-0"
+          className="flex min-w-0 flex-col overflow-auto outline-none has-[[data-page-state]]:bg-raised [&>*]:shrink-0"
         >
           <Suspense fallback={null}>
             <GatewayNotices />
