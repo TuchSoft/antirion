@@ -49,6 +49,7 @@ import {
   useModelInsight,
   useModels,
 } from '../store';
+import { PRICE_FIELDS } from '../deployment-form';
 import { describeNode, stepsOf } from '../tree';
 import { healthName, type ModelView, rate, statusOf, STATUS_LABEL, STATUS_TONE, tierLabel } from '../types';
 import { AccessDrawer, AccessPanel } from './access-panel';
@@ -63,6 +64,9 @@ import { ModelUsage } from './model-usage';
 import { PoliciesPanel } from './policies-panel';
 import { TierPrices } from './tier-prices';
 
+/** The rates behind "More rates" in the price dialog: per token in the reader's unit, or flat in USD. */
+const MORE_RATES = PRICE_FIELDS.filter((p) => p.field !== 'input' && p.field !== 'output');
+
 function PriceDialog({
   deployments,
   open,
@@ -76,10 +80,19 @@ function PriceDialog({
   const prices = useCatalog((s) => s.prices);
   const [deployment, setDeployment] = useState(deployments[0] ?? '');
   const current = prices[deployment]?.price;
+  const ratesOf = (price: Record<string, unknown> | null | undefined) =>
+    Object.fromEntries(
+      MORE_RATES.map((p) => [
+        p.field,
+        p.perToken ? fromPerMillion(rate(price, p.field), tokenPrice.unit) : (rate(price, p.field) ?? ''),
+      ]),
+    );
   const [input, setInput] = useState(() => fromPerMillion(rate(current, 'input'), tokenPrice.unit));
   const [output, setOutput] = useState(() => fromPerMillion(rate(current, 'output'), tokenPrice.unit));
+  const [more, setMore] = useState<Record<string, string>>(() => ratesOf(current));
   const [invalid, setInvalid] = useState<string | null>(null);
   const unit = `USD per ${tokenPrice.unit} tokens`;
+  const moreSet = Object.values(more).filter((v) => v.trim() !== '').length;
   return (
     <ConfirmDialog
       open={open}
@@ -96,7 +109,20 @@ function PriceDialog({
           setInvalid(message);
           throw new Error(message);
         }
-        await overridePrice(deployment, { input: a, output: b }, reason);
+        const before = ratesOf(current);
+        const extra: Record<string, string | null> = {};
+        for (const p of MORE_RATES) {
+          const typed = (more[p.field] ?? '').trim();
+          if (typed === (before[p.field] ?? '')) continue;
+          const value = p.perToken ? toPerMillion(typed, tokenPrice.unit) : typed;
+          if (value && !money.safeParse(value).success) {
+            const message = `${p.label}: enter an amount in ${p.perToken ? unit : 'USD'}, or leave it empty`;
+            setInvalid(message);
+            throw new Error(message);
+          }
+          extra[p.field] = value || null;
+        }
+        await overridePrice(deployment, { input: a, output: b, ...extra }, reason);
         notify('success', 'Price saved', deployment);
       }}
     >
@@ -108,6 +134,7 @@ function PriceDialog({
               setDeployment(v);
               setInput(fromPerMillion(rate(prices[v]?.price, 'input'), tokenPrice.unit));
               setOutput(fromPerMillion(rate(prices[v]?.price, 'output'), tokenPrice.unit));
+              setMore(ratesOf(prices[v]?.price));
             }}
             options={deployments.map((d) => ({ value: d, label: d }))}
           />
@@ -131,6 +158,23 @@ function PriceDialog({
           <Input mono inputMode="decimal" value={output} onChange={(e) => setOutput(e.target.value)} />
         </Field>
       </div>
+      <details className="group" open={moreSet > 0 ? true : undefined}>
+        <summary className="w-fit cursor-pointer list-none text-ui text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+          More rates{moreSet > 0 ? ` (${String(moreSet)} set)` : ''}
+        </summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {MORE_RATES.map((p) => (
+            <Field key={p.field} label={`${p.label} (${p.perToken ? unit : 'USD'})`} optional>
+              <Input
+                mono
+                inputMode="decimal"
+                value={more[p.field] ?? ''}
+                onChange={(e) => setMore((m) => ({ ...m, [p.field]: e.target.value }))}
+              />
+            </Field>
+          ))}
+        </div>
+      </details>
     </ConfirmDialog>
   );
 }
@@ -186,6 +230,7 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
   const insight = useModelInsight((s) => s.slots[view.name]?.data);
   const remove = useModels((s) => s.remove);
   const canPrice = useCan('patchDeployment');
+  const canEditDeployment = useCan('replaceDeployment');
   const canReplace = useCan('replaceModel');
   const canToggle = useCan('patchModel');
   const canDelete = useCan('deleteModel');
@@ -526,6 +571,16 @@ export function ModelDetail({ view, defaults = [], onEdit, onOpenModel }: ModelD
               <span className="text-caption text-dim">The provider type’s defaults</span>
             </Tooltip>
           )}
+          {canEditDeployment && view.leaves.length === 1 && deployments.has(view.leaves[0] ?? '') ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="edit"
+              onClick={() => setDialog({ deployment: view.leaves[0] ?? '' })}
+            >
+              Change
+            </Button>
+          ) : null}
         </div>
         {spec.description ? <p className="mt-4 text-body text-muted">{spec.description}</p> : null}
         {spec.annotations && Object.keys(spec.annotations).length > 0 ? (

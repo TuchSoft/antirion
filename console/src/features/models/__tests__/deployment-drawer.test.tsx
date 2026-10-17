@@ -10,7 +10,7 @@ import { signInAs } from '@/test/utils';
 
 import { DeploymentDrawer } from '../components/deployment-drawer';
 import { deploymentErrors, fromDeploymentSpec, toDeploymentSpec } from '../deployment-form';
-import { useCatalog } from '../store';
+import { overridePrice, useCatalog } from '../store';
 
 const meta = {
   etag: '"d7"',
@@ -191,5 +191,36 @@ describe('deployment drawer', () => {
     await userEvent.click(within(drawer).getByRole('button', { name: 'Save changes' }));
     expect(await within(drawer).findByText(/Enter the model ID the provider uses/)).toBeInTheDocument();
     expect(puts).toHaveLength(0);
+  });
+});
+
+describe('price override', () => {
+  it('merges the rates typed and removes the ones cleared', async () => {
+    signInAs(['models:read', 'deployments:write']);
+    const deployment: DeploymentResource = {
+      name: 'luna',
+      spec: {
+        provider: 'openai',
+        model: 'gpt-6-luna',
+        price: { input: '1', output: '2', cache_read: '0.1' },
+      },
+      metadata: meta,
+    };
+    useCatalog.setState({
+      deployments: { data: [deployment], status: 'ready', error: null, at: Date.now() },
+      prices: {},
+    });
+    const patches: unknown[] = [];
+    server.use(
+      http.patch('*/admin/v1/deployments/:name', async ({ request }) => {
+        patches.push(await request.json());
+        return HttpResponse.json({ ...deployment, metadata: { ...meta, etag: '"d8"' } });
+      }),
+      http.get('*/admin/v1/pricing/deployments/:name', () => HttpResponse.json({}, { status: 404 })),
+    );
+    await overridePrice('luna', { input: '1.5', output: '2', cache_read: null, reasoning: '4' });
+    expect(patches).toEqual([
+      { spec: { price: { input: '1.5', output: '2', cache_read: null, reasoning: '4' } } },
+    ]);
   });
 });

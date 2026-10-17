@@ -275,14 +275,19 @@ export async function setModelEnabled(name: string, enabled: boolean, reason?: s
   useModels.setState((s) => ({ items: s.items.map((m) => (m.name === name ? updated : m)) }));
 }
 
+/**
+ * Sets a deployment's price over the one it has: input and output, and any other rate given (a
+ * null rate is removed).
+ */
 export async function overridePrice(
   deployment: string,
-  price: { input: string; output: string },
+  price: { input: string; output: string } & Record<string, string | null>,
   reason?: string,
 ): Promise<void> {
   const dep = useCatalog.getState().deployments.data?.find((d) => d.name === deployment);
   const updated = await modelsApi.patchDeployment(
     deployment,
+    // A merge patch: a null rate removes it, the others replace or add theirs.
     { price: { ...(dep?.spec.price ?? {}), ...price } },
     dep?.metadata.etag,
     reason,
