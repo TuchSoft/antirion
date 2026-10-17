@@ -1,8 +1,8 @@
 'use client';
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useId, useState } from 'react';
 
-import type { RadioOption } from '@/components/ui/form';
+import { RadioGroup, type RadioGroupProps, type RadioOption } from '@/components/ui/choice';
 import { Icon } from '@/components/ui/icon';
 import { InlineError } from '@/components/ui/states';
 import type { FieldErrors } from '@/lib/validation';
@@ -133,3 +133,19 @@ export function Advanced({ children, label = 'Advanced' }: { children: ReactNode
 /** Radio options that can't be picked while the form is read-only. */
 export const lock = <V extends string>(disabled: boolean, options: RadioOption<V>[]): RadioOption<V>[] =>
   options.map((o) => ({ ...o, disabled }));
+
+/** Radio buttons under a visible label, which also names the group. */
+export function Choice<T extends string>({
+  label,
+  ...props
+}: Omit<RadioGroupProps<T>, 'label' | 'aria-labelledby'> & { label: string }) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p id={id} className="text-ui font-medium text-fg">
+        {label}
+      </p>
+      <RadioGroup<T> aria-labelledby={id} {...props} />
+    </div>
+  );
+}

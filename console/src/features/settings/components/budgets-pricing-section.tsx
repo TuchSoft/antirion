@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { Field, RadioGroup, Select, Switch } from '@/components/ui/form';
+import { Field, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 
@@ -10,7 +10,7 @@ import { settingsApi } from '../api';
 import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
-import { Hint, lock, SettingsForm } from './settings-form';
+import { Choice, Hint, lock, SettingsForm } from './settings-form';
 
 type OnUnpriced = 'reject_if_budgeted' | 'zero';
 type Catalog = 'bundled' | 'none';
@@ -62,7 +62,7 @@ function PricingCard() {
         >
           {({ values, set, disabled }) => (
             <>
-              <RadioGroup<OnUnpriced>
+              <Choice<OnUnpriced>
                 label="Requests to unpriced models"
                 value={values.onUnpriced}
                 onChange={(v) => set('onUnpriced', v)}
@@ -80,7 +80,7 @@ function PricingCard() {
                   },
                 ])}
               />
-              <RadioGroup<Catalog>
+              <Choice<Catalog>
                 label="Prices to use"
                 value={values.catalog}
                 onChange={(v) => set('catalog', v)}

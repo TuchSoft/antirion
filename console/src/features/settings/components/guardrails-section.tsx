@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { Field, MultiSelect, NumberInput, RadioGroup, Select, Switch } from '@/components/ui/form';
+import { Field, MultiSelect, NumberInput, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
@@ -13,7 +13,7 @@ import { rangeError } from '../choices';
 import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card, Facts } from './parts';
-import { Advanced, Hint, lock, SettingsForm } from './settings-form';
+import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
 
 type S = components['schemas'];
 type GuardPolicy = NonNullable<S['PoliciesSettings']['spec']['guardrails']>;
@@ -60,7 +60,7 @@ function BehaviourCard() {
         >
           {({ values, set, disabled }) => (
             <>
-              <RadioGroup<Uninspectable>
+              <Choice<Uninspectable>
                 label="A request a guardrail can't read"
                 value={values.uninspectable}
                 onChange={(v) => set('uninspectable', v)}
@@ -257,7 +257,7 @@ function PolicyCard() {
                     onChange={(v) => set('selectable', v)}
                   />
                 </Field>
-                <RadioGroup<Order>
+                <Choice<Order>
                   label="Run guardrails"
                   value={values.order}
                   onChange={(v) => set('order', v)}
@@ -275,7 +275,7 @@ function PolicyCard() {
                   ])}
                 />
                 <Advanced label="Streamed answers">
-                  <RadioGroup<StreamMode>
+                  <Choice<StreamMode>
                     label="Output guardrails on a streamed answer"
                     value={values.streamMode}
                     onChange={(v) => set('streamMode', v)}

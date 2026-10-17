@@ -2,16 +2,7 @@
 
 import { useEffect } from 'react';
 
-import {
-  Checkbox,
-  Field,
-  Input,
-  MultiSelect,
-  NumberInput,
-  RadioGroup,
-  Select,
-  Switch,
-} from '@/components/ui/form';
+import { Checkbox, Field, Input, MultiSelect, NumberInput, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
@@ -21,7 +12,7 @@ import { durationOptions, rangeError } from '../choices';
 import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
-import { Advanced, Hint, lock, SettingsForm } from './settings-form';
+import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
 
 type S = components['schemas'];
 type Health = NonNullable<S['ResilienceSettings']['spec']['health']>;
@@ -155,7 +146,7 @@ function HealthCard() {
                 />
                 <Hint>Off, every deployment keeps getting requests however often it fails.</Hint>
               </div>
-              <RadioGroup<AllUnhealthy>
+              <Choice<AllUnhealthy>
                 label="When every deployment of a route is out of rotation"
                 value={values.allUnhealthy}
                 onChange={(v) => set('allUnhealthy', v)}
@@ -256,7 +247,7 @@ function HealthCard() {
                     />
                   </Field>
                 </div>
-                <RadioGroup<ProbeScope>
+                <Choice<ProbeScope>
                   label="Count trial requests"
                   value={values.probeScope}
                   onChange={(v) => set('probeScope', v)}
@@ -401,7 +392,7 @@ function AdmissionCard() {
         >
           {({ values, set, errors, disabled }) => (
             <>
-              <RadioGroup<Fairness>
+              <Choice<Fairness>
                 label="When requests queue"
                 value={values.fairness}
                 onChange={(v) => set('fairness', v)}
@@ -738,7 +729,7 @@ function PassCard() {
                 />
                 <Hint>In response headers.</Hint>
               </div>
-              <RadioGroup<OnLossy>
+              <Choice<OnLossy>
                 label="When a request can't be translated exactly for a provider"
                 value={values.onLossy}
                 onChange={(v) => set('onLossy', v)}

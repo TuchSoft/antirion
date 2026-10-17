@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-import { Field, Input, NumberInput, RadioGroup, Select, Switch } from '@/components/ui/form';
+import { Field, Input, NumberInput, Select, Switch } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { LoadError, LoadingRows } from '@/components/ui/states';
 import type { components } from '@/lib/api/schema';
@@ -12,7 +12,7 @@ import { durationOptions, rangeError } from '../choices';
 import { FALLBACKS } from '../fallbacks';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
-import { Advanced, Hint, lock, SettingsForm } from './settings-form';
+import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
 
 type S = components['schemas'];
 type CacheSpec = S['CacheSettings']['spec'];
@@ -108,7 +108,7 @@ function StorageCard() {
         >
           {({ values, set, errors, disabled }) => (
             <>
-              <RadioGroup<Backend>
+              <Choice<Backend>
                 label="Keep cached answers in"
                 value={values.backend}
                 onChange={(v) => set('backend', v)}
@@ -328,7 +328,7 @@ function DefaultCacheCard() {
                     </Hint>
                   )}
                 </div>
-                <RadioGroup<Activation>
+                <Choice<Activation>
                   label="When"
                   value={values.activation}
                   onChange={(v) => set('activation', v)}

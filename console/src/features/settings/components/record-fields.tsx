@@ -1,6 +1,6 @@
 'use client';
 
-import { Field, MultiSelect, RadioGroup, Select, Switch } from '@/components/ui/form';
+import { Field, MultiSelect, Select, Switch } from '@/components/ui/form';
 import { Checkbox } from '@/components/ui/choice';
 import { useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
@@ -11,7 +11,7 @@ import type { FieldErrors } from '@/lib/validation';
 import { FALLBACKS } from '../fallbacks';
 import { useOrgSettings } from '../store';
 import { Card } from './parts';
-import { Advanced, Hint, lock, SettingsForm } from './settings-form';
+import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
 
 type ClientIp = 'full' | 'truncated' | 'none';
 
@@ -145,7 +145,7 @@ export function RecordFieldsCard() {
                     onChange={(v) => set('unauthenticated', v)}
                   />
                 </div>
-                <RadioGroup<ClientIp>
+                <Choice<ClientIp>
                   label="The caller's address"
                   value={values.clientIp}
                   onChange={(v) => set('clientIp', v)}
