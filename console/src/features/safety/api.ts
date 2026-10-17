@@ -141,6 +141,12 @@ export const safetyApi = {
     listAll((cursor) => api.get('/keys', { query: { limit: 200, cursor } })),
   teams: (): Promise<TeamResource[]> =>
     listAll((cursor) => api.get('/teams', { query: { limit: 200, cursor } })),
+  /** Providers by name and type, for the guardrails that sign calls with one's credentials. */
+  providers: async (): Promise<{ name: string; type: string }[]> =>
+    (await listAll((cursor) => api.get('/providers', { query: { limit: 200, cursor } }))).map((p) => ({
+      name: p.name,
+      type: p.spec.type,
+    })),
   models: (): Promise<ModelResource[]> =>
     listAll((cursor) => api.get('/models', { query: { limit: 200, cursor } })),
   events,

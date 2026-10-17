@@ -1,6 +1,8 @@
 import type { components } from '@/lib/api/schema';
 import type { SafetyEvent } from '@/lib/api/types';
 
+import { type HeaderRow, headerErrors, headerMap, headerRows } from '@/features/mcp/fields';
+
 export type GuardrailSpec = components['schemas']['Guardrail'];
 export type GuardrailType = GuardrailSpec['type'];
 export type GuardrailAction = NonNullable<GuardrailSpec['action']>;
@@ -112,7 +114,16 @@ export type Method =
   | 'json_schema'
   | 'json_repair'
   | 'template'
-  | 'decorator';
+  | 'decorator'
+  | 'moderation'
+  | 'llm_judge'
+  | 'length'
+  | 'tool_permission'
+  | 'system_prompt'
+  | 'bedrock_guardrails'
+  | 'azure_content_safety'
+  | 'model_armor'
+  | 'lakera';
 
 export const METHODS: { value: Method; label: string; description: string }[] = [
   {
@@ -176,7 +187,145 @@ export const METHODS: { value: Method; label: string; description: string }[] = 
     label: 'Prefix and suffix',
     description: 'Text added before and after the last user message.',
   },
+  {
+    value: 'moderation',
+    label: 'Moderation',
+    description: 'A moderation Model scores hate, harassment, violence, sexual content and self-harm.',
+  },
+  {
+    value: 'llm_judge',
+    label: 'Model judge',
+    description: 'A Model reads the text with your instructions and decides.',
+  },
+  { value: 'length', label: 'Length', description: 'Bounds on characters, words or estimated tokens.' },
+  {
+    value: 'tool_permission',
+    label: 'Tool permissions',
+    description: 'Which tools a request may declare and an answer may call, by name or * pattern.',
+  },
+  {
+    value: 'system_prompt',
+    label: 'System prompt',
+    description: 'Adds a system message, or replaces the one the request has.',
+  },
+  {
+    value: 'bedrock_guardrails',
+    label: 'Bedrock guardrail',
+    description: 'A guardrail of your AWS account, called with a Bedrock provider’s credentials.',
+  },
+  {
+    value: 'azure_content_safety',
+    label: 'Azure content safety',
+    description: 'Azure AI Content Safety rates the text by severity.',
+  },
+  {
+    value: 'model_armor',
+    label: 'Model Armor',
+    description: 'A Model Armor template, called with a Vertex provider’s Google Cloud credentials.',
+  },
+  {
+    value: 'lakera',
+    label: 'Lakera Guard',
+    description: 'Lakera Guard checks for prompt injection and other threats.',
+  },
 ];
+
+/** Methods whose findings carry labels the rule can file under its own categories. */
+export const LABELLED: Method[] = [
+  'classifier',
+  'webhook',
+  'moderation',
+  'llm_judge',
+  'bedrock_guardrails',
+  'azure_content_safety',
+  'model_armor',
+  'lakera',
+];
+
+/** Methods whose redaction can label, mask or hash what it replaces. */
+export const REPLACEABLE: Method[] = [
+  'regex',
+  'allowlist',
+  'keywords',
+  'pii',
+  'secrets',
+  'webhook',
+  'tool_permission',
+  'bedrock_guardrails',
+  'azure_content_safety',
+  'model_armor',
+  'lakera',
+];
+
+export const LENGTH_BOUNDS = [
+  'min_chars',
+  'max_chars',
+  'min_words',
+  'max_words',
+  'min_tokens',
+  'max_tokens',
+] as const;
+export type LengthBound = (typeof LENGTH_BOUNDS)[number];
+
+/** A secret the gateway reads back hidden: typed in, or kept as stored when left empty. */
+export interface SecretDraft {
+  value: string;
+  stored: boolean;
+}
+
+export type ScopeKind = 'system' | 'user' | 'assistant' | 'tool' | 'tool_definition';
+export const SCOPE_KINDS: ScopeKind[] = ['system', 'user', 'assistant', 'tool', 'tool_definition'];
+
+/**
+ * How a guardrail runs: in the request's path or beside it, its time and concurrency bounds, its
+ * order, what of a prompt it reads, and what happens when the check itself fails. Empty values
+ * leave the gateway's defaults.
+ */
+export interface RunDraft {
+  execution: '' | 'blocking' | 'async' | 'parallel_with_call';
+  timeout: string;
+  maxConcurrency: string;
+  order: string;
+  /** Message kinds of a prompt it reads; empty for every kind. */
+  scopeKinds: ScopeKind[];
+  scopeMessages: '' | 'all' | 'last_user';
+  includeOperatorContent: boolean;
+  onError: '' | 'block' | 'allow';
+  /** Stages a request that picks this guardrail adds it to. */
+  requestStages: ('input' | 'output')[];
+  /** The message a blocked request gets back. */
+  message: string;
+}
+
+export function blankRun(): RunDraft {
+  return {
+    execution: '',
+    timeout: '',
+    maxConcurrency: '',
+    order: '',
+    scopeKinds: [],
+    scopeMessages: '',
+    includeOperatorContent: false,
+    onError: '',
+    requestStages: [],
+    message: '',
+  };
+}
+
+export function runOf(spec: GuardrailSpec): RunDraft {
+  return {
+    execution: spec.execution ?? '',
+    timeout: spec.timeout ?? '',
+    maxConcurrency: spec.max_concurrency != null ? String(spec.max_concurrency) : '',
+    order: spec.order != null ? String(spec.order) : '',
+    scopeKinds: spec.scope?.kinds ?? [],
+    scopeMessages: spec.scope?.messages ?? '',
+    includeOperatorContent: spec.include_operator_content ?? false,
+    onError: spec.on_error ?? '',
+    requestStages: spec.request_stages ?? [],
+    message: spec.message ?? '',
+  };
+}
 
 /** Methods that change requests instead of judging them: no action, error policy or severity. */
 export const TRANSFORMS: GuardrailType[] = ['system_prompt', 'decorator', 'template', 'json_repair'];
@@ -260,7 +409,7 @@ export function impliedCategory(spec: Pick<GuardrailSpec, 'type' | 'regex'>): Ca
 export function methodOf(spec: Pick<GuardrailSpec, 'type' | 'regex' | 'decorator'>): Method | null {
   if (spec.type === 'regex') return (spec.regex?.allow?.length ?? 0) > 0 ? 'allowlist' : 'regex';
   if (spec.type === 'decorator') return 'decorator';
-  return METHODS.some((m) => m.value === spec.type) ? (spec.type as Method) : null;
+  return METHODS.some((m) => m.value === spec.type) ? spec.type : null;
 }
 
 /** The stages a guardrail may run at: transforms, rewrites, topics and diverts read prompts only. */
@@ -279,6 +428,11 @@ export function stagesFor(
   return { input: true, output: true };
 }
 
+/** The action the gateway takes when a guardrail names none. */
+export function defaultAction(type: GuardrailType): GuardrailAction {
+  return type === 'pii' || type === 'secrets' || type === 'llm_rewrite' ? 'redact' : 'block';
+}
+
 export function actionsFor(method: Method | null, type: GuardrailType): GuardrailAction[] {
   if (TRANSFORMS.includes(type)) return [];
   if (method === 'allowlist') return ['block', 'flag'];
@@ -294,6 +448,8 @@ export interface RuleDraft {
   type: GuardrailType;
   enabled: boolean;
   action: GuardrailAction | '';
+  /** Whether the rule names its action; one that doesn't does what the gateway does by default. */
+  actionNamed: boolean;
   severity: Severity | '';
   description: string;
   divertTo: string;
@@ -324,6 +480,34 @@ export interface RuleDraft {
   templateRequired: boolean;
   userPrefix: string;
   userSuffix: string;
+  /** A Model judge's longest answer, in tokens. */
+  judgeMaxTokens: string;
+  systemText: string;
+  systemMode: '' | 'replace' | 'prepend' | 'append' | 'insert_if_absent';
+  systemRole: 'system' | 'developer';
+  /** Tool-name patterns, one per line. */
+  toolsAllow: string;
+  toolsDeny: string;
+  bounds: Record<LengthBound, string>;
+  /** The provider whose credentials sign a Bedrock or Model Armor call. */
+  provider: string;
+  guardrailId: string;
+  guardrailVersion: string;
+  region: string;
+  baseUrl: string;
+  endpoint: string;
+  apiVersion: string;
+  severityThreshold: string;
+  armorTemplate: string;
+  gcpProject: string;
+  gcpLocation: string;
+  lakeraProject: string;
+  apiKey: SecretDraft;
+  /** A webhook's request headers; stored values read back hidden. */
+  headers: HeaderRow[];
+  signingSecret: SecretDraft;
+  /** How it runs; null keeps what is written (a new rule: the defaults). */
+  run: RunDraft | null;
   /** Run on prompts and on answers, at the gateway level (`policies.guardrails` input and output). */
   onInput: boolean;
   onOutput: boolean;
@@ -352,9 +536,10 @@ export function emptyDraft(method: Method = 'regex'): RuleDraft {
         ? 'redact'
         : method === 'llm_rewrite'
           ? 'redact'
-          : ['json_repair', 'template', 'decorator'].includes(method)
+          : ['json_repair', 'template', 'decorator', 'system_prompt'].includes(method)
             ? ''
             : 'block',
+    actionNamed: true,
     severity: '',
     description: '',
     divertTo: '',
@@ -385,6 +570,29 @@ export function emptyDraft(method: Method = 'regex'): RuleDraft {
     templateRequired: false,
     userPrefix: '',
     userSuffix: '',
+    judgeMaxTokens: '',
+    systemText: '',
+    systemMode: '',
+    systemRole: 'system',
+    toolsAllow: '',
+    toolsDeny: '',
+    bounds: { min_chars: '', max_chars: '', min_words: '', max_words: '', min_tokens: '', max_tokens: '' },
+    provider: '',
+    guardrailId: '',
+    guardrailVersion: '',
+    region: '',
+    baseUrl: '',
+    endpoint: '',
+    apiVersion: '',
+    severityThreshold: '',
+    armorTemplate: '',
+    gcpProject: '',
+    gcpLocation: '',
+    lakeraProject: '',
+    apiKey: { value: '', stored: false },
+    headers: [],
+    signingSecret: { value: '', stored: false },
+    run: null,
     onInput: !['json_schema', 'json_repair'].includes(method),
     onOutput: ['json_schema', 'json_repair'].includes(method),
   };
@@ -399,13 +607,21 @@ export function draftOf(
   const method = methodOf(spec);
   const d = emptyDraft(method ?? 'regex');
   const template = spec.template;
+  const num = (v: number | null | undefined) => (v != null ? String(v) : '');
+  const bounds = Object.fromEntries(LENGTH_BOUNDS.map((k) => [k, num(spec.length?.[k])])) as Record<
+    LengthBound,
+    string
+  >;
+  const secret = (v: string | null | undefined): SecretDraft => ({ value: '', stored: Boolean(v) });
+  const vendorKey = spec.azure_content_safety?.api_key ?? spec.lakera?.api_key;
   return {
     ...d,
     name,
     method,
     type: spec.type,
     enabled: spec.enabled !== false,
-    action: spec.action ?? (TRANSFORMS.includes(spec.type) ? '' : 'block'),
+    action: spec.action ?? (TRANSFORMS.includes(spec.type) ? '' : defaultAction(spec.type)),
+    actionNamed: spec.action !== undefined,
     severity: spec.severity ?? '',
     description: spec.description ?? '',
     divertTo: spec.divert_to ?? '',
@@ -422,10 +638,15 @@ export function draftOf(
     minEntropy: spec.secrets?.min_entropy != null ? String(spec.secrets.min_entropy) : '',
     url: spec.classifier?.url ?? spec.webhook?.url ?? '',
     webhookMode: spec.webhook?.mode ?? 'segments',
-    thresholds: pairs(spec.classifier?.thresholds),
+    thresholds: pairs(spec.classifier?.thresholds ?? spec.moderation?.thresholds),
     categories: pairs(spec.categories),
-    model: spec.llm_rewrite?.model ?? spec.topic?.embedding_model ?? '',
-    prompt: spec.llm_rewrite?.prompt ?? '',
+    model:
+      spec.llm_rewrite?.model ??
+      spec.topic?.embedding_model ??
+      spec.moderation?.model ??
+      spec.llm_judge?.model ??
+      '',
+    prompt: spec.llm_rewrite?.prompt ?? spec.llm_judge?.prompt ?? '',
     allowedTopics: (spec.topic?.allowed ?? []).join('\n'),
     deniedTopics: (spec.topic?.denied ?? []).join('\n'),
     threshold: spec.topic?.threshold != null ? String(spec.topic.threshold) : '0.5',
@@ -436,6 +657,29 @@ export function draftOf(
     templateRequired: template?.required ?? false,
     userPrefix: spec.decorator?.user_prefix ?? '',
     userSuffix: spec.decorator?.user_suffix ?? '',
+    judgeMaxTokens: num(spec.llm_judge?.max_tokens),
+    systemText: spec.system_prompt?.text ?? '',
+    systemMode: spec.system_prompt?.mode ?? '',
+    systemRole: spec.system_prompt?.role ?? 'system',
+    toolsAllow: (spec.tool_permission?.allow ?? []).join('\n'),
+    toolsDeny: (spec.tool_permission?.deny ?? []).join('\n'),
+    bounds,
+    provider: spec.bedrock_guardrails?.provider ?? spec.model_armor?.provider ?? '',
+    guardrailId: spec.bedrock_guardrails?.guardrail_id ?? '',
+    guardrailVersion: spec.bedrock_guardrails?.guardrail_version ?? '',
+    region: spec.bedrock_guardrails?.region ?? '',
+    baseUrl: spec.bedrock_guardrails?.base_url ?? spec.model_armor?.base_url ?? spec.lakera?.base_url ?? '',
+    endpoint: spec.azure_content_safety?.endpoint ?? '',
+    apiVersion: spec.azure_content_safety?.api_version ?? '',
+    severityThreshold: num(spec.azure_content_safety?.severity_threshold),
+    armorTemplate: spec.model_armor?.template ?? '',
+    gcpProject: spec.model_armor?.project ?? '',
+    gcpLocation: spec.model_armor?.location ?? '',
+    lakeraProject: spec.lakera?.project_id ?? '',
+    apiKey: secret(vendorKey),
+    headers: headerRows(spec.webhook?.headers),
+    signingSecret: secret(spec.webhook?.signing_secret),
+    run: runOf(spec),
     onInput: attached.input,
     onOutput: attached.output,
   };
@@ -475,9 +719,114 @@ function validRegex(p: string): boolean {
   }
 }
 
+/** The blocks of each type, which a known method writes whole. */
+const TYPE_BLOCKS = [
+  'regex',
+  'keywords',
+  'pii',
+  'secrets',
+  'moderation',
+  'webhook',
+  'system_prompt',
+  'decorator',
+  'llm_judge',
+  'json_schema',
+  'tool_permission',
+  'length',
+  'classifier',
+  'bedrock_guardrails',
+  'azure_content_safety',
+  'model_armor',
+  'lakera',
+  'template',
+  'llm_rewrite',
+  'json_repair',
+  'topic',
+];
+
+/** The settings "How it runs" writes when the form holds them. */
+const RUN_KEYS = [
+  'execution',
+  'timeout',
+  'max_concurrency',
+  'order',
+  'scope',
+  'include_operator_content',
+  'on_error',
+  'request_stages',
+  'message',
+];
+
+const DURATION = /^([0-9]+(?:\.[0-9]+)?)(ms|s|m|h|d)$/;
+const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+function durationMs(v: string): number | null {
+  const m = DURATION.exec(v.trim());
+  return m ? Number(m[1]) * (UNIT_MS[m[2] ?? 's'] ?? 0) : null;
+}
+
+const HTTPS = /^https:\/\/[^\s/]+/i;
+
+/** Sets or removes `key` of `obj`. */
+function put<T extends object>(obj: T, key: keyof T, value: unknown): void {
+  if (value === undefined || value === '') Reflect.deleteProperty(obj, key);
+  else (obj as Record<keyof T, unknown>)[key] = value;
+}
+
+/** A secret to write: the new value, else the stored one as it was read (kept), else none. */
+function secretOf(d: SecretDraft, stored: string | null | undefined): string | undefined {
+  const v = d.value.trim();
+  if (v) return v;
+  return d.stored && stored ? stored : undefined;
+}
+
+/** The "How it runs" settings written onto `spec`; errors go into `errors`. */
+function applyRun(
+  spec: GuardrailSpec,
+  run: RunDraft,
+  draft: RuleDraft,
+  base: GuardrailSpec | null,
+  errors: DraftErrors,
+): void {
+  const transform = TRANSFORMS.includes(draft.type);
+  if (!transform) put(spec, 'execution', run.execution || undefined);
+  const t = run.timeout.trim();
+  if (t) {
+    const ms = durationMs(t);
+    if (ms === null || ms < 10 || ms > 60_000) errors.run = 'Time limit: from 10ms to 60s, e.g. 2s';
+    else spec.timeout = t;
+  } else delete spec.timeout;
+  const conc = run.maxConcurrency.trim();
+  if (conc && !(/^\d+$/.test(conc) && Number(conc) >= 1))
+    errors.run = 'Checks at once: a whole number of at least 1';
+  put(spec, 'max_concurrency', conc ? Number(conc) : undefined);
+  const order = run.order.trim();
+  if (order && !/^-?\d+$/.test(order)) errors.run = 'Order: a whole number';
+  put(spec, 'order', order ? Number(order) : undefined);
+  const scope = {
+    ...(run.scopeKinds.length > 0 ? { kinds: run.scopeKinds } : {}),
+    ...(run.scopeMessages ? { messages: run.scopeMessages } : {}),
+  };
+  put(spec, 'scope', Object.keys(scope).length > 0 ? scope : undefined);
+  put(
+    spec,
+    'include_operator_content',
+    run.includeOperatorContent ? true : base?.include_operator_content === false ? false : undefined,
+  );
+  if (!transform) put(spec, 'on_error', run.onError || undefined);
+  put(spec, 'request_stages', run.requestStages.length > 0 ? run.requestStages : undefined);
+  const message = run.message.trim();
+  if (message.length > 500) errors.run = 'The message is at most 500 characters';
+  put(spec, 'message', message ? message : base?.message === null ? null : undefined);
+  if (run.execution === 'async' && draft.action !== 'flag')
+    errors.run = 'Checking in the background only flags: choose the Flag only action';
+  if (run.execution && run.execution !== 'blocking' && draft.action === 'divert')
+    errors.run = 'A divert decides before the call: run it in the request’s path';
+}
+
 /**
- * The guardrail a form describes, or what to fix. Settings the form does not show (another
- * method's block, execution, scope, timeouts) are kept from `base`.
+ * The guardrail a form describes, or what to fix. Settings the form does not show (notifications,
+ * and "How it runs" when the form does not hold it) are kept from `base`.
  */
 export function specOf(
   draft: RuleDraft,
@@ -486,37 +835,31 @@ export function specOf(
   const errors: DraftErrors = {};
   const type = draft.type;
   const known = draft.method !== null;
-  const owned = [
-    'regex',
-    'keywords',
-    'pii',
-    'secrets',
-    'classifier',
-    'webhook',
-    'topic',
-    'llm_rewrite',
-    'json_schema',
-    'json_repair',
-    'template',
-    'decorator',
-    'categories',
+  const owned = new Set([
+    ...TYPE_BLOCKS,
     'divert_to',
     'replacement',
-  ];
+    ...(draft.method && LABELLED.includes(draft.method) ? ['categories'] : []),
+    ...(draft.run ? RUN_KEYS : []),
+  ]);
   const keep = Object.fromEntries(
-    Object.entries(base ?? {}).filter(([k]) => !(known && owned.includes(k))),
+    Object.entries(base ?? {}).filter(([k]) => !(known && owned.has(k))),
   ) as Partial<GuardrailSpec>;
   const spec: GuardrailSpec = { ...keep, type, enabled: draft.enabled };
   if (base === null && !/^[a-z][a-z0-9_]{0,62}$/.test(draft.name))
     errors.name = 'Use lowercase letters, digits and underscores, starting with a letter';
   const transform = TRANSFORMS.includes(type);
+  if (draft.run) applyRun(spec, draft.run, draft, base, errors);
   if (transform) {
     delete spec.action;
     delete spec.on_error;
     delete spec.execution;
   } else if (draft.action) {
-    spec.action = draft.action;
-    if (draft.action === 'flag') spec.on_error = 'allow';
+    // A rule that named no action keeps naming none while it does what the gateway does without one.
+    if (draft.actionNamed || draft.action !== defaultAction(type)) spec.action = draft.action;
+    // A flagging rule never blocks on its own failure: a new one says so, a written one is corrected.
+    if (draft.action === 'flag' && (draft.run === null || spec.on_error !== undefined))
+      spec.on_error = 'allow';
   }
   if (draft.severity) spec.severity = draft.severity;
   else delete spec.severity;
@@ -526,6 +869,27 @@ export function specOf(
     if (!draft.divertTo.trim()) errors.divertTo = 'Choose the Model that answers instead';
     else spec.divert_to = draft.divertTo.trim();
   }
+  if (
+    draft.method &&
+    REPLACEABLE.includes(draft.method) &&
+    draft.action === 'redact' &&
+    draft.replacement !== 'label'
+  )
+    spec.replacement = draft.replacement;
+  if (draft.method && LABELLED.includes(draft.method)) {
+    const cats = parsePairs(draft.categories, category);
+    if (!cats.ok) errors.categories = `Write each line as label = category from the list (${cats.line})`;
+    else if (Object.keys(cats.map).length > 0) spec.categories = cats.map as Record<string, Category>;
+  }
+  const vendorUrl = (key: 'baseUrl' | 'endpoint', required: boolean) => {
+    const v = draft[key].trim();
+    if (!v) {
+      if (required) errors[key] = 'Enter the https:// address';
+      return undefined;
+    }
+    if (!HTTPS.test(v)) errors[key] = 'An address starting with https://';
+    return v;
+  };
   switch (draft.method) {
     case 'regex':
     case 'allowlist': {
@@ -538,14 +902,12 @@ export function specOf(
         ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
         ...(draft.validate !== 'none' ? { validate: draft.validate } : {}),
       };
-      if (draft.action === 'redact' && draft.replacement !== 'label') spec.replacement = draft.replacement;
       break;
     }
     case 'keywords': {
       const words = lines(draft.words);
       if (words.length === 0) errors.words = 'Enter at least one word or phrase, one per line';
       spec.keywords = { words, match: draft.match };
-      if (draft.action === 'redact' && draft.replacement !== 'label') spec.replacement = draft.replacement;
       break;
     }
     case 'pii':
@@ -568,7 +930,6 @@ export function specOf(
       if (entropy !== null && !(Number.isFinite(entropy) && entropy >= 0 && entropy <= 8))
         errors.minEntropy = 'Enter a number from 0 to 8, or leave it empty';
       spec.secrets = { detectors: draft.detectors, ...(entropy !== null ? { min_entropy: entropy } : {}) };
-      if (draft.action === 'redact' && draft.replacement !== 'label') spec.replacement = draft.replacement;
       break;
     }
     case 'classifier': {
@@ -578,23 +939,25 @@ export function specOf(
         errors.thresholds = `Write each line as label = a score from 0 to 1 (${thresholds.line})`;
       else if (Object.keys(thresholds.map).length === 0)
         errors.thresholds = 'Enter at least one label = score';
-      const cats = parsePairs(draft.categories, category);
-      if (!cats.ok) errors.categories = `Write each line as label = category from the list (${cats.line})`;
       spec.classifier = {
         ...(base?.classifier ?? {}),
         url: draft.url.trim(),
         thresholds: thresholds.ok ? (thresholds.map as Record<string, number>) : {},
       };
-      if (cats.ok && Object.keys(cats.map).length > 0) spec.categories = cats.map as Record<string, Category>;
       break;
     }
     case 'webhook': {
       if (!draft.url.trim().startsWith('https://')) errors.url = 'Enter the service’s https:// address';
-      const cats = parsePairs(draft.categories, category);
-      if (!cats.ok) errors.categories = `Write each line as label = category from the list (${cats.line})`;
-      spec.webhook = { ...(base?.webhook ?? {}), url: draft.url.trim(), mode: draft.webhookMode };
-      if (cats.ok && Object.keys(cats.map).length > 0) spec.categories = cats.map as Record<string, Category>;
-      if (draft.action === 'redact' && draft.replacement !== 'label') spec.replacement = draft.replacement;
+      const headerError = headerErrors(draft.headers);
+      if (headerError) errors.headers = headerError;
+      const headers = headerMap(draft.headers);
+      const signing = secretOf(draft.signingSecret, base?.webhook?.signing_secret);
+      spec.webhook = {
+        url: draft.url.trim(),
+        ...(draft.webhookMode !== 'segments' || base?.webhook?.mode ? { mode: draft.webhookMode } : {}),
+        ...(headers ? { headers } : {}),
+        ...(signing ? { signing_secret: signing } : {}),
+      };
       break;
     }
     case 'topic': {
@@ -674,6 +1037,121 @@ export function specOf(
       if (!draft.userPrefix.trim()) delete spec.decorator.user_prefix;
       if (!draft.userSuffix.trim()) delete spec.decorator.user_suffix;
       break;
+    case 'moderation': {
+      if (!draft.model.trim()) errors.model = 'Choose the moderation Model';
+      const thresholds = parsePairs(draft.thresholds, ratio);
+      if (!thresholds.ok)
+        errors.thresholds = `Write each line as category = a score from 0 to 1 (${thresholds.line})`;
+      const t = thresholds.ok ? (thresholds.map as Record<string, number>) : {};
+      const { thresholds: _old, ...rest } = base?.moderation ?? { model: '' };
+      spec.moderation = {
+        ...rest,
+        model: draft.model.trim(),
+        ...(Object.keys(t).length > 0 ? { thresholds: t } : {}),
+      };
+      break;
+    }
+    case 'llm_judge': {
+      if (!draft.model.trim()) errors.model = 'Choose the Model that judges';
+      const prompt = draft.prompt.trim();
+      if (!prompt) errors.prompt = 'Tell the Model what to look for; {{content}} is the text';
+      else if (prompt.length > 20_000) errors.prompt = 'At most 20,000 characters';
+      const max = draft.judgeMaxTokens.trim();
+      if (max && !(/^\d+$/.test(max) && Number(max) >= 1 && Number(max) <= 4096))
+        errors.judgeMaxTokens = 'A whole number from 1 to 4096';
+      spec.llm_judge = { model: draft.model.trim(), prompt, ...(max ? { max_tokens: Number(max) } : {}) };
+      break;
+    }
+    case 'length': {
+      const out: Partial<Record<LengthBound, number>> = {};
+      for (const k of LENGTH_BOUNDS) {
+        const v = draft.bounds[k].trim();
+        if (!v) continue;
+        if (!/^\d+$/.test(v)) errors.bounds = 'Each bound is a whole number, or empty';
+        else out[k] = Number(v);
+      }
+      if (!errors.bounds && Object.keys(out).length === 0) errors.bounds = 'Set at least one bound';
+      for (const unit of ['chars', 'words', 'tokens'] as const) {
+        const lo = out[`min_${unit}`];
+        const hi = out[`max_${unit}`];
+        if (lo !== undefined && hi !== undefined && lo > hi)
+          errors.bounds = `The least ${unit} is above the most`;
+      }
+      spec.length = out;
+      break;
+    }
+    case 'tool_permission': {
+      const allow = lines(draft.toolsAllow);
+      const deny = lines(draft.toolsDeny);
+      if (allow.length + deny.length === 0)
+        errors.toolsAllow = 'List at least one tool to allow or deny, one per line';
+      spec.tool_permission = {
+        ...(allow.length > 0 ? { allow } : {}),
+        ...(deny.length > 0 ? { deny } : {}),
+      };
+      break;
+    }
+    case 'system_prompt':
+      if (!draft.systemText.trim()) errors.systemText = 'Write the system message';
+      spec.system_prompt = {
+        text: draft.systemText,
+        ...(draft.systemMode ? { mode: draft.systemMode } : {}),
+        ...(draft.systemRole !== 'system' || base?.system_prompt?.role ? { role: draft.systemRole } : {}),
+      };
+      break;
+    case 'bedrock_guardrails': {
+      if (!draft.provider.trim())
+        errors.provider = 'Choose the Bedrock provider whose credentials sign the call';
+      if (!draft.guardrailId.trim()) errors.guardrailId = 'The guardrail’s id or ARN';
+      const url = vendorUrl('baseUrl', false);
+      spec.bedrock_guardrails = {
+        provider: draft.provider.trim(),
+        guardrail_id: draft.guardrailId.trim(),
+        ...(draft.guardrailVersion.trim() ? { guardrail_version: draft.guardrailVersion.trim() } : {}),
+        ...(draft.region.trim() ? { region: draft.region.trim() } : {}),
+        ...(url ? { base_url: url } : {}),
+      };
+      break;
+    }
+    case 'azure_content_safety': {
+      const endpoint = vendorUrl('endpoint', true);
+      const key = secretOf(draft.apiKey, base?.azure_content_safety?.api_key);
+      if (!key) errors.apiKey = 'Enter the API key';
+      const sev = draft.severityThreshold.trim();
+      if (sev && !(/^\d$/.test(sev) && Number(sev) <= 7)) errors.severityThreshold = 'From 0 to 7';
+      spec.azure_content_safety = {
+        endpoint: endpoint ?? '',
+        api_key: key ?? '',
+        ...(draft.apiVersion.trim() ? { api_version: draft.apiVersion.trim() } : {}),
+        ...(sev ? { severity_threshold: Number(sev) } : {}),
+      };
+      break;
+    }
+    case 'model_armor': {
+      if (!draft.provider.trim())
+        errors.provider = 'Choose the Vertex provider whose credentials sign the call';
+      if (!draft.armorTemplate.trim()) errors.armorTemplate = 'The template’s id';
+      const url = vendorUrl('baseUrl', false);
+      spec.model_armor = {
+        provider: draft.provider.trim(),
+        template: draft.armorTemplate.trim(),
+        ...(draft.gcpProject.trim() ? { project: draft.gcpProject.trim() } : {}),
+        ...(draft.gcpLocation.trim() ? { location: draft.gcpLocation.trim() } : {}),
+        ...(url ? { base_url: url } : {}),
+      };
+      break;
+    }
+    case 'lakera': {
+      const key = secretOf(draft.apiKey, base?.lakera?.api_key);
+      if (!key) errors.apiKey = 'Enter the API key';
+      const url = vendorUrl('baseUrl', false);
+      spec.lakera = {
+        api_key: key ?? '',
+        ...(url ? { base_url: url } : {}),
+        ...(draft.lakeraProject.trim() ? { project_id: draft.lakeraProject.trim() } : {}),
+      };
+      break;
+    }
     case null:
       break;
   }

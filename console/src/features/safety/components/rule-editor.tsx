@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
 import { Checkbox, Combobox, Field, Input, Segmented, Select, Switch, Textarea } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
+import { Icon } from '@/components/ui/icon';
 import { CancelButton, Drawer } from '@/components/ui/overlay';
 import { Banner, InlineError } from '@/components/ui/states';
 import { modelOption } from '@/components/ui/marks';
@@ -14,23 +15,34 @@ import type { GuardrailResource } from '@/lib/api/types';
 import { useEdited } from '@/lib/hooks';
 import { notify } from '@/stores/ui';
 
+import { HeaderRowsEditor } from '@/features/mcp/components/parts';
+
 import { type GuardrailTestResult, safetyApi } from '../api';
 import {
   actionsFor,
+  blankRun,
   CATEGORIES,
   type DraftErrors,
   draftOf,
   emptyDraft,
   ENTITY_NAME,
   impliedCategory,
+  LABELLED,
+  LENGTH_BOUNDS,
+  type LengthBound,
   matchWord,
   type Method,
   METHODS,
   PII_ENTITIES,
   PII_PRESERVE,
   PRESERVE_NAME,
+  REPLACEABLE,
   type RuleDraft,
+  type RunDraft,
+  SCOPE_KINDS,
+  type ScopeKind,
   SECRET_DETECTORS,
+  type SecretDraft,
   specOf,
   stagesFor,
   TRANSFORMS,
@@ -163,6 +175,264 @@ function ModelPicker({
   );
 }
 
+/** A provider of one type, by name; free text when providers can't be read. */
+function ProviderPicker({
+  type,
+  value,
+  onChange,
+  error,
+  hint,
+}: {
+  type: 'bedrock' | 'vertex';
+  value: string;
+  onChange: (v: string) => void;
+  error?: string | undefined;
+  hint: string;
+}) {
+  const canList = useCan('listProviders');
+  const [names, setNames] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!canList) return;
+    let live = true;
+    safetyApi
+      .providers()
+      .then((all) => {
+        if (live) setNames(all.filter((p) => p.type === type).map((p) => p.name));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [canList, type]);
+  const options = [...new Set([...(names ?? []), ...(value ? [value] : [])])].map((n) => ({
+    value: n,
+    label: n,
+  }));
+  return (
+    <Field label="Provider" hint={hint} error={error}>
+      {names ? (
+        <Combobox value={value} onChange={onChange} placeholder="Choose a provider" options={options} />
+      ) : (
+        <Input mono value={value} onChange={(e) => onChange(e.target.value)} placeholder="Provider name" />
+      )}
+    </Field>
+  );
+}
+
+/**
+ * A secret written, never read back: a stored one shows as "Stored, hidden" and is kept unless a
+ * new value is typed; an optional one can be removed.
+ */
+function SecretField({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  optional,
+}: {
+  label: string;
+  value: SecretDraft;
+  onChange: (v: SecretDraft) => void;
+  error?: string | undefined;
+  hint?: ReactNode;
+  optional?: boolean;
+}) {
+  return (
+    <Field
+      label={label}
+      optional={optional}
+      error={error}
+      hint={hint}
+      aside={
+        optional && value.stored ? (
+          <Button size="sm" variant="ghost" onClick={() => onChange({ value: '', stored: false })}>
+            Remove
+          </Button>
+        ) : undefined
+      }
+    >
+      <Input
+        mono
+        type="password"
+        autoComplete="off"
+        value={value.value}
+        placeholder={value.stored ? 'Stored, hidden. Type to replace' : 'Value or ${env:NAME}'}
+        onChange={(e) => onChange({ ...value, value: e.target.value })}
+      />
+    </Field>
+  );
+}
+
+const BOUND_LABEL: Record<LengthBound, string> = {
+  min_chars: 'Characters, at least',
+  max_chars: 'Characters, at most',
+  min_words: 'Words, at least',
+  max_words: 'Words, at most',
+  min_tokens: 'Tokens, at least',
+  max_tokens: 'Tokens, at most',
+};
+
+const KIND_LABEL: Record<ScopeKind, string> = {
+  system: 'System messages',
+  user: 'User messages',
+  assistant: 'Earlier answers',
+  tool: 'Tool results',
+  tool_definition: 'Tool definitions',
+};
+
+/** "How it runs": in the request's path or beside it, its bounds, its order and what it reads. */
+function RunFields({
+  draft,
+  set,
+  error,
+  transform,
+}: {
+  draft: RuleDraft;
+  set: (patch: Partial<RuleDraft>) => void;
+  error?: string | undefined;
+  transform: boolean;
+}) {
+  const run = draft.run ?? blankRun();
+  const put = (patch: Partial<RunDraft>) => set({ run: { ...run, ...patch } });
+  const fixed = draft.type === 'llm_rewrite' || draft.action === 'divert';
+  return (
+    <details className="group rounded-control border border-line px-3.5 py-2.5" open={Boolean(error)}>
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-ui font-medium text-fg [&::-webkit-details-marker]:hidden">
+        <Icon
+          name="chevronRight"
+          size={14}
+          className="text-muted transition-transform group-open:rotate-90"
+        />
+        How it runs
+      </summary>
+      <div className="mt-3 flex flex-col gap-4">
+        {transform ? null : (
+          <Field
+            label="Runs"
+            hint={
+              fixed
+                ? 'A rewrite or a divert always runs in the request’s path.'
+                : run.execution === 'async'
+                  ? 'The request doesn’t wait; findings are only flagged.'
+                  : run.execution === 'parallel_with_call'
+                    ? 'The provider is called at the same time; a finding stops the answer. Prompts only.'
+                    : 'The request waits for the check.'
+            }
+          >
+            <Select
+              value={fixed ? 'blocking' : run.execution || 'blocking'}
+              disabled={fixed}
+              onChange={(v) => put({ execution: v === 'blocking' ? '' : (v as RunDraft['execution']) })}
+              options={[
+                { value: 'blocking', label: 'Before the call' },
+                { value: 'parallel_with_call', label: 'Beside the call' },
+                { value: 'async', label: 'In the background' },
+              ]}
+            />
+          </Field>
+        )}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Time limit" optional hint="10ms to 60s; 2s unless set.">
+            <Input
+              mono
+              value={run.timeout}
+              placeholder="2s"
+              onChange={(e) => put({ timeout: e.target.value })}
+            />
+          </Field>
+          <Field label="Checks at once" optional hint="Calls in flight to its service.">
+            <Input
+              mono
+              inputMode="numeric"
+              value={run.maxConcurrency}
+              onChange={(e) => put({ maxConcurrency: e.target.value })}
+            />
+          </Field>
+          <Field label="Order" optional hint="Lower runs first; 0 unless set.">
+            <Input mono value={run.order} onChange={(e) => put({ order: e.target.value })} />
+          </Field>
+        </div>
+        {transform ? null : (
+          <Field label="When the check itself fails">
+            <Select
+              value={draft.action === 'flag' ? 'allow' : run.onError}
+              disabled={draft.action === 'flag'}
+              onChange={(v) => put({ onError: v as RunDraft['onError'] })}
+              emptyOption="The gateway’s default"
+              options={[
+                { value: 'block', label: 'Refuse the request' },
+                { value: 'allow', label: 'Let the request through' },
+              ]}
+            />
+          </Field>
+        )}
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-ui font-medium text-fg">What of a prompt it reads</legend>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+            {SCOPE_KINDS.map((k) => (
+              <Checkbox
+                key={k}
+                label={KIND_LABEL[k]}
+                checked={run.scopeKinds.length === 0 || run.scopeKinds.includes(k)}
+                onChange={(on) => {
+                  const current = run.scopeKinds.length === 0 ? SCOPE_KINDS : run.scopeKinds;
+                  const next = on ? [...current, k] : current.filter((x) => x !== k);
+                  put({ scopeKinds: next.length === SCOPE_KINDS.length ? [] : next });
+                }}
+              />
+            ))}
+          </div>
+          <Segmented<'all' | 'last_user'>
+            label="Messages read"
+            value={run.scopeMessages || 'all'}
+            onChange={(v) => put({ scopeMessages: v === 'all' ? '' : v })}
+            options={[
+              { value: 'all', label: 'Every message' },
+              { value: 'last_user', label: 'The last user message' },
+            ]}
+          />
+          <Checkbox
+            label="Also read text the gateway adds"
+            description="System prompts, templates and prefixes added by other rules."
+            checked={run.includeOperatorContent}
+            onChange={(includeOperatorContent) => put({ includeOperatorContent })}
+          />
+        </fieldset>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-ui font-medium text-fg">When a request asks for it by name</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {(['input', 'output'] as const).map((st) => (
+              <Checkbox
+                key={st}
+                label={st === 'input' ? 'Check the prompt' : 'Check the answer'}
+                checked={run.requestStages.includes(st)}
+                onChange={(on) =>
+                  put({
+                    requestStages: on
+                      ? [...run.requestStages, st]
+                      : run.requestStages.filter((x) => x !== st),
+                  })
+                }
+              />
+            ))}
+          </div>
+        </fieldset>
+        {transform ? null : (
+          <Field label="Message on a block" optional hint="What the app gets back; at most 500 characters.">
+            <Textarea rows={2} value={run.message} onChange={(e) => put({ message: e.target.value })} />
+          </Field>
+        )}
+        {error ? (
+          <p role="alert" className="text-caption text-error">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 /** The settings of the chosen method. */
 function MethodFields({
   draft,
@@ -174,8 +444,7 @@ function MethodFields({
   errors: DraftErrors;
 }) {
   const replacement =
-    draft.action === 'redact' &&
-    ['regex', 'allowlist', 'keywords', 'pii', 'secrets', 'webhook'].includes(draft.method ?? '') ? (
+    draft.action === 'redact' && draft.method && REPLACEABLE.includes(draft.method) ? (
       <Field
         label="Replace matches with"
         hint="Labels read like [EMAIL]; masks hide the characters; hashes stay comparable."
@@ -191,6 +460,19 @@ function MethodFields({
           ]}
         />
       </Field>
+    ) : null;
+  const labels =
+    draft.method && LABELLED.includes(draft.method) ? (
+      <Lines
+        label="Report labels as"
+        hint={`One label = category per line. Categories: ${CATEGORIES.filter((c) => c !== 'uninspectable').join(', ')}. Anything else is reported as custom.`}
+        mono
+        rows={3}
+        error={errors.categories}
+        value={draft.categories}
+        onChange={(categories) => set({ categories })}
+        placeholder={'jailbreak = prompt_injection\nmedical = pii'}
+      />
     ) : null;
   switch (draft.method) {
     case 'regex':
@@ -355,28 +637,35 @@ function MethodFields({
               placeholder={'jailbreak = 0.9\nmedical = 0.8'}
             />
           ) : (
-            <Field label="Send">
-              <Segmented<RuleDraft['webhookMode']>
-                label="Send"
-                value={draft.webhookMode}
-                onChange={(webhookMode) => set({ webhookMode })}
-                options={[
-                  { value: 'segments', label: 'The text only' },
-                  { value: 'body', label: 'The whole request' },
-                ]}
+            <>
+              <Field label="Send">
+                <Segmented<RuleDraft['webhookMode']>
+                  label="Send"
+                  value={draft.webhookMode}
+                  onChange={(webhookMode) => set({ webhookMode })}
+                  options={[
+                    { value: 'segments', label: 'The text only' },
+                    { value: 'body', label: 'The whole request' },
+                  ]}
+                />
+              </Field>
+              <HeaderRowsEditor
+                label="Headers"
+                rows={draft.headers}
+                onChange={(headers) => set({ headers })}
+                error={errors.headers}
+                hint="Sent with every call, such as authorization. Values are stored hidden."
               />
-            </Field>
+              <SecretField
+                label="Signing secret"
+                optional
+                value={draft.signingSecret}
+                onChange={(signingSecret) => set({ signingSecret })}
+                hint="Signs each call so your service can check it came from the gateway."
+              />
+            </>
           )}
-          <Lines
-            label="Report labels as"
-            hint={`One label = category per line. Categories: ${CATEGORIES.filter((c) => c !== 'uninspectable').join(', ')}. Anything else is reported as custom.`}
-            mono
-            rows={3}
-            error={errors.categories}
-            value={draft.categories}
-            onChange={(categories) => set({ categories })}
-            placeholder={'jailbreak = prompt_injection\nmedical = pii'}
-          />
+          {labels}
           {replacement}
         </>
       );
@@ -513,6 +802,306 @@ function MethodFields({
             value={draft.userSuffix}
             onChange={(userSuffix) => set({ userSuffix })}
           />
+        </>
+      );
+    case 'moderation':
+      return (
+        <>
+          <ModelPicker
+            label="Moderation Model"
+            hint="A Model that answers moderation calls, such as omni-moderation-latest."
+            value={draft.model}
+            onChange={(model) => set({ model })}
+            error={errors.model}
+          />
+          <Lines
+            label="Thresholds"
+            hint="One category = score per line; a score at or above it is a finding. Empty: whatever the Model flags."
+            mono
+            rows={3}
+            error={errors.thresholds}
+            value={draft.thresholds}
+            onChange={(thresholds) => set({ thresholds })}
+            placeholder={'hate = 0.5\nviolence = 0.7'}
+          />
+          {labels}
+        </>
+      );
+    case 'llm_judge':
+      return (
+        <>
+          <ModelPicker
+            label="Model"
+            hint="It reads the text and answers whether it breaks your rule."
+            value={draft.model}
+            onChange={(model) => set({ model })}
+            error={errors.model}
+          />
+          <Lines
+            label="Instructions"
+            hint="What the Model looks for. {{content}} is replaced by the text checked."
+            error={errors.prompt}
+            rows={5}
+            value={draft.prompt}
+            onChange={(prompt) => set({ prompt })}
+            placeholder="Does this text give medical advice? {{content}}"
+          />
+          <Field
+            label="Longest answer"
+            optional
+            error={errors.judgeMaxTokens}
+            hint="Tokens, 1 to 4096; 256 unless set."
+          >
+            <Input
+              mono
+              inputMode="numeric"
+              className="w-28"
+              value={draft.judgeMaxTokens}
+              onChange={(e) => set({ judgeMaxTokens: e.target.value })}
+            />
+          </Field>
+          {labels}
+        </>
+      );
+    case 'length':
+      return (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-ui font-medium text-fg">Bounds</legend>
+          <p className="-mt-1 text-caption text-muted">
+            Prompts are counted together; each answer on its own. Tokens are estimated. Leave a bound empty to
+            not check it.
+          </p>
+          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+            {LENGTH_BOUNDS.map((k) => (
+              <Field key={k} label={BOUND_LABEL[k]}>
+                <Input
+                  mono
+                  inputMode="numeric"
+                  value={draft.bounds[k]}
+                  onChange={(e) => set({ bounds: { ...draft.bounds, [k]: e.target.value } })}
+                />
+              </Field>
+            ))}
+          </div>
+          {errors.bounds ? (
+            <p role="alert" className="text-caption text-error">
+              {errors.bounds}
+            </p>
+          ) : null}
+        </fieldset>
+      );
+    case 'tool_permission':
+      return (
+        <>
+          <Lines
+            label="Allowed tools"
+            hint="One name per line; * matches any run of characters. Empty: every tool not denied."
+            mono
+            rows={3}
+            error={errors.toolsAllow}
+            value={draft.toolsAllow}
+            onChange={(toolsAllow) => set({ toolsAllow })}
+            placeholder={'search_*\nget_weather'}
+          />
+          <Lines
+            label="Denied tools"
+            hint="One name per line; a denied tool is refused even when it is allowed."
+            mono
+            rows={3}
+            value={draft.toolsDeny}
+            onChange={(toolsDeny) => set({ toolsDeny })}
+            placeholder={'delete_*'}
+          />
+          <p className="text-caption text-muted">
+            On prompts, a refused tool definition is a finding (redact removes it); on answers, a call to a
+            refused tool is.
+          </p>
+          {replacement}
+        </>
+      );
+    case 'system_prompt':
+      return (
+        <>
+          <Lines
+            label="System message"
+            error={errors.systemText}
+            rows={5}
+            value={draft.systemText}
+            onChange={(systemText) => set({ systemText })}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="With the request’s own">
+              <Select
+                value={draft.systemMode || 'prepend'}
+                onChange={(v) =>
+                  set({
+                    systemMode: v === 'prepend' && !draft.systemMode ? '' : (v as RuleDraft['systemMode']),
+                  })
+                }
+                options={[
+                  { value: 'prepend', label: 'Put it first' },
+                  { value: 'append', label: 'Put it after' },
+                  { value: 'replace', label: 'Replace it' },
+                  { value: 'insert_if_absent', label: 'Only when there is none' },
+                ]}
+              />
+            </Field>
+            <Field label="Role">
+              <Segmented<RuleDraft['systemRole']>
+                label="Role"
+                value={draft.systemRole}
+                onChange={(systemRole) => set({ systemRole })}
+                options={[
+                  { value: 'system', label: 'System' },
+                  { value: 'developer', label: 'Developer' },
+                ]}
+              />
+            </Field>
+          </div>
+        </>
+      );
+    case 'bedrock_guardrails':
+      return (
+        <>
+          <ProviderPicker
+            type="bedrock"
+            value={draft.provider}
+            onChange={(provider) => set({ provider })}
+            error={errors.provider}
+            hint="A Bedrock provider: its AWS credentials sign the call."
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Guardrail id" error={errors.guardrailId} hint="Its id or ARN.">
+              <Input mono value={draft.guardrailId} onChange={(e) => set({ guardrailId: e.target.value })} />
+            </Field>
+            <Field label="Version" optional hint="DRAFT unless set.">
+              <Input
+                mono
+                value={draft.guardrailVersion}
+                placeholder="DRAFT"
+                onChange={(e) => set({ guardrailVersion: e.target.value })}
+              />
+            </Field>
+            <Field label="Region" optional hint="The provider’s region unless set.">
+              <Input mono value={draft.region} onChange={(e) => set({ region: e.target.value })} />
+            </Field>
+            <Field label="Address" optional error={errors.baseUrl} hint="The region’s endpoint unless set.">
+              <Input
+                mono
+                value={draft.baseUrl}
+                placeholder="https://"
+                onChange={(e) => set({ baseUrl: e.target.value })}
+              />
+            </Field>
+          </div>
+          {labels}
+          {replacement}
+        </>
+      );
+    case 'azure_content_safety':
+      return (
+        <>
+          <Field label="Endpoint" error={errors.endpoint} hint="Your Content Safety resource’s address.">
+            <Input
+              mono
+              value={draft.endpoint}
+              placeholder="https://"
+              onChange={(e) => set({ endpoint: e.target.value })}
+            />
+          </Field>
+          <SecretField
+            label="API key"
+            value={draft.apiKey}
+            onChange={(apiKey) => set({ apiKey })}
+            error={errors.apiKey}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Severity at or above"
+              optional
+              error={errors.severityThreshold}
+              hint="0 to 7; 4 unless set."
+            >
+              <Input
+                mono
+                inputMode="numeric"
+                value={draft.severityThreshold}
+                onChange={(e) => set({ severityThreshold: e.target.value })}
+              />
+            </Field>
+            <Field label="API version" optional hint="2024-09-01 unless set.">
+              <Input mono value={draft.apiVersion} onChange={(e) => set({ apiVersion: e.target.value })} />
+            </Field>
+          </div>
+          {labels}
+          {replacement}
+        </>
+      );
+    case 'model_armor':
+      return (
+        <>
+          <ProviderPicker
+            type="vertex"
+            value={draft.provider}
+            onChange={(provider) => set({ provider })}
+            error={errors.provider}
+            hint="A Vertex provider: its Google Cloud credentials sign the call."
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Template" error={errors.armorTemplate}>
+              <Input
+                mono
+                value={draft.armorTemplate}
+                onChange={(e) => set({ armorTemplate: e.target.value })}
+              />
+            </Field>
+            <Field label="Project" optional hint="The provider’s project unless set.">
+              <Input mono value={draft.gcpProject} onChange={(e) => set({ gcpProject: e.target.value })} />
+            </Field>
+            <Field label="Location" optional hint="The provider’s location unless set.">
+              <Input mono value={draft.gcpLocation} onChange={(e) => set({ gcpLocation: e.target.value })} />
+            </Field>
+            <Field label="Address" optional error={errors.baseUrl} hint="The location’s endpoint unless set.">
+              <Input
+                mono
+                value={draft.baseUrl}
+                placeholder="https://"
+                onChange={(e) => set({ baseUrl: e.target.value })}
+              />
+            </Field>
+          </div>
+          {labels}
+          {replacement}
+        </>
+      );
+    case 'lakera':
+      return (
+        <>
+          <SecretField
+            label="API key"
+            value={draft.apiKey}
+            onChange={(apiKey) => set({ apiKey })}
+            error={errors.apiKey}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Project" optional hint="The project whose policy applies.">
+              <Input
+                mono
+                value={draft.lakeraProject}
+                onChange={(e) => set({ lakeraProject: e.target.value })}
+              />
+            </Field>
+            <Field label="Address" optional error={errors.baseUrl} hint="https://api.lakera.ai unless set.">
+              <Input
+                mono
+                value={draft.baseUrl}
+                placeholder="https://api.lakera.ai"
+                onChange={(e) => set({ baseUrl: e.target.value })}
+              />
+            </Field>
+          </div>
+          {labels}
+          {replacement}
         </>
       );
     case null:
@@ -671,7 +1260,11 @@ function Editor({
   };
   const transform = TRANSFORMS.includes(draft.type);
   const actions = actionsFor(draft.method, draft.type);
-  const stages = stagesFor(draft.type, draft.action, original?.spec.execution);
+  const stages = stagesFor(
+    draft.type,
+    draft.action,
+    draft.run ? draft.run.execution || undefined : original?.spec.execution,
+  );
   const category = impliedCategory({
     type: draft.type,
     regex: draft.method === 'allowlist' ? { allow: ['x'] } : {},
@@ -862,6 +1455,7 @@ function Editor({
             </p>
           ) : null}
         </fieldset>
+        <RunFields draft={draft} set={set} error={errors.run} transform={transform} />
         <Switch label="On" checked={draft.enabled} onChange={(enabled) => set({ enabled })} />
         <InlineError error={error} />
       </form>
