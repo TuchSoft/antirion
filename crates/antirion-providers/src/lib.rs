@@ -19,6 +19,7 @@ mod compile_auth;
 pub mod creds;
 pub mod headroom;
 mod kind;
+pub mod listing;
 pub mod params;
 mod passthrough;
 pub mod pressure;
