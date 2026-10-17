@@ -250,14 +250,14 @@ crate can use its strict parser.
 | 1 | `antirion-mail` | outgoing mail: an SMTP client for one message (STARTTLS, implicit TLS, `AUTH PLAIN`/`LOGIN`, dot-stuffing) and RFC 5322 messages with a base64 UTF-8 body |
 | 1 | `antirion-config` | document parsing (strict JSON, YAML 1.2 core with duplicate and tag checks), the embedded schema and its evaluator, semantic rules, secret references and redaction, scalar formats, typed views, YAML output, the document model (collections, singletons, static keys) |
 | 1 | `antirion-wire` | the SSE parser (original event bytes kept for passthrough, size limit, clean-end completion), NDJSON and streamed JSON-array parsers (`jsonstream`), multipart form parsing, field replacement and the incremental `Scanner`, content codings: parsing every `Content-Encoding` field, bounded and incremental decoding (gzip, deflate, br, zstd) |
-| 2 | `antirion-catalog` | the model catalog: the bundled capability values and prices, the document's `catalog` block that extends or replaces them, and the lookup by provider type and base model (exact, then the longest `*` prefix) |
+| 2 | `antirion-catalog` | the model catalog: the bundled capability values and prices, the document's `catalog` block that extends or replaces them, and the lookup by provider type and base model (exact, then the longest `*` prefix); below them, models.dev's data (`modelsdev`: a bundled snapshot, or a copy `catalog.remote` fetched) for prices nothing else gives and each type's model names, limits and modalities |
 | 2 | `antirion-dialects` | the endpoint catalog, path normalisation, envelope selection, body facts (`model`, `stream`), request validation tables (`validate/`), embeddings and rerank in other providers' shapes (`embed`, `rerank`), cross-dialect translation through an internal representation (`xlate/`: client and upstream codecs for requests, responses and streams, warning entries, refusals, the signature envelope, citations, hosted tool equivalents, what the reasoning replay store keeps) |
 | 2 | `antirion-egress` | `EgressClient` (pools per trust class, TLS profile and egress policy; HTTP/1.1 and h2 via ALPN, or the version a destination's profile requires (`HttpVersion`: `http1`, `h2` that fails without ALPN `h2`, `h2c`); h2 with prior knowledge fanned out over several connections per origin (`h2pool`); one resend when a pooled connection closed before answering; response bodies decoded with `antirion-wire`; a body's streamed `Tail`, sent once; WebSocket upgrades on a connection of their own, `upgrade.rs`), the SSRF catalogue (URL rules on the raw string, address rules on every resolved address, connect to the validated address), TLS profiles, header hygiene (always-deny list, forward/deny/set/response_forward), config checks of `security.egress` and `policies.headers`, typed `TransportError` and `BodyError`, the egress reasons |
 | 2 | `antirion-identity` | key and admin-token format, peppered verifiers, data-plane credential selection, allow-list patterns, the key permission catalogue, end-user identity, admin roles, scopes and the admin permission catalogue, the auth reasons |
 | 2 | `antirion-redis` | connections to a Redis-protocol server or a Redis Cluster (`RedisConn`: lazy, `ConnectionLike`, redirections retried while a slot moves, scans over every primary), the `topology` setting and the one-slot key prefix |
 | 2 | `antirion-store` | `Store` (closed enum: SQLite for standalone, PostgreSQL for cluster mode): config generations, audit log, admin tokens, admin sessions, token role bindings, node values, spend ledger lines and their budget charges, alert instances and kept events (`alerting.rs`), the delivery log, queue reports and audit-sink positions (`deliveries.rs`), use times (`marks.rs`), key anomaly flags and key history (`anomalies.rs`), safety events and guardrail hours (`safety.rs`); `pg/`: the pool, migrations under an advisory lock, the configuration notification listener, the store's own health, and what only a cluster shares (node rows and drain commands, job leases, request-log records, Responses state, logins, cache epochs), provider-scoped objects (`objects.rs`: gateway file and batch ids) |
 | 2 | `antirion-obs` | the metrics registry (every family of the catalogue, label truncation, the per-family series cap with `_overflow`, configurable buckets, Prometheus 0.0.4 and OpenMetrics expositions, the process collector), the request-log record's JSON Schema and bounded fields (bodies, metadata, header values), the overhead formula (`timing`), W3C trace context, samplers, spans and their OTLP JSON and protobuf encodings, the batch retry schedule, the `observability` settings |
-| 3 | `antirion-providers` | compiled providers and deployments, resolved capability flags, the provider-type catalog (the supported types, hosted presets); building an upstream request (credential, TLS profile, egress policy, operation path overrides, base-URL queries) and a passthrough mount's request (`passthrough`); the token cache over GCP and Azure AD sources, AWS credentials and STS `AssumeRole` (`creds/`); the BYOK credential mode |
+| 3 | `antirion-providers` | compiled providers and deployments, resolved capability flags, the provider-type catalog (the supported types, hosted presets); building an upstream request (credential, TLS profile, egress policy, operation path overrides, base-URL queries) and a passthrough mount's request (`passthrough`); the token cache over GCP and Azure AD sources, AWS credentials and STS `AssumeRole` (`creds/`); the BYOK credential mode; each type's model listing call, its parsers and the node's record of credential tests and fetched lists (`listing`) |
 | 3 | `antirion-router` | Models, aliases and wildcards (`resolve`); route trees compiled into an arena with paths, params, policies and config-time validation (`tree`); the lazy attempt plan with transition labels and exclusion reasons (`plan`), each node's children ordered lazily by its algorithm, one pass over them for the first position and no name formatting (`select`); predicates (`predicate`); keyword and regex classifiers and the routing text (`classifier`); what call-out classifiers and cost-quality scorers ask and how their answers are read, the calibration window, continuation turns and the embedding cache (`content`); pool scheduling: metric names and reading, assumed load, prefix chains and indexes, the filters and the score (`pool`, `plan/pool.rs`); tag filtering (`tags`); `upstream_body` edits (`body_edit`); the prompt-prefix key (`prefix_key`); SWRR, PeakEWMA, success and in-flight state, mirror slots, score windows and replayed classes (`state`); session bindings (`affinity`) |
 | 3 | `antirion-resilience` | failure classes and the decision table (`class`), classification of transport failures and upstream answers (`classify`), upstream hints (`hint`), the retry and timeout policy with the backoff (`policy`), health settings and the health registry: breakers, cooldowns, keys, manual disables, records shared with a cluster (`settings`, `health`), the cross-request retry budget (`budget`), the attempt loop generic over `Planner` and `Sender` (`engine`) |
 | 3 | `antirion-limits` | limit and budget declarations of every level, their config checks (`check`), the applicable set, the token estimator, exact counter math (GCRA, sliding window, concurrency, budgets), the reservation engine over `MemoryCounters` or `ValkeyCounters`, degraded mode, pricing, cost, ledger lines, the bounded ledger window (`book`), a node's accounts (`spend`), rate-limit and cost headers (see Limits) |
@@ -926,8 +926,9 @@ eligibility filters and the planner the attempt loop reads) and `decide.rs`.
   remaining count is also a minute of quota use (`pressure.rs`: the minute's peak per credential),
   written by the request-log writer to `provider_pressure` (state store, or PostgreSQL migration 85)
   and read by `GET /reports/provider_pressure` (`antirion-admin/src/pressure.rs`) over every node's
-  rows; `:test` and
-  `:rotate_credential` are `antirion-admin/src/provider_ops.rs`. A provider key of weight 0 is a
+  rows; `:rotate_credential` is `antirion-admin/src/provider_ops.rs`; the credential tests
+  (`:test`, `providers:test` for a provider not saved yet) and `GET /providers/{name}/models` are
+  `provider_check.rs` (see "Provider tests and model lists" below). A provider key of weight 0 is a
   standby the key selection uses only when no weighted key can serve.
 - **Guardrail conditions** (`antirion-pipeline/src/guardsel.rs`): conditions reading
   `guard.<name>.<field>` are evaluated ahead of the plan, running each guardrail they reach once
@@ -938,6 +939,44 @@ eligibility filters and the planner the attempt loop reads) and `decide.rs`.
   caller's; `DELETE /routes/{name}/affinity` (`health.rs`) drops the node's bindings of the route and,
   in cluster mode, the shared ones (`Runtime::affinity_unbind_route`, a `SCAN` over the binding keys);
   `GET /status` reports `observability.traces.viewer_url` as `trace_viewer_url`.
+
+## Provider tests and model lists
+
+- **Credential tests** (`antirion-admin/src/provider_check.rs`): `POST /providers/{name}:test` without a
+  `deployment` lists the provider's models with its type's listing call (`ProviderRt::listing`,
+  `DeploymentRt::listing_request` on a deployment made with `DeploymentRt::direct`, every page through
+  the provider's egress policy, TLS profile and credential); a type without one (Vertex, Bedrock behind a
+  base URL of its own) makes the cheapest call that proves the credential (`minimal_call`: a free
+  `countTokens` on Vertex's Gemini models, else a one-token completion recorded as a `test` ledger line),
+  on the provider's first deployment or a model every account of the type can call. With `deployment`,
+  that deployment's own call is made, as before. The outcome is kept per key on the node
+  (`RuntimeState::provider_checks`, `antirion-providers/src/listing.rs`) and shown by
+  `GET /runtime/providers` (`credential.last_test`, `tests`, `state`, `last_error`).
+- **Unsaved providers**: `POST /providers:test` puts the spec into a copy of the document and compiles it
+  with `Runtime::compile_provider` (the checks of a commit, secrets read from their stores, nothing
+  stored). A `[REDACTED]` value is restored only when the spec keeps the saved provider's type and base
+  URL, and under change control only literal secrets are taken. The audit entry carries the name, type and
+  outcome.
+- **Model lists**: `GET /providers/{name}/models` keeps a provider's list for 5 minutes per node, keyed
+  by the provider's configuration (`refresh=true` fetches again). Each model is filled in from the catalog
+  (`Catalog::model_info`: models.dev's metadata, the bundled or document price first); when the type has
+  no listing call or it fails, the catalog's models of the type are returned (`source: catalog`).
+- **Listing per type**: OpenAI, OpenAI-compatible and the presets `GET {base}/models` (a `models`
+  operation override applies); Azure OpenAI `/openai/models?api-version=…` (or `/openai/v1/models`);
+  Anthropic and Anthropic-compatible `GET /v1/models`, paginated by `after_id`; Gemini `models.list`,
+  paginated; Mistral and Cohere their `/models`; Bedrock `ListFoundationModels` on
+  `bedrock.<region>.amazonaws.com`, signed like the runtime calls; Vertex none. Entries are dropped only when
+  the provider marks them as neither text generation nor embeddings (Together's `type`, Azure's and
+  Mistral's capabilities, Gemini's methods, Cohere's endpoints, Bedrock's output modalities).
+- **models.dev data** (`antirion-catalog/src/modelsdev.rs`, `catalog/models-dev.json`, MIT, attributed in
+  `NOTICE` and `catalog/THIRD-PARTY-NOTICES.md`): the providers that map to the gateway's types
+  (`modelsdev::PROVIDERS`), with each model's name, prices (USD per million tokens), limits, modalities and
+  release date. `cargo xtask catalog` refreshes the snapshot from <https://models.dev/api.json> with
+  `curl` (`--from <file>` reads a downloaded copy, `--url` another address). `catalog.remote`
+  (`{enabled, url, refresh}`, off by default, `refresh` between 1h and 30d, default 24h) fetches the
+  document at run time through the egress policy (`antirion-runtime/src/catalog_remote.rs`), installs it
+  in place of the snapshot (`modelsdev::install`) and rebuilds the serving snapshot; a failed fetch keeps
+  the data in use and retries after 15 minutes, and turning it off goes back to the snapshot.
 
 ## Known gaps in the console backend
 
@@ -1677,7 +1716,10 @@ What the Cache screen reads and changes beyond the cache's own rules.
   `antirion-admin/src/catalog_read.rs`. A deployment of a generic type (`openai_compatible`,
   `anthropic_compatible`, the presets) reads its capabilities with `Catalog::lookup_any_type`, which
   after its own type's and the bare patterns takes another type's entry for the same model id;
-  prices keep the type's own lookup.
+  prices keep the type's own lookup. models.dev's data is the lowest layer (`Catalog::price_of`,
+  `model_info`, `models_of_type`): it prices a model only when no bundled or document entry found by the
+  lookup has a price, and it is dropped with `mode: replace`. It sets no capability value, so it never
+  changes how a deployment serves requests.
 - **Certificate-bound keys** (`antirion-identity/src/certificate.rs`, `antirion-pipeline/src/certbind.rs`):
   the listener records the verified leaf's digest and subjectAltNames in `Peer::client_cert`; behind a
   trusted proxy with `auth.forwarded_client_cert`, RFC 9440's `Client-Cert` stands in. The binding is

@@ -52,8 +52,10 @@ latency, and costs nothing. Use a real provider instead by choosing it and pasti
 
 1. **Add a provider.** Providers → **Add provider**. Provider: **OpenAI-compatible**; Name:
    `mock`; Sign in with: **No authentication**; Base URL: `http://mock-upstream:19401/v1` (the
-   gateway reaches the mock by its Compose service name). **Add provider**.
-2. **Add a Model.** Models → **Add model**. Provider: `mock`; Provider’s model ID: `mock-chat`;
+   gateway reaches the mock by its Compose service name). **Test** it before saving: the gateway
+   asks the provider for its models, so a wrong URL or key shows here. **Add provider**.
+2. **Add a Model.** Models → **Add model**. Provider: `mock`; Provider’s model ID: pick `mock-chat`
+   from the provider's models (a real provider's list shows each model's list price);
    Name: `chat` (apps send this name); prices, say `0.15` and `0.60`, so the mock's requests
    cost something (they are fake: leave them blank for a real provider's list prices). **Add
    model**.
