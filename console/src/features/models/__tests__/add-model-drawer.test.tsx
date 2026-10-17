@@ -9,7 +9,7 @@ import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
 import { AddModelDrawer } from '../components/add-model-drawer';
-import { useCatalog } from '../store';
+import { useCatalog, useModels } from '../store';
 
 const meta = {
   etag: '"1"',
@@ -19,7 +19,10 @@ const meta = {
   managed_by: 'api',
 };
 
-function setup() {
+function setup(
+  deployments: { name: string; spec: { provider: string; model: string }; metadata: typeof meta }[] = [],
+  models: { name: string; spec: { target: string }; metadata: typeof meta }[] = [],
+) {
   signInAs(['models:read', 'models:write', 'providers:read', 'deployments:write']);
   useProviderModels.setState({ byProvider: {}, resolved: {} });
   useCatalog.setState({
@@ -29,9 +32,11 @@ function setup() {
       error: null,
       at: Date.now(),
     },
-    deployments: { data: [], status: 'ready', error: null, at: Date.now() },
+    deployments: { data: deployments, status: 'ready', error: null, at: Date.now() },
+    routes: { data: [], status: 'ready', error: null, at: Date.now() },
     tiers: emptySlot(),
   });
+  useModels.setState({ items: models, status: 'ready', error: null, loadedAt: Date.now() });
   render(<AddModelDrawer open onClose={() => undefined} onAdded={() => undefined} />);
   return screen.getByRole('dialog', { name: 'Add model' });
 }
@@ -179,5 +184,35 @@ describe('Add model › prices', () => {
     expect(outputPrice(drawer)).toHaveValue('10');
     // One lookup, for the id as typed once typing paused.
     expect(lookups).toEqual(['gpt-5-preview']);
+  });
+});
+
+describe('Add model › source', () => {
+  const dep = (name: string) => ({ name, spec: { provider: 'openai', model: name }, metadata: meta });
+  const model = (name: string, target: string) => ({ name, spec: { target }, metadata: meta });
+
+  it('hides the deployment source when every deployment serves a Model', () => {
+    const drawer = setup([dep('gpt-4o')], [model('gpt-4o', 'gpt-4o')]);
+    expect(within(drawer).queryByRole('radiogroup', { name: 'Source' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('combobox', { name: /Provider’s model ID/ })).toBeInTheDocument();
+    expect(within(drawer).getByText(/add an alias on that Model instead/)).toBeInTheDocument();
+  });
+
+  it('offers only the unused deployments, and says what they are', async () => {
+    const drawer = setup([dep('gpt-4o'), dep('legacy-davinci')], [model('gpt-4o', 'gpt-4o')]);
+    const source = within(drawer).getByRole('radiogroup', { name: 'Source' });
+    expect(within(source).getByRole('radio', { name: 'New from a provider' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await userEvent.click(within(source).getByRole('radio', { name: 'Unused deployment (1)' }));
+    expect(
+      within(drawer).getByText(
+        'A deployment set up in the configuration or left after its Model was deleted.',
+      ),
+    ).toBeInTheDocument();
+    await userEvent.click(within(drawer).getByRole('combobox', { name: /^Deployment/ }));
+    const options = within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['legacy-davinci · openai/legacy-davinci']);
   });
 });
