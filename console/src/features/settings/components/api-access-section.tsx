@@ -23,6 +23,7 @@ import { type LimitSimulationResult, settingsApi } from '../api';
 import { type PriorityMode, sharesErrors, sharesFrom, sharesText, sharesTo } from '../priority';
 import { detailErrors, DURATION_RE, NAME_RE, same, splitList } from '../form-errors';
 import { useOrgSettings } from '../store';
+import { JwtIssuersCard } from './jwt-issuers';
 import { KeyProtectionCard } from './key-protection';
 import { Card, SaveBar } from './parts';
 import { PriorityShares } from './priority-shares';
@@ -1012,6 +1013,7 @@ export function ApiAccessSettings() {
       <LimitsCard />
       <KeyLifetimesCard />
       <KeyProtectionCard />
+      <JwtIssuersCard />
       <SimulationCard />
     </>
   );
