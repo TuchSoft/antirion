@@ -11,7 +11,7 @@ import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
 import { ApiEndpointsSection, ENDPOINT_GROUPS } from '../components/api-endpoints-section';
-import { ClientAddressCard, RateLimitCard } from '../components/gateway-forms';
+import { ClientAddressCard, CorsCard, RateLimitCard } from '../components/gateway-forms';
 import { NodeSection, nodeValue } from '../components/node-section';
 import { ProvisioningSection, SCIM_OVERLAPS } from '../components/org-sections';
 import { useGatewaySettings, useOrgSettings } from '../store';
@@ -183,6 +183,30 @@ describe('Endpoints & security forms', () => {
       client_ip: { trusted_proxies: ['10.0.0.0/8'] },
       secrets: { encryption_keys: ['${env:KEY}'] },
     });
+  });
+
+  it('edits browser access per listener and refuses credentials with any origin', async () => {
+    const patches: unknown[] = [];
+    server.use(
+      http.get('*/admin/v1/settings/limits', empty),
+      http.get('*/admin/v1/settings/security', empty),
+      http.patch('*/admin/v1/settings/security', async ({ request }) => {
+        patches.push(await request.json());
+        return empty();
+      }),
+    );
+    void useOrgSettings.getState().loadSettings();
+    render(<CorsCard />);
+    await userEvent.click(await screen.findByRole('radio', { name: 'Console and Admin API' }));
+    await userEvent.click(screen.getByLabelText('Allowed origins'));
+    await userEvent.keyboard('*{Enter}{Escape}');
+    await userEvent.click(screen.getByRole('switch', { name: 'Allow cookies and credentials' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText(/\* is not allowed with them/)).toBeInTheDocument();
+    expect(patches).toEqual([]);
+    await userEvent.click(screen.getByRole('switch', { name: 'Allow cookies and credentials' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ spec: { cors: { admin: { allowed_origins: ['*'] } } } }]));
   });
 
   it('refuses a trusted proxy that is not an address or range', async () => {

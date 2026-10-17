@@ -158,7 +158,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
         label: 'Endpoints & security',
         icon: 'globe',
         description:
-          'Where your apps send requests, rate limiting, network rules, request sizes, encryption and the admin MCP server.',
+          'Where apps send requests, rate limiting, network and browser access, request sizes, encryption and the admin MCP server.',
         aliases: ['encryption'],
         render: () => (
           <>

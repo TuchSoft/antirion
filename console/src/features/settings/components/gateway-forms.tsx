@@ -3,14 +3,23 @@
 import { useState, type ReactNode } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm';
-import { Checkbox, Field, Input, MultiSelect, NumberInput, Select, Switch } from '@/components/ui/form';
+import {
+  Checkbox,
+  Field,
+  Input,
+  MultiSelect,
+  NumberInput,
+  Segmented,
+  Select,
+  Switch,
+} from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { InlineError, LoadError, LoadingRows } from '@/components/ui/states';
 import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import type { FieldErrors } from '@/lib/validation';
 import { notify } from '@/stores/ui';
 
-import { detailErrors, mergePatch, same, URL_RE } from '../form-errors';
+import { detailErrors, DURATION_RE, mergePatch, same, URL_RE } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { Card, SaveBar } from './parts';
 
@@ -346,6 +355,14 @@ export type SecuritySpec = {
   };
   limits?: Partial<Record<keyof typeof SETTINGS_DEFAULTS.security.limits, string | number>>;
   client_ip?: { trusted_proxies?: string[]; header?: string };
+  cors?: Partial<Record<'data' | 'admin', CorsSpec>>;
+};
+
+type CorsSpec = {
+  allowed_origins?: string[];
+  allowed_methods?: string[];
+  max_age?: string;
+  allow_credentials?: boolean;
 };
 
 function useSecurityForm() {
@@ -808,6 +825,167 @@ export function RequestLimitsCard() {
       description="Requests over these limits are refused before they reach a provider."
     >
       {(spec, etag) => <RequestLimitsForm key={etag} initial={sizeValues(spec)} />}
+    </SecurityCard>
+  );
+}
+
+// Browser access (CORS) ----------------------------------------------------------------------------
+
+type Listener = 'data' | 'admin';
+
+const ORIGIN_RE = /^(\*|[A-Za-z][A-Za-z0-9+.-]*:\/\/(\*\.)?[^/\s*]+)$/;
+const METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+
+interface CorsValues {
+  origins: string[];
+  methods: string[];
+  maxAge: string;
+  credentials: boolean;
+}
+
+export function corsValues(spec: SecuritySpec, listener: Listener): CorsValues {
+  const c = spec.cors?.[listener] ?? {};
+  const d = SETTINGS_DEFAULTS.security.cors[listener];
+  return {
+    origins: c.allowed_origins ?? [...d.allowed_origins],
+    methods: c.allowed_methods ?? [...d.allowed_methods],
+    maxAge: c.max_age ?? d.max_age,
+    credentials: c.allow_credentials ?? d.allow_credentials,
+  };
+}
+
+const corsSpec = (listener: Listener) => (v: CorsValues) => ({
+  cors: {
+    [listener]: {
+      allowed_origins: v.origins,
+      allowed_methods: METHODS.filter((m) => v.methods.includes(m)),
+      max_age: v.maxAge.trim(),
+      allow_credentials: v.credentials,
+    },
+  },
+});
+
+function CorsForm({ listener, initial }: { listener: Listener; initial: CorsValues }) {
+  const saveSecurity = useOrgSettings((s) => s.saveSecurity);
+  const canEdit = useCan('patchSecuritySettings');
+  const base = `security.cors.${listener}`;
+  const form = useSettingsForm({
+    initial,
+    toSpec: corsSpec(listener),
+    save: saveSecurity,
+    saved: 'Browser access saved',
+    paths: {
+      [`${base}.allowed_origins`]: 'origins',
+      [`${base}.allowed_methods`]: 'methods',
+      [`${base}.max_age`]: 'maxAge',
+      [`${base}.allow_credentials`]: 'credentials',
+    },
+    check: (v) => {
+      const e: FieldErrors = {};
+      const bad = listError(v.origins, ORIGIN_RE, 'an origin such as https://app.example.com, or *');
+      if (bad) e.origins = bad;
+      if (v.credentials && v.origins.includes('*'))
+        e.credentials = 'Name each origin to send credentials; * is not allowed with them';
+      if (v.methods.length === 0) e.methods = 'Keep at least one method';
+      if (!DURATION_RE.test(v.maxAge.trim())) e.maxAge = 'Enter a duration such as 10m';
+      return e;
+    },
+  });
+  const { values: v, set, errors } = form;
+  const disabled = !canEdit;
+  return (
+    <SettingsForm form={form} canEdit={canEdit} onSubmit={() => void form.submit()}>
+      <Field
+        label="Allowed origins"
+        error={errors.origins}
+        hint={
+          v.origins.length
+            ? 'Web pages on these origins may call from a browser. * allows any.'
+            : 'None: browsers may not call from another origin.'
+        }
+      >
+        <MultiSelect
+          creatable
+          mono
+          noun="origin"
+          value={v.origins}
+          disabled={disabled}
+          onChange={(x) => set('origins', x)}
+          options={v.origins.map((o) => ({ value: o, label: o }))}
+          placeholder="https://app.example.com"
+        />
+      </Field>
+      <fieldset
+        className="flex flex-col gap-2"
+        aria-describedby={errors.methods ? `${listener}-methods` : undefined}
+      >
+        <legend className="mb-1 text-ui font-medium text-fg">Allowed methods</legend>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {METHODS.map((m) => (
+            <Checkbox
+              key={m}
+              checked={v.methods.includes(m)}
+              disabled={disabled}
+              onChange={(on) => set('methods', on ? [...v.methods, m] : v.methods.filter((x) => x !== m))}
+              label={<span className="mono">{m}</span>}
+            />
+          ))}
+        </div>
+        {errors.methods ? (
+          <p id={`${listener}-methods`} role="alert" className="text-caption text-error">
+            {errors.methods}
+          </p>
+        ) : null}
+      </fieldset>
+      <div className="flex flex-col gap-1">
+        <Switch
+          checked={v.credentials}
+          disabled={disabled}
+          onChange={(on) => set('credentials', on)}
+          label="Allow cookies and credentials"
+        />
+        {errors.credentials ? (
+          <p role="alert" className="text-caption text-error">
+            {errors.credentials}
+          </p>
+        ) : (
+          <p className="text-caption text-muted">Only with named origins, never with *.</p>
+        )}
+      </div>
+      <Field
+        label="Browsers remember the answer for"
+        error={errors.maxAge}
+        hint={`Default ${SETTINGS_DEFAULTS.security.cors[listener].max_age}`}
+        className="max-w-56"
+      >
+        <Input mono value={v.maxAge} disabled={disabled} onChange={(e) => set('maxAge', e.target.value)} />
+      </Field>
+    </SettingsForm>
+  );
+}
+
+/** Which web pages may call the gateway from a browser: apps (the data plane) and the console. */
+export function CorsCard() {
+  const [listener, setListener] = useState<Listener>('data');
+  return (
+    <SecurityCard
+      title="Browser access (CORS)"
+      description="Which web pages may call the gateway from a browser."
+    >
+      {(spec, etag) => (
+        <div className="flex flex-col gap-4">
+          <Segmented<Listener>
+            label="Listener"
+            value={listener}
+            onChange={setListener}
+            options={[
+              { value: 'data', label: 'Apps' },
+              { value: 'admin', label: 'Console and Admin API' },
+            ]}
+          />
+          <CorsForm key={`${listener}-${etag}`} listener={listener} initial={corsValues(spec, listener)} />
+        </div>
+      )}
     </SecurityCard>
   );
 }

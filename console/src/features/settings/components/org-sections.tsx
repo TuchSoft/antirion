@@ -24,7 +24,7 @@ import { notify } from '@/stores/ui';
 import { settingsApi } from '../api';
 import { dataUrlBytes, LogoError, logoDataUrl } from '../logo';
 import { useOrgSettings } from '../store';
-import { ClientAddressCard, NetworkCard, RateLimitCard, RequestLimitsCard } from './gateway-forms';
+import { ClientAddressCard, CorsCard, NetworkCard, RateLimitCard, RequestLimitsCard } from './gateway-forms';
 import { Card, Facts, GatewayWide, SaveBar } from './parts';
 
 function useSettingsLoad() {
@@ -518,6 +518,7 @@ export function ApiAccessSection() {
       <ClientAddressCard />
       <NetworkCard />
       <RequestLimitsCard />
+      <CorsCard />
     </>
   );
 }
