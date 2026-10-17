@@ -22,6 +22,7 @@ import { IdentityProvidersSection } from './identity-providers';
 import { ApiAccessSection, GeneralSection, ProvisioningSection } from './org-sections';
 import { SignInSection } from './sign-in-section';
 import { PrivacySection } from './privacy-section';
+import { TRAFFIC_SECTIONS } from './traffic-sections';
 
 export type SectionScope = 'gateway' | 'organization' | 'mixed' | 'follows';
 
@@ -205,6 +206,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
       },
     ],
   },
+  { label: 'Traffic', sections: TRAFFIC_SECTIONS },
   {
     label: '',
     sections: [
