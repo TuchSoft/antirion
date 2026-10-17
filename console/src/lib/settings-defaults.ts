@@ -385,6 +385,11 @@ export const SETTINGS_DEFAULTS = {
     mode: 'extend',
     version: null,
     models: {},
+    remote: {
+      enabled: false,
+      url: 'https://models.dev/api.json',
+      refresh: '24h',
+    },
   },
   cache: {
     backend: {
