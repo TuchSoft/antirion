@@ -645,7 +645,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('noProxy', x)}
             disabled={disabled || !v.proxyUrl.trim()}
             noun="host"
-            placeholder="Hosts that skip the proxy"
+            placeholder="Add a host that skips the proxy"
           />
         </div>
       </Group>
@@ -673,7 +673,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('operatorCidrs', x)}
             disabled={disabled}
             noun="range"
-            placeholder="10.20.0.0/16"
+            placeholder="Add a range, such as 10.20.0.0/16"
           />
           <ListField
             label="Allowed hosts"
@@ -682,7 +682,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('operatorHosts', x)}
             disabled={disabled}
             noun="host"
-            placeholder="llm.internal or *.internal"
+            placeholder="Add a host, such as *.internal"
           />
         </div>
       </Group>
@@ -698,7 +698,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('ports', x)}
             disabled={disabled}
             noun="port"
-            placeholder="443"
+            placeholder="Add a port"
           />
           <ListField
             label="Allowed ranges"
@@ -707,7 +707,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('clientCidrs', x)}
             disabled={disabled}
             noun="range"
-            placeholder="10.20.0.0/16"
+            placeholder="Add a range, such as 10.20.0.0/16"
           />
           <ListField
             label="Allowed hosts"
@@ -716,7 +716,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('clientHosts', x)}
             disabled={disabled}
             noun="host"
-            placeholder="files.internal"
+            placeholder="Add a host, such as files.internal"
           />
           <ListField
             label="Also block these metadata hosts"
@@ -725,7 +725,7 @@ function NetworkForm({ initial }: { initial: NetworkValues }) {
             onChange={(x) => set('metadataHosts', x)}
             disabled={disabled}
             noun="host"
-            placeholder="metadata.internal"
+            placeholder="Add a host"
           />
         </div>
       </Group>
@@ -912,7 +912,7 @@ function CorsForm({ listener, initial }: { listener: Listener; initial: CorsValu
           disabled={disabled}
           onChange={(x) => set('origins', x)}
           options={v.origins.map((o) => ({ value: o, label: o }))}
-          placeholder="https://app.example.com"
+          placeholder="Add an origin, such as https://app.example.com"
         />
       </Field>
       <fieldset
@@ -976,6 +976,7 @@ export function CorsCard() {
         <div className="flex flex-col gap-4">
           <Segmented<Listener>
             label="Listener"
+            className="self-start"
             value={listener}
             onChange={setListener}
             options={[

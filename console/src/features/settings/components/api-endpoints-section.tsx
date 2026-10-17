@@ -134,7 +134,7 @@ function EndpointsCard({ spec }: { spec: ApiSpec }) {
                 <th
                   scope="colgroup"
                   colSpan={3}
-                  className="border-b border-line pt-4 pb-1.5 text-left text-caption font-semibold text-muted"
+                  className="border-b border-line px-[var(--spacing-cell)] pt-4 pb-1.5 text-left text-caption font-semibold text-muted"
                 >
                   {group.title}
                 </th>
