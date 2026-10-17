@@ -10,6 +10,7 @@ import { useCan } from '@/components/ui/gate';
 import { Tooltip } from '@/components/ui/tooltip';
 import { describeError, isChangeControl } from '@/lib/api/client';
 import { auditActorBy } from '@/lib/audit-words';
+import { cn } from '@/lib/cn';
 import type { DeploymentHealth } from '@/lib/api/types';
 import { formatDateTime, formatRelative } from '@/lib/time';
 import { usePreferences } from '@/stores/preferences';
@@ -31,22 +32,10 @@ export function useDisablesFor(health: DeploymentHealth[] | null | undefined): v
   }, [canAudit, off, load]);
 }
 
-/** "Turned off by ada 5m ago", or "Turned off" when the audit log can't say. */
-export function TurnedOffBy({ name }: { name: string }) {
-  const entry = useDeploymentDisables((s) => s.byName[name]);
-  const timeZone = usePreferences((s) => s.timeZone);
-  if (!entry) return <>Turned off</>;
-  return (
-    <>
-      Turned off by {auditActorBy(entry.actor)}{' '}
-      <Tooltip content={formatDateTime(entry.time, timeZone)}>
-        <span className="text-muted">{formatRelative(entry.time)}</span>
-      </Tooltip>
-    </>
-  );
-}
-
-/** A deployment's runtime state with a dot, who turned it off, and when it comes back by itself. */
+/**
+ * A deployment's runtime state: a dot and the state ("Turned off"), then who turned it off and
+ * when, and when it comes back by itself, in small type ("by ada 5m ago · back on in 3h").
+ */
 export function RuntimeState({
   name,
   health,
@@ -58,22 +47,37 @@ export function RuntimeState({
   withUntil?: boolean;
 }) {
   const timeZone = usePreferences((s) => s.timeZone);
+  const entry = useDeploymentDisables((s) => s.byName[name]);
   const status = runtimeStatus(health);
+  const off = status.kind === 'off';
+  const since = off && entry ? entry.time : null;
+  const by = off && entry ? `by ${auditActorBy(entry.actor)}` : null;
+  const until = withUntil ? status.until : null;
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5">
-      <Dot tone={status.tone} />
-      {status.kind === 'off' ? (
-        <TurnedOffBy name={name} />
-      ) : (
-        <span className={status.kind === 'unknown' ? 'text-muted' : undefined}>{status.label}</span>
-      )}
-      {withUntil && status.until ? (
-        <Tooltip content={formatDateTime(status.until, timeZone)}>
-          <span className="text-caption text-muted">
-            {status.kind === 'off' ? 'until' : 'tried again'} {formatRelative(status.until)}
+    <span className="flex items-start gap-1.5">
+      <Dot tone={status.tone} className="mt-[7px]" />
+      <span className="min-w-0">
+        <span className={cn('block', status.kind === 'unknown' && 'text-muted')}>{status.label}</span>
+        {since || until ? (
+          <span className="block text-caption whitespace-normal text-muted">
+            {since ? (
+              <Tooltip content={formatDateTime(since, timeZone)}>
+                <span>
+                  {by} {formatRelative(since)}
+                </span>
+              </Tooltip>
+            ) : null}
+            {since && until ? ' · ' : null}
+            {until ? (
+              <Tooltip content={formatDateTime(until, timeZone)}>
+                <span>
+                  {off ? 'back on' : 'tried again'} {formatRelative(until)}
+                </span>
+              </Tooltip>
+            ) : null}
           </span>
-        </Tooltip>
-      ) : null}
+        ) : null}
+      </span>
     </span>
   );
 }

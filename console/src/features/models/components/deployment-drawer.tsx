@@ -2,6 +2,7 @@
 
 import { type ReactNode, useState } from 'react';
 
+import { Icon } from '@/components/ui/icon';
 import { Button, IconButton } from '@/components/ui/button';
 import {
   Combobox,
@@ -603,6 +604,7 @@ export function DeploymentDrawer({
           </div>
           <details className="group" open={moreSet > 0 ? true : undefined}>
             <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-ui text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+              <Icon name="chevronRight" size={12} className="transition-transform group-open:rotate-90" />
               More rates{moreSet > 0 ? ` (${String(moreSet)} set)` : ''}
             </summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-3">

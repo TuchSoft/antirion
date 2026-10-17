@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Field, MultiSelect, NumberInput, Select } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
@@ -219,7 +220,8 @@ export function PoliciesPanel({ view }: { view: ModelView }) {
       </dl>
       {other ? (
         <details className="group mt-3">
-          <summary className="w-fit cursor-pointer list-none text-caption text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-caption text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <Icon name="chevronRight" size={12} className="transition-transform group-open:rotate-90" />
             Also set in the configuration: {Object.keys(other).join(', ')}
           </summary>
           <pre className="mono mt-2 max-h-64 overflow-auto rounded-control border border-line bg-sunken p-3 text-caption text-fg">

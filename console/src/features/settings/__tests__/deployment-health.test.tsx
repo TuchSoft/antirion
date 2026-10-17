@@ -125,7 +125,8 @@ describe('Settings › Status › deployments', () => {
   it('shows who turned a deployment off, and turns it on with :enable, never :reset', async () => {
     render(<HealthSection />);
     const row = await rowOf('manual');
-    expect(await within(row).findByText(/Turned off by ada/)).toBeInTheDocument();
+    expect(await within(row).findByText(/^by ada 5m ago$/)).toBeInTheDocument();
+    expect(within(row).getByText('Turned off')).toBeInTheDocument();
     expect(within(row).queryByText('Paused after errors')).not.toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Resume now' })).not.toBeInTheDocument();
     await userEvent.click(within(row).getByRole('button', { name: 'Turn on' }));

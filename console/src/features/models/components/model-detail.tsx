@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Badge, Dot } from '@/components/ui/badge';
 import { FavouriteButton } from '@/components/ui/favourite';
 import { ProviderMark } from '@/components/ui/marks';
+import { Icon } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/choice';
 import { ConfirmDialog } from '@/components/ui/confirm';
@@ -159,7 +160,8 @@ function PriceDialog({
         </Field>
       </div>
       <details className="group" open={moreSet > 0 ? true : undefined}>
-        <summary className="w-fit cursor-pointer list-none text-ui text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-ui text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+          <Icon name="chevronRight" size={12} className="transition-transform group-open:rotate-90" />
           More rates{moreSet > 0 ? ` (${String(moreSet)} set)` : ''}
         </summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">

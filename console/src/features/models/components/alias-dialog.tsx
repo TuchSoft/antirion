@@ -156,6 +156,10 @@ function ParamsEditor({
           Add parameter
         </Button>
       </div>
+      <p className="-mt-1 text-caption text-muted">
+        Set on every request that names the alias, over what the app sends. Values are JSON (0.2, true,
+        {' {"type": "json_object"}'}) or plain text.
+      </p>
       {rows.map((row, i) => (
         <div key={i} className="grid grid-cols-[minmax(0,2fr)_auto_minmax(0,3fr)_auto] items-center gap-2">
           <Input
@@ -199,12 +203,7 @@ function ParamsEditor({
         <p role="alert" className="text-caption text-error">
           {error}
         </p>
-      ) : (
-        <p className="text-caption text-muted">
-          Set on every request that names the alias, over what the app sends. Values are JSON (0.2, true,
-          {' {"type": "json_object"}'}) or plain text.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }
