@@ -37,6 +37,12 @@ export const routingApi = {
   health: async (): Promise<DeploymentHealth[]> => (await api.get('/runtime/deployments')).items,
   save: (name: string, spec: Route, etag: string | undefined, reason?: string): Promise<RouteResource> =>
     api.put('/routes/{name}', { path: { name }, body: { spec }, ifMatch: etag, reason }),
+  /** Creates a route; a name already taken is refused (409), never replaced. */
+  create: (name: string, spec: Route): Promise<RouteResource> =>
+    api.post('/routes', { body: { name, spec } }),
+  /** Merge-patches a route's spec: absent members stay, `null` removes one. */
+  patch: (name: string, spec: Record<string, unknown>, etag: string | undefined): Promise<RouteResource> =>
+    api.patch('/routes/{name}', { path: { name }, body: { spec }, ifMatch: etag }),
   remove: async (name: string, reason?: string): Promise<void> => {
     await api.delete('/routes/{name}', { path: { name }, reason });
   },

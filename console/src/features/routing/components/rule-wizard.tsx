@@ -31,6 +31,7 @@ import { ConditionsStep, LimitsFields, StrategyStep, TargetsStep } from './wizar
 
 const STEPS = ['Conditions', 'Strategy', 'Targets', 'Review'] as const;
 
+/** The name of the first route of a gateway, when none was chosen. */
 const NEW_ROUTE = 'global';
 
 const DURATION = /^[0-9]+(\.[0-9]+)?(ms|s|m|h|d)$/;
@@ -45,7 +46,10 @@ const percentOrEmpty = z
   .refine((v) => v === '' || (Number(v) >= 0 && Number(v) <= 100), 'Enter a percent from 0 to 100');
 
 /** Errors of a draft, keyed by field path; the step a key belongs to is found from its prefix. */
-function validate(d: RuleDraft, locked: { when: boolean; targets: boolean }): Record<string, string> {
+export function validateRule(
+  d: RuleDraft,
+  locked: { when: boolean; targets: boolean },
+): Record<string, string> {
   const out: Record<string, string> = {};
   const name = d.name.trim();
   if (!name) out.name = 'Name the rule, e.g. support-to-fast-models';
@@ -176,11 +180,26 @@ export interface RuleWizardProps {
   tree: Json;
   rules: Json[];
   editing: Rule | null;
+  /** The name of the route this first rule creates, when `route` is null (default `global`). */
+  newRoute?: string;
+  /** The route had one strategy: it becomes what everything else gets, after this rule. */
+  wrapping?: boolean;
+  /** Called with the route's name once the rule is saved. */
+  onSaved?: (route: string) => void;
   onClose: () => void;
 }
 
 /** The four-step rule drawer: conditions, strategy, targets, then a review with limits and a dry run. */
-export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardProps) {
+export function RuleWizard({
+  route,
+  tree,
+  rules,
+  editing,
+  newRoute = NEW_ROUTE,
+  wrapping = false,
+  onSaved,
+  onClose,
+}: RuleWizardProps) {
   const deployments = useRouting((s) => s.deployments.data) ?? [];
   const tiers = useRouting((s) => s.tiers.data) ?? [];
   const guardrails = useRouting((s) => s.guardrails.data) ?? [];
@@ -209,7 +228,7 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
   };
 
   function check(): boolean {
-    const out = validate(draft, { when: whenLocked, targets: lockedTargets });
+    const out = validateRule(draft, { when: whenLocked, targets: lockedTargets });
     setErrors(out);
     const keys = Object.keys(out);
     if (keys.length === 0) return true;
@@ -223,7 +242,7 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
       setStep(to);
       return;
     }
-    const blocked = blockingStep(validate(draft, { when: whenLocked, targets: lockedTargets }), to);
+    const blocked = blockingStep(validateRule(draft, { when: whenLocked, targets: lockedTargets }), to);
     setErrors(blocked?.errors ?? {});
     setStep(blocked ? blocked.step : to);
   }
@@ -234,7 +253,7 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
     setError(null);
     try {
       if (route === null)
-        await createRoute(NEW_ROUTE, {
+        await createRoute(newRoute, {
           type: 'conditional',
           rules: nextRules(),
           ...(otherwise ? { default: otherwise } : {}),
@@ -243,8 +262,9 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
       notify(
         'success',
         editing ? 'Rule saved' : 'Rule created',
-        route === null ? `${draft.name.trim()}, in the new shared route ${NEW_ROUTE}` : draft.name.trim(),
+        route === null ? `${draft.name.trim()}, in the new shared route ${newRoute}` : draft.name.trim(),
       );
+      onSaved?.(route ?? newRoute);
       onClose();
     } catch (e) {
       // Change control: the shell offers or shows the change request, so the wizard is done.
@@ -340,9 +360,14 @@ export function RuleWizard({ route, tree, rules, editing, onClose }: RuleWizardP
           </p>
           {route === null ? (
             <p className="text-ui text-muted">
-              This first rule also creates the gateway&apos;s shared route, named{' '}
-              <span className="mono text-fg">{NEW_ROUTE}</span>: it holds every rule, and the rules you add
-              later go into it.
+              This first rule also creates the shared route <span className="mono text-fg">{newRoute}</span>:
+              it holds every rule, and the rules you add later go into it.
+            </p>
+          ) : null}
+          {wrapping && route !== null ? (
+            <p className="text-ui text-muted">
+              Route <span className="mono text-fg">{route}</span> had one strategy for every request. This
+              rule goes first; that strategy now gets everything else.
             </p>
           ) : null}
           <LimitsFields draft={draft} set={set} errors={errors} />

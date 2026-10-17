@@ -55,8 +55,10 @@ interface RoutingState {
   loadState: (route: string, options?: { quiet?: boolean }) => Promise<void>;
   loadSettings: (options?: { quiet?: boolean }) => Promise<void>;
   saveTree: (route: string, tree: Json, reason?: string) => Promise<void>;
-  /** Creates a shared route with this tree (the first rule of a new gateway). */
+  /** Creates a shared route with this tree; a name already taken is refused, not replaced. */
   createRoute: (route: string, tree: Json) => Promise<void>;
+  /** Merge-patches a route's own settings (on or off, affinity, tag filter, policies). */
+  patchRoute: (route: string, patch: Record<string, unknown>) => Promise<void>;
   deleteRoute: (route: string) => Promise<void>;
   simulate: (route: string, tree: Json, hours: number) => Promise<void>;
   clearSimulation: () => void;
@@ -175,10 +177,20 @@ export const useRouting = create<RoutingState>()((set, get) => ({
   },
 
   async createRoute(route, tree) {
-    const created = await routingApi.save(route, { tree }, undefined);
+    const created = await routingApi.create(route, { tree });
     set((s) => ({
       routes: { ...s.routes, data: [...(s.routes.data ?? []).filter((r) => r.name !== route), created] },
     }));
+  },
+
+  async patchRoute(route, patch) {
+    const current = get().routes.data?.find((r) => r.name === route);
+    if (!current) throw new Error(`route ${route} is not loaded`);
+    const updated = await routingApi.patch(route, patch, current.metadata.etag);
+    set((s) => ({
+      routes: { ...s.routes, data: (s.routes.data ?? []).map((r) => (r.name === route ? updated : r)) },
+    }));
+    void get().loadDetails({ quiet: true });
   },
 
   async simulate(route, tree, hours) {

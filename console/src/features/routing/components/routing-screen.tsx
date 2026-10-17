@@ -76,6 +76,7 @@ import { useChangeRequests } from '@/features/change-requests/store';
 import { DefaultsPanel, HealthPanel, ResetSessionsDialog } from './health-defaults';
 import { LiveDecisions } from './live-decisions';
 import { RuleRow, strategyLabel, Targets } from './rule-row';
+import { DefaultTargetDrawer, NewRouteDrawer, RouteSettingsDrawer } from './route-drawer';
 import { RuleWizard } from './rule-wizard';
 
 type Tab = 'rules' | 'health' | 'live' | 'changes';
@@ -149,11 +150,14 @@ export function RoutingScreen() {
   const loadState = useRouting((s) => s.loadState);
   const loadSettings = useRouting((s) => s.loadSettings);
   const saveTree = useRouting((s) => s.saveTree);
+  const patchRoute = useRouting((s) => s.patchRoute);
   const deleteRoute = useRouting((s) => s.deleteRoute);
   const canDeleteRoute = useCan('deleteRoute');
   const [removingRoute, setRemovingRoute] = useState<string | null>(null);
   const clearSimulation = useRouting((s) => s.clearSimulation);
   const canEdit = useCan('replaceRoute');
+  const canCreateRoute = useCan('createRoute');
+  const canPatchRoute = useCan('patchRoute');
   const canReset = useCan('deleteRouteAffinity');
   const canExport = useCan('exportConfig');
   const canReadChanges = useCan('listChangeRequests');
@@ -175,7 +179,14 @@ export function RoutingScreen() {
     ? (url.filters.show as RuleFilter)
     : 'all';
   const query = url.filters.q;
-  const [wizard, setWizard] = useState<{ editing: Rule | null } | null>(null);
+  /**
+   * The rule wizard: a rule to edit or a new one; `newRoute` creates that route with it, and `wrap`
+   * puts the rule before a route's one strategy, which then gets everything else.
+   */
+  const [wizard, setWizard] = useState<{ editing: Rule | null; newRoute?: string; wrap?: boolean } | null>(
+    null,
+  );
+  const [routeDrawer, setRouteDrawer] = useState<'new' | 'settings' | 'default' | null>(null);
   const [deleting, setDeleting] = useState<Rule | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
   const [reference, setReference] = useState(false);
@@ -339,15 +350,46 @@ export function RoutingScreen() {
   }
 
   const setTab = (next: Tab) => setTabParam(next === 'rules' ? null : next);
-  const canCreate = canEdit && (parsed !== null || (routes.data !== null && !route));
+  const canCreate = canEdit && (route !== undefined || routes.data !== null);
+  /** A new rule: into the rule list, or before the route's one strategy when it has none. */
+  const newRule = () => setWizard({ editing: null, wrap: route !== undefined && parsed === null });
   usePageShortcut('n', () => {
-    if (canCreate) setWizard({ editing: null });
+    if (canCreate) newRule();
   });
+  const routeOn = route?.spec.enabled !== false;
+
+  async function setRouteOn(on: boolean) {
+    if (!route) return;
+    try {
+      await patchRoute(route.name, { enabled: on ? null : false });
+      notify('success', on ? 'Route turned on' : 'Route turned off', route.name);
+    } catch (e) {
+      if (isChangeControl(e)) return;
+      notify('error', 'Couldn’t change the route', describeError(e));
+    }
+  }
   usePageShortcut('e', () => {
     if (canExport) void exportYaml();
   });
 
   const more: MenuItem[] = [
+    ...(canCreateRoute && routes.data
+      ? [{ label: 'New route', icon: 'plus' as const, onSelect: () => setRouteDrawer('new') }]
+      : []),
+    ...(route && canPatchRoute
+      ? [
+          {
+            label: `Settings of route ${route.name}`,
+            icon: 'settings' as const,
+            onSelect: () => setRouteDrawer('settings'),
+          },
+          {
+            label: routeOn ? `Turn route ${route.name} off` : `Turn route ${route.name} on`,
+            icon: routeOn ? ('pause' as const) : ('play' as const),
+            onSelect: () => void setRouteOn(!routeOn),
+          },
+        ]
+      : []),
     { label: 'How routing works', icon: 'info', onSelect: () => setReference(true) },
     ...(canExport && list.length > 0
       ? [{ label: 'Export YAML', icon: 'download' as const, onSelect: () => void exportYaml() }]
@@ -412,9 +454,10 @@ export function RoutingScreen() {
         title="Routing policy"
         description="Send requests to the right deployments by team, tag or size"
         meta={
-          parsed ? (
+          parsed || !routeOn ? (
             <>
-              {plural(active, 'active rule')}
+              {!routeOn ? <span className="text-warn">Route off · </span> : null}
+              {parsed ? plural(active, 'active rule') : null}
               {pendingRouting ? (
                 <>
                   {' · '}
@@ -452,7 +495,7 @@ export function RoutingScreen() {
             ) : null}
             <MenuButton items={more} label="More" variant="ghost" />
             {canCreate ? (
-              <Button variant="primary" icon="plus" onClick={() => setWizard({ editing: null })}>
+              <Button variant="primary" icon="plus" onClick={newRule}>
                 Create rule
               </Button>
             ) : null}
@@ -598,7 +641,7 @@ export function RoutingScreen() {
           description="Rules send matching requests to the deployments you choose."
           action={
             <Gate operation="replaceRoute" mode="hide">
-              <EmptyAction onClick={() => setWizard({ editing: null })}>Create rule</EmptyAction>
+              <EmptyAction onClick={newRule}>Create rule</EmptyAction>
             </Gate>
           }
           secondaryAction={<EmptyAction onClick={() => setReference(true)}>How routing works</EmptyAction>}
@@ -625,7 +668,8 @@ export function RoutingScreen() {
       {route && tab === 'rules' && !parsed ? (
         <EmptyState
           title={`Route ${route.name} has no rule list`}
-          description={`It sends every request with one strategy (${strategyLabel(route.spec.tree).toLowerCase()}). Edit it in the configuration to add rules.`}
+          description={`It sends every request with one strategy (${strategyLabel(route.spec.tree).toLowerCase()}). Add a rule to put it before that strategy, which then gets everything else.`}
+          action={canEdit ? <EmptyAction onClick={newRule}>Add a rule</EmptyAction> : undefined}
         />
       ) : null}
       {tab === 'rules' && parsed ? (
@@ -751,6 +795,17 @@ export function RoutingScreen() {
                 ) : (
                   <span>the route&apos;s default</span>
                 )}
+                {canEdit && reach?.models?.length !== 0 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-2 align-middle"
+                    aria-label="Edit everything else"
+                    onClick={() => setRouteDrawer('default')}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
               </p>
               <span className="mono text-caption text-muted tabular-nums max-lg:hidden">
                 {impact && impact.total > 0
@@ -796,15 +851,43 @@ export function RoutingScreen() {
       ) : null}
       {wizard && (route || routes.data) ? (
         <RuleWizard
-          route={route ? route.name : null}
-          tree={route?.spec.tree ?? null}
-          rules={rawRules}
+          route={route && wizard.newRoute === undefined ? route.name : null}
+          tree={
+            wizard.newRoute !== undefined
+              ? null
+              : wizard.wrap && route
+                ? { type: 'conditional', rules: [], default: route.spec.tree }
+                : (route?.spec.tree ?? null)
+          }
+          rules={wizard.newRoute !== undefined || wizard.wrap ? [] : rawRules}
           editing={wizard.editing}
+          {...(wizard.newRoute !== undefined ? { newRoute: wizard.newRoute } : {})}
+          wrapping={wizard.wrap === true}
+          onSaved={(name) => {
+            if (name !== route?.name) setRouteParam(name);
+          }}
           onClose={() => {
             clearSimulation();
             setWizard(null);
           }}
         />
+      ) : null}
+      {routeDrawer === 'new' ? (
+        <NewRouteDrawer
+          taken={list.map((r) => r.name)}
+          onClose={() => setRouteDrawer(null)}
+          onRules={(name) => {
+            setRouteDrawer(null);
+            setWizard({ editing: null, newRoute: name });
+          }}
+          onCreated={(name) => setRouteParam(name)}
+        />
+      ) : null}
+      {routeDrawer === 'settings' && route ? (
+        <RouteSettingsDrawer route={route} onClose={() => setRouteDrawer(null)} />
+      ) : null}
+      {routeDrawer === 'default' && route ? (
+        <DefaultTargetDrawer route={route} onClose={() => setRouteDrawer(null)} />
       ) : null}
       <ReferenceDrawer open={reference} onClose={() => setReference(false)} rules={rules} />
       <ResetSessionsDialog route={resetting} onClose={() => setResetting(null)} />
