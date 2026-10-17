@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use antirion_config::{Format, parse};
-use antirion_core::audit::{Actor, ActorKind, AuditEntry, AuditKind, Outcome};
+use antirion_core::audit::{Actor, ActorKind, AuditEntry, AuditKind, Outcome, change_list};
 use antirion_core::{RequestId, headers as h};
 use antirion_identity::rbac::{AdminPrincipal, Scope};
 use antirion_runtime::admin_auth::Session;
@@ -173,7 +173,8 @@ impl Call {
             .await;
     }
 
-    /// As [`audit`](Self::audit), with details of the change (never a secret).
+    /// As [`audit`](Self::audit), with the facts of the action (never a secret), recorded as one
+    /// `update` of `resource` with the facts as `after`.
     pub(crate) async fn audit_with(
         &self,
         action: &str,
@@ -241,7 +242,7 @@ impl Call {
             } else {
                 None
             },
-            changes,
+            changes: change_list(resource, changes),
         };
         if let Err(e) = self.rt.store.append_audit(entry).await {
             tracing::warn!(error = %e, "an audit entry could not be written");

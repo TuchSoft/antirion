@@ -59,8 +59,8 @@ impl AuditKind {
 /// One audit entry. `time` is RFC 3339; `seq` orders entries and is not part of the API shape.
 ///
 /// `changes` is a change set (a list of `{op, path, before, after}`) or null. Actions that commit
-/// no generation record what they did as facts; an entry read back states them as one change of
-/// its resource (see [`change_list`]), so entries stored with the facts as an object read the same.
+/// no generation state what they did as facts, written as one change of their resource (see
+/// [`change_list`]); entries stored with the facts as an object read back the same way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(from = "Stored")]
 pub struct AuditEntry {

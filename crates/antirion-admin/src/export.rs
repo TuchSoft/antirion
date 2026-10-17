@@ -7,7 +7,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use antirion_core::RequestId;
-use antirion_core::audit::{Actor, AuditEntry, Outcome};
+use antirion_core::audit::{Actor, AuditEntry, Outcome, change_list};
 use antirion_identity::rbac::AdminPrincipal;
 use antirion_runtime::Runtime;
 use antirion_runtime::reqlog::analytics::metadata_matches;
@@ -155,7 +155,11 @@ impl Export {
 
     async fn finish(&mut self) {
         if let Some(mut entry) = self.audit.take() {
-            if let Some(o) = entry.changes.as_object_mut() {
+            if let Some(o) = entry
+                .changes
+                .pointer_mut("/0/after")
+                .and_then(Value::as_object_mut)
+            {
                 o.insert("rows".into(), json!(self.rows));
             }
             if let Err(e) = self.rt.store.append_audit(entry).await {
@@ -245,7 +249,10 @@ pub(crate) fn export(call: &Call) -> Result<Response, AdminError> {
         generation_after: Some(generation),
         request_id: call.request_id.as_str().to_owned(),
         source_ip: call.source_ip.clone(),
-        changes: json!({"filters": filters, "format": if format == Format::Csv { "csv" } else { "ndjson" }}),
+        changes: change_list(
+            "logs",
+            json!({"filters": filters, "format": if format == Format::Csv { "csv" } else { "ndjson" }}),
+        ),
         kind: antirion_core::audit::AuditKind::Read,
         reason: None,
     };

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use antirion_core::RequestId;
-use antirion_core::audit::{Actor, ActorKind, AuditEntry, AuditKind, Outcome};
+use antirion_core::audit::{Actor, ActorKind, AuditEntry, AuditKind, Outcome, change_list};
 use serde_json::Value;
 
 use crate::Runtime;
@@ -23,7 +23,8 @@ pub fn spawn(rt: &Arc<Runtime>) {
 
 impl Runtime {
     /// An audit entry for something the gateway noticed on its own (a reminder, a flag), so the
-    /// activity feeds that read the audit log show it.
+    /// activity feeds that read the audit log show it. The facts are recorded as one `update` of
+    /// `resource`.
     pub(crate) async fn audit_system(&self, actor: &str, action: &str, resource: &str, changes: Value) {
         let generation = self.gens.load().generation;
         let entry = AuditEntry {
@@ -41,7 +42,7 @@ impl Runtime {
             generation_after: Some(generation),
             request_id: RequestId::generate().as_str().to_owned(),
             source_ip: None,
-            changes,
+            changes: change_list(resource, changes),
             kind: AuditKind::Write,
             reason: None,
         };

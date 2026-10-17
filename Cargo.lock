@@ -116,6 +116,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "mimalloc",
+ "rusqlite",
  "rustix",
  "rustls",
  "serde_json",
