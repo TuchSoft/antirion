@@ -84,7 +84,14 @@ export function useSend(): {
   const abort = useRef<AbortController | null>(null);
   const seq = useRef(0);
 
-  useEffect(() => () => abort.current?.abort(), []);
+  // Leaving the page stops the send and any read of its record still waiting to run.
+  useEffect(
+    () => () => {
+      abort.current?.abort();
+      seq.current += 1;
+    },
+    [],
+  );
 
   const send = useCallback((input: SendInput) => {
     abort.current?.abort();
@@ -112,6 +119,7 @@ export function useSend(): {
       if (!recordId) return;
       for (let i = 0; i < RECORD_TRIES && !signal.aborted && seq.current === id; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, RECORD_EVERY_MS));
+        if (signal.aborted || seq.current !== id) return;
         try {
           const record = await playgroundApi.record(recordId);
           if (record) {
