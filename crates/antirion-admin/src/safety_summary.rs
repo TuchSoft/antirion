@@ -76,10 +76,15 @@ fn group_by(call: &Call) -> Result<Vec<&'static str>, AdminError> {
     Ok(out)
 }
 
-/// Every event of the selection the caller may read.
-async fn events(call: &Call, f: &SafetyFilter) -> Result<Vec<SafetyEventRow>, AdminError> {
+/// Calls `visit` with each event of the selection the caller may read, a page at a time; refuses
+/// a selection of more than `MAX_EVENTS` events.
+async fn each_event(
+    call: &Call,
+    f: &SafetyFilter,
+    mut visit: impl FnMut(&SafetyEventRow),
+) -> Result<(), AdminError> {
     call.rt.read_safety().await;
-    let mut out = Vec::new();
+    let mut read = 0usize;
     let mut after = None;
     loop {
         let page = call
@@ -90,17 +95,20 @@ async fn events(call: &Call, f: &SafetyFilter) -> Result<Vec<SafetyEventRow>, Ad
             .map_err(|_| AdminError::store_unavailable())?;
         let full = page.len() == BATCH;
         after = page.last().map(|e| (e.time_us, e.id.clone()));
-        out.extend(page.into_iter().filter(|e| {
+        for e in &page {
             let c = crate::safety::chain(e);
-            call.principal.sees(&c) && call.require("logs:read", &c).is_ok()
-        }));
-        if out.len() > MAX_EVENTS {
+            if call.principal.sees(&c) && call.require("logs:read", &c).is_ok() {
+                visit(e);
+                read += 1;
+            }
+        }
+        if read > MAX_EVENTS {
             return Err(AdminError::invalid_parameter(
                 "the selection holds more than 200000 events; narrow it",
             ));
         }
         if !full {
-            return Ok(out);
+            return Ok(());
         }
     }
 }
@@ -108,8 +116,40 @@ async fn events(call: &Call, f: &SafetyFilter) -> Result<Vec<SafetyEventRow>, Ad
 #[derive(Default)]
 struct Cell {
     events: u64,
-    related: u64,
     matches: u64,
+    /// The fingerprint of each event counted, by its number in [`Fingerprints`]; whether an
+    /// event is related is known only once every event has been read.
+    fingerprints: Vec<u32>,
+}
+
+/// The selection's fingerprints, numbered, with how many events have each.
+#[derive(Default)]
+struct Fingerprints {
+    ids: HashMap<String, u32>,
+    counts: Vec<u64>,
+}
+
+impl Fingerprints {
+    fn add(&mut self, fingerprint: &str) -> u32 {
+        let id = match self.ids.get(fingerprint) {
+            Some(id) => *id,
+            None => {
+                let id = u32::try_from(self.counts.len()).unwrap_or(u32::MAX);
+                self.ids.insert(fingerprint.to_owned(), id);
+                self.counts.push(0);
+                id
+            }
+        };
+        if let Some(n) = self.counts.get_mut(id as usize) {
+            *n += 1;
+        }
+        id
+    }
+
+    /// Whether another event of the selection shares the fingerprint.
+    fn shared(&self, id: u32) -> bool {
+        self.counts.get(id as usize).is_some_and(|n| *n > 1)
+    }
 }
 
 pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
@@ -145,19 +185,16 @@ pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
         }
         None => None,
     };
-    let all = events(call, &f).await?;
-    let mut seen: HashMap<&str, u64> = HashMap::new();
-    for e in &all {
-        *seen.entry(e.fingerprint.as_str()).or_default() += 1;
-    }
+    let mut fingerprints = Fingerprints::default();
     let mut cells: BTreeMap<(Option<i64>, Vec<Option<String>>), Cell> = BTreeMap::new();
-    for e in &all {
+    each_event(call, &f, |e| {
+        let fingerprint = fingerprints.add(&e.fingerprint);
         let start = match &starts {
             Some((list, step)) => {
-                let Some(first) = list.first() else { continue };
+                let Some(first) = list.first() else { return };
                 let i = (e.time_us - first).div_euclid(*step);
                 let Some(s) = usize::try_from(i).ok().and_then(|i| list.get(i)) else {
-                    continue;
+                    return;
                 };
                 Some(*s)
             }
@@ -187,14 +224,14 @@ pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
             }
             keys = next;
         }
-        let related = seen.get(e.fingerprint.as_str()).is_some_and(|n| *n > 1);
         for (k, m) in keys {
             let c = cells.entry((start, k)).or_default();
             c.events += 1;
-            c.related += u64::from(related);
             c.matches += m;
+            c.fingerprints.push(fingerprint);
         }
-    }
+    })
+    .await?;
     let rows: Vec<Value> = cells
         .into_iter()
         .skip(offset)
@@ -209,7 +246,7 @@ pub(crate) async fn summary(call: &Call) -> Result<Response, AdminError> {
                 "group": group,
                 "start": start.map(|t| antirion_core::UtcMicros(t).to_rfc3339()),
                 "events": c.events,
-                "related": c.related,
+                "related": c.fingerprints.iter().filter(|id| fingerprints.shared(**id)).count(),
                 "matches": c.matches,
             })
         })
@@ -239,5 +276,15 @@ mod tests {
             [("email".to_owned(), 2), ("phone".to_owned(), 1)]
         );
         assert_eq!(value_of(&e, "entity"), None);
+    }
+
+    #[test]
+    fn fingerprints_are_shared_once_two_events_have_them() {
+        let mut f = Fingerprints::default();
+        let a = f.add("a");
+        let b = f.add("b");
+        assert!(!f.shared(a));
+        assert_eq!(f.add("a"), a);
+        assert!(f.shared(a) && !f.shared(b));
     }
 }
