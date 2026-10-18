@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useScopedHref } from '@/components/layout/url-sync';
@@ -194,9 +195,9 @@ function Coverage({ users }: { users: UserResource[] | null }) {
           </span>{' '}
           {c.total ? `have a second step (${formatPercent(ratio, 0)})` : 'yet'}
         </p>
-        <a href={href} className="text-caption text-accent hover:underline">
+        <Link href={href} className="text-caption text-accent hover:underline">
           See who in Teams & users
-        </a>
+        </Link>
       </div>
       {c.total ? (
         <div

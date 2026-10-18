@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { useScopedHref } from '@/components/layout/url-sync';
@@ -203,9 +204,9 @@ export function NotificationsMatrixSection() {
                       className="border-t border-line px-2 py-2 text-caption text-muted"
                     >
                       Emailed to each person who turns it on in their{' '}
-                      <a href={accountHref} className="text-accent hover:underline">
+                      <Link href={accountHref} className="text-accent hover:underline">
                         account notifications
-                      </a>
+                      </Link>
                       .
                     </td>
                   ) : (
@@ -239,9 +240,9 @@ export function NotificationsMatrixSection() {
         <span>
           A tick on a severity adds the channel to every alert rule of that severity. A tick on an event
           category adds it to that category&apos;s event rule, created when there is none. Fine-tune rules in{' '}
-          <a href={alertsHref} className="text-accent hover:underline">
+          <Link href={alertsHref} className="text-accent hover:underline">
             Alerts
-          </a>
+          </Link>
           .
         </span>
       </p>

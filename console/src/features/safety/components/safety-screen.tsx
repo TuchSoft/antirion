@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useQueryParam, useScopedHref, useTabParam } from '@/components/layout/url-sync';
@@ -297,9 +298,9 @@ function EventDetail({
       <DetailSection
         title="Content"
         aside={
-          <a href={logHref} className="text-caption text-accent hover:underline">
+          <Link href={logHref} className="text-caption text-accent hover:underline">
             View request
-          </a>
+          </Link>
         }
       >
         {canContent ? (
