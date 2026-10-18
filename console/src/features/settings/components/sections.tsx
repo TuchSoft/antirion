@@ -17,6 +17,7 @@ import { EncryptionCard } from './encryption-card';
 import { AuditSinksSection } from './audit-sinks-section';
 import { ConnectionsSection } from './connections-section';
 import { NotificationsMatrixSection } from './notification-matrix';
+import { AlertTimingCard } from './observability-extras';
 import { SmtpCard } from './smtp-card';
 import { WebhooksSection } from './webhooks-section';
 import { ApiAccessSettings } from './api-access-section';
@@ -122,6 +123,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
           <>
             <ConnectionsSection />
             <NotificationsMatrixSection />
+            <AlertTimingCard />
             <SmtpCard />
           </>
         ),

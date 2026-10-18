@@ -9,9 +9,11 @@ import { pickOption, signInAs } from '@/test/utils';
 
 import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
 import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
+import { AlertTimingCard, RequestDetailsCard } from '../components/observability-extras';
 import { PrometheusDrawer } from '../components/prometheus-drawer';
 import { RecordFieldsCard } from '../components/record-fields';
-import { useOrgSettings } from '../store';
+import { SmtpCard } from '../components/smtp-card';
+import { useLinks, useOrgSettings } from '../store';
 
 const meta = { etag: '"5"', generation: 5, created_at: null, updated_at: null, managed_by: 'api' };
 
@@ -130,5 +132,60 @@ describe('Prometheus series settings', () => {
     await userEvent.type(cap, '50000');
     await userEvent.click(screen.getByRole('button', { name: 'Save endpoint' }));
     await waitFor(() => expect(patches).toEqual([{ metrics: { max_series_per_family: 50000 } }]));
+  });
+});
+
+describe('Alert checks and request details', () => {
+  beforeEach(() => {
+    signInAs(['config:read', 'config:apply']);
+    useOrgSettings.setState({ observability: emptySlot() });
+  });
+
+  it('changes how often alert rules are checked', async () => {
+    const patches = settingsKey('observability', {});
+    render(<AlertTimingCard />);
+    const c = await waitFor(() => card('Alert checks'));
+    expect(within(c).getByRole('combobox', { name: 'Keep past alerts for' })).toHaveTextContent('90 days');
+    await pickOption(within(c).getByRole('combobox', { name: 'Check alert rules every' }), '30 seconds');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ alerts: { evaluation_interval: '30s' } }]));
+  });
+
+  it('turns feedback on and refuses a bad environment tag', async () => {
+    const patches = settingsKey('observability', { geoip: { database: '/var/lib/geo.mmdb' } });
+    render(<RequestDetailsCard />);
+    const c = await waitFor(() => card('Request details'));
+    await userEvent.click(within(c).getByRole('switch', { name: 'Let apps attach feedback to a request' }));
+    await userEvent.click(within(c).getByText('Advanced'));
+    expect(within(c).getByText('/var/lib/geo.mmdb')).toBeInTheDocument();
+    const tag = within(c).getByLabelText('Environment from the key tag');
+    await userEvent.clear(tag);
+    await userEvent.type(tag, 'Env Tag');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    expect(await within(c).findByText(/Lowercase letters/)).toBeInTheDocument();
+    await userEvent.clear(tag);
+    await userEvent.type(tag, 'stage');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ feedback: { enabled: true }, environment_tag: 'stage' }]));
+  });
+});
+
+describe('Email server', () => {
+  it('removes the stored password and sets the timeout', async () => {
+    signInAs(['security:read', 'security:write']);
+    useLinks.setState({ smtp: emptySlot() });
+    const patches = settingsKey('smtp', {
+      enabled: true,
+      host: 'smtp.example.com',
+      from: 'gw@example.com',
+      password: '[REDACTED]',
+    });
+    render(<SmtpCard />);
+    const c = await waitFor(() => card('Email server'));
+    await userEvent.click(await within(c).findByRole('button', { name: 'Remove password' }));
+    expect(within(c).getByText('The stored password is removed when you save.')).toBeInTheDocument();
+    await pickOption(within(c).getByRole('combobox', { name: 'Give up on the server after' }), '30 seconds');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ password: null, timeout: '30s' }]));
   });
 });

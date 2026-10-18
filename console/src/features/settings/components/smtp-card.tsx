@@ -12,8 +12,10 @@ import { describeError } from '@/lib/api/client';
 import type { FieldErrors } from '@/lib/validation';
 import { useSession } from '@/stores/session';
 import { notify } from '@/stores/ui';
+import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { settingsApi } from '../api';
+import { durationOptions } from '../choices';
 import { detailErrors, str, mergePatch, same } from '../form-errors';
 import { useLinks } from '../store';
 import { REDACTED } from './connection-drawers';
@@ -29,7 +31,12 @@ interface SmtpForm {
   from: string;
   replyTo: string;
   rate: string;
+  timeout: string;
+  /** Remove the stored password on save. */
+  removePassword: boolean;
 }
+
+const SD = SETTINGS_DEFAULTS.smtp;
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+$|^.+<[^@\s]+@[^@\s]+>$/;
 
@@ -42,13 +49,15 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
   const initial: SmtpForm = {
     enabled: spec.enabled === true,
     host: str(spec.host, ''),
-    port: str(spec.port, '587'),
-    tls: (spec.tls as SmtpForm['tls'] | undefined) ?? 'starttls',
+    port: str(spec.port, String(SD.port)),
+    tls: (spec.tls as SmtpForm['tls'] | undefined) ?? SD.tls,
     username: str(spec.username, ''),
     password: '',
     from: str(spec.from, ''),
     replyTo: str(spec.reply_to, ''),
-    rate: str(spec.max_messages_per_minute, '60'),
+    rate: str(spec.max_messages_per_minute, String(SD.max_messages_per_minute)),
+    timeout: str(spec.timeout, SD.timeout),
+    removePassword: false,
   };
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -80,13 +89,16 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
       ...spec,
       enabled: values.enabled,
       host: values.host.trim() || undefined,
-      port: Number(values.port),
-      tls: values.tls,
+      // Unchanged fields keep what is stored, so a default stays a default.
+      port: values.port === initial.port ? spec.port : Number(values.port),
+      tls: values.tls === initial.tls ? spec.tls : values.tls,
       username: values.username.trim() || undefined,
-      ...(values.password ? { password: values.password } : {}),
+      ...(values.password ? { password: values.password } : values.removePassword ? { password: null } : {}),
       from: values.from.trim() || undefined,
       reply_to: values.replyTo.trim() || undefined,
-      max_messages_per_minute: Number(values.rate),
+      max_messages_per_minute:
+        values.rate === initial.rate ? spec.max_messages_per_minute : Number(values.rate),
+      timeout: values.timeout === initial.timeout ? spec.timeout : values.timeout,
     };
     try {
       await save(mergePatch(spec, JSON.parse(JSON.stringify(next)) as Record<string, unknown>, ['password']));
@@ -103,6 +115,7 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
           'smtp.from': 'from',
           'smtp.reply_to': 'replyTo',
           'smtp.max_messages_per_minute': 'rate',
+          'smtp.timeout': 'timeout',
         }),
       );
     } finally {
@@ -178,11 +191,27 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
             optional
             error={errors.password}
             hint={
-              hasPassword
-                ? 'Leave blank to keep it.'
-                : 'Stored encrypted. A reference such as ${env:NAME} also works.'
+              values.removePassword
+                ? 'The stored password is removed when you save.'
+                : hasPassword
+                  ? 'Leave blank to keep it.'
+                  : 'Stored encrypted. A reference such as ${env:NAME} also works.'
             }
             className="md:col-span-2"
+            aside={
+              hasPassword && !disabled ? (
+                <button
+                  type="button"
+                  className="text-caption text-accent hover:underline"
+                  onClick={() => {
+                    set('removePassword', !values.removePassword);
+                    set('password', '');
+                  }}
+                >
+                  {values.removePassword ? 'Keep password' : 'Remove password'}
+                </button>
+              ) : undefined
+            }
           >
             <Input
               mono
@@ -190,8 +219,11 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
               autoComplete="new-password"
               value={values.password}
               disabled={disabled}
-              placeholder={hasPassword ? '••••••••' : ''}
-              onChange={(e) => set('password', e.target.value)}
+              placeholder={hasPassword && !values.removePassword ? '••••••••' : ''}
+              onChange={(e) => {
+                set('password', e.target.value);
+                if (values.removePassword) set('removePassword', false);
+              }}
             />
           </Field>
           <Field label="From" required={values.enabled} error={errors.from} hint="The sender people see.">
@@ -219,6 +251,14 @@ function SmtpForm({ spec }: { spec: Record<string, unknown> }) {
               max={10000}
               disabled={disabled}
               onChange={(v) => set('rate', v)}
+            />
+          </Field>
+          <Field label="Give up on the server after" error={errors.timeout} hint="For each message.">
+            <Select
+              value={values.timeout}
+              disabled={disabled}
+              onChange={(v) => set('timeout', v)}
+              options={durationOptions(['5s', '10s', '30s', '1m', '2m'], values.timeout)}
             />
           </Field>
         </div>
