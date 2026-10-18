@@ -1,0 +1,5 @@
+node_modules/
+# Added by the publish workflow.
+checksums.txt
+LICENSE
+*.tgz
