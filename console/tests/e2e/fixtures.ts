@@ -132,7 +132,11 @@ export async function pickOption(
   search?: string,
 ): Promise<void> {
   await trigger.click();
-  const list = page.getByRole('listbox');
+  // The list the trigger opened, since a page can show other listboxes (the Models list). Once
+  // open, a loose trigger locator also matches the list's search box, so read the first match.
+  const opener = trigger.first();
+  await expect(opener).toHaveAttribute('aria-controls', /.+/);
+  const list = page.locator(`[id="${(await opener.getAttribute('aria-controls')) ?? ''}"]`);
   await expect(list).toBeVisible();
   if (search) await page.keyboard.type(search);
   await list.getByRole('option', { name: option }).first().click();
