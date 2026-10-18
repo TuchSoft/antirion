@@ -1,5 +1,5 @@
 //! The request log keeps the response each client received wherever the gateway produced it: a
-//! cache hit, served as JSON or as a stream.
+//! cache hit, served as JSON or as a stream, with the usage the stored answer reported.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -339,6 +339,9 @@ async fn a_cache_hit_logs_the_response_it_served() {
         assert_eq!(hit["response_path"], "cache", "{hit}");
         // The drawer's Response and Messages tabs read this: the answer the hit served.
         assert_eq!(logged_text(&hit), Some("Hello there"), "{body}: {hit}");
+        // The hit reports the original usage, which the savings are priced from.
+        assert_eq!(hit["usage"]["input"], miss["usage"]["input"], "{body}: {hit}");
+        assert_eq!(hit["usage"]["output"], 2, "{body}: {hit}");
     }
 
     // A stream-written entry answers a JSON request for the same prompt, logged as JSON.

@@ -728,7 +728,8 @@ pub(crate) fn spawn(
         let sent = w.sent.take();
         drop(w);
         if let Some(tee) = tee.filter(|_| outcome == StreamEnd::Completed) {
-            tee.finish(&rt2, &log, facts.usage_raw.as_ref()).await;
+            let reported = facts.usage_raw.clone().or_else(|| counted_usage(&facts));
+            tee.finish(&rt2, &log, reported.as_ref()).await;
         }
         drop(setup.inflight.take());
         if let (Some(store), Some(object)) = (&setup.store, &completed) {
@@ -777,6 +778,18 @@ async fn settle_now(setup: &Setup, facts: &StreamFacts, log: &Draft, outcome: St
         outcome,
     };
     crate::account::settle(&setup.account, log, end).await;
+}
+
+/// The usage a stream reported in counts only (a native upstream's events, which keep no usage
+/// member a Chat client could read), as a Chat usage member, for a stored entry whose assembled
+/// body has none.
+fn counted_usage(facts: &StreamFacts) -> Option<Value> {
+    let (input, output) = (facts.usage.input?, facts.usage.output?);
+    Some(serde_json::json!({
+        "prompt_tokens": input,
+        "completion_tokens": output,
+        "total_tokens": input.saturating_add(output),
+    }))
 }
 
 /// Usage for accounting: what the upstream reported, completed by an estimate.
