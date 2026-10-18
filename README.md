@@ -6,9 +6,7 @@
 
 **The fastest open-source AI gateway.**
 
-Sub-millisecond overhead at 5,000 requests per second on 4 vCPUs: **0.53 ms at p50 and 0.95 ms
-at p99**, with 247 µs of CPU and 215 MiB of memory at peak. One Rust binary, with the admin console
-built in, between your apps and every model provider.
+One Rust binary, with the admin console built in, between your apps and every model provider.
 
 [![CI](https://github.com/eliasbiondo/antirion/actions/workflows/pr.yml/badge.svg)](https://github.com/eliasbiondo/antirion/actions/workflows/pr.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -24,9 +22,9 @@ built in, between your apps and every model provider.
 </div>
 
 > [!TIP]
-> **Faster than Bifrost and LiteLLM.** On the same dedicated c7i.xlarge at 5,000 RPS, Antirion's
-> p99 overhead is 0.95 ms against Bifrost's 95 ms, with a third of the CPU per request and a sixth
-> of the memory; LiteLLM fails every request at that rate. [The numbers](#performance).
+> **Faster than Bifrost and LiteLLM.** On the same dedicated machine, Antirion adds a fraction of
+> Bifrost's overhead with a fraction of its CPU and memory, and keeps serving at rates where LiteLLM
+> fails. [See the benchmark](#performance).
 
 <p align="center">
   <img src="docs/images/hero-overview-light.png" alt="The Antirion console: the Overview of the last 24 hours, with spend, requests, latency, error and cache hit rates, request volume and latency charts, team spend against budgets, top models and provider headroom" width="100%">
@@ -34,10 +32,10 @@ built in, between your apps and every model provider.
 
 ## Why Antirion
 
-- **The fastest gateway we have measured.** Under a millisecond of overhead at p99 at 5,000
-  requests per second on 4 vCPUs, 21,512 requests per second over 64 connections, and 14,000 RPS
-  before it saturates the same machine. Rust, no garbage collector, no interpreter, one data thread
-  per CPU.
+- **The fastest gateway we have measured.** Sub-millisecond overhead at thousands of requests per
+  second on 4 vCPUs, and several times the throughput of the next fastest gateway on the same
+  machine ([Performance](#performance)). Rust, no garbage collector, no interpreter, one data
+  thread per CPU.
 - **One binary, console included.** The gateway, the Admin API and the web console ship as a
   single Rust binary (or a distroless image). No sidecars, no separate UI deployment, no runtime
   to install.
