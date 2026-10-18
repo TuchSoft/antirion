@@ -4,23 +4,29 @@
 
 # Antirion
 
-**The open-source AI gateway: one Rust binary between your apps and every model provider.**
+**The fastest open-source AI gateway.**
 
-Route, meter, protect and observe every model call your company makes, from a single binary
-with the admin console built in.
+Sub-millisecond overhead at 5,000 requests per second on 4 vCPUs: **0.53 ms at p50 and 0.96 ms
+at p99**, with 247 µs of CPU and 215 MiB of memory at peak. One Rust binary, with the admin console
+built in, between your apps and every model provider.
 
 [![CI](https://github.com/eliasbiondo/antirion/actions/workflows/pr.yml/badge.svg)](https://github.com/eliasbiondo/antirion/actions/workflows/pr.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust 1.98.1](https://img.shields.io/badge/rust-1.98.1-orange.svg?logo=rust)](rust-toolchain.toml)
 
+[Performance](#performance) ·
 [Getting started](#getting-started) ·
+[Deploy](#deploy) ·
 [Features](#features) ·
 [Architecture](#architecture) ·
-[Performance](#performance) ·
-[Deploy](#deploy) ·
 [Docs](#documentation)
 
 </div>
+
+> [!TIP]
+> **Faster than Bifrost and LiteLLM.** On the same dedicated c7i.xlarge at 5,000 RPS, Antirion's
+> p99 overhead is 0.96 ms against Bifrost's 95 ms, with a third of the CPU per request and a sixth
+> of the memory; LiteLLM fails every request at that rate. [The numbers](#performance).
 
 <p align="center">
   <img src="docs/images/hero-overview-light.png" alt="The Antirion console: the Overview of the last 24 hours, with spend, requests, latency, error and cache hit rates, request volume and latency charts, team spend against budgets, top models and provider headroom" width="100%">
@@ -28,6 +34,10 @@ with the admin console built in.
 
 ## Why Antirion
 
+- **The fastest gateway we have measured.** Under a millisecond of overhead at p99 at 5,000
+  requests per second on 4 vCPUs, 21,512 requests per second over 64 connections, and 14,000 RPS
+  before it saturates the same machine. Rust, no garbage collector, no interpreter, one data thread
+  per CPU.
 - **One binary, console included.** The gateway, the Admin API and the web console ship as a
   single Rust binary (or a distroless image). No sidecars, no separate UI deployment, no runtime
   to install.
@@ -47,6 +57,184 @@ with the admin console built in.
 - **Ready for production.** Exact and semantic caching, MCP and agent gateways, SSO with OIDC,
   SAML and SCIM, an audit log with change requests, and a standalone node or a cluster on
   PostgreSQL and Valkey.
+
+## Performance
+
+Antirion, Bifrost 2.2.4 and LiteLLM 1.103.1 ran on the same dedicated AWS c7i machines, interleaved
+repetition by repetition, each with the same minimal setup: one key checked on every request, no
+request logging, no cache. Every figure is the median of the repetitions.
+
+**Simple chat at 5,000 requests per second, gateway on one c7i.xlarge (4 vCPUs)**
+
+| Gateway             | Overhead p50 | Overhead p99 | Errors | CPU per request | Peak memory | Idle memory |
+| ------------------- | -----------: | -----------: | -----: | --------------: | ----------: | ----------: |
+| **Antirion**        |  **0.53 ms** |  **0.96 ms** | **0%** |      **247 µs** | **215 MiB** |  **41 MiB** |
+| Bifrost 2.2.4       |      19.7 ms |        95 ms |     0% |          717 µs |   1,389 MiB |     498 MiB |
+| LiteLLM 1.103.1     |            — |            — |   100% |               — |   1,851 MiB |   1,653 MiB |
+
+<p align="center">
+  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.96 ms, Bifrost 19.7 and 95 ms" width="32%">
+  <img src="docs/images/bench-resources.svg" alt="CPU per request and memory at 5,000 RPS for Antirion, Bifrost and LiteLLM" width="32%">
+  <img src="docs/images/bench-throughput.svg" alt="Throughput over 64 connections: Antirion 21,512 requests per second, Bifrost 6,568, LiteLLM 424" width="32%">
+</p>
+
+**More scenarios, same machine**
+
+| Scenario                                           | Antirion                       | Bifrost 2.2.4                  | LiteLLM 1.103.1 |
+| -------------------------------------------------- | ------------------------------ | ------------------------------ | --------------- |
+| Throughput over 64 concurrent connections          | **21,512 req/s**               | 6,568 req/s                    | 424 req/s       |
+| Highest rate sustained on 4 vCPUs (saturation)     | **14,000 RPS**                 | 3,500 RPS                      | —               |
+| Simple chat at 10,000 RPS, overhead p50 / p99      | **0.61 ms / 1.5 ms**           | p50 12 s                       | fails           |
+| Unknown model rejected at 20,000 RPS, latency p50  | **0.57 ms**                    | 17.6 s                         | —               |
+
+**How it is measured.** The load generator and the upstream each run on their own c7i.4xlarge in
+the same cluster placement group, so only the gateway is under test. Load is open loop: every
+request leaves at its scheduled time and latency counts from that time, so queueing in front of a
+slow gateway shows. The upstream answers at once, so the overhead is the gateway's own time.
+[docs/benchmarks.md](docs/benchmarks.md) has the method, the configurations of all three gateways
+and the validity rules. **Reproduce it:** the harness is in `bench/`, and
+[docs/benchmarks.md](docs/benchmarks.md#reproducing-the-results) has the steps to run the same
+benchmark on your own AWS account.
+
+## Getting started
+
+You need Docker with Compose v2.24 or later, and an API key from OpenAI or Anthropic.
+
+**1. Start the gateway.**
+
+```bash
+git clone https://github.com/eliasbiondo/antirion.git && cd antirion
+cp .env.example .env
+# put a bootstrap token and an encryption key in .env:
+sed -i.bak "s|^ANTIRION_BOOTSTRAP_TOKEN=.*|ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)|; s|^ANTIRION_ENCRYPTION_KEY=.*|ANTIRION_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env && rm .env.bak
+docker compose up -d    # the first run builds the image: 10 to 20 minutes
+```
+
+The data plane (the `/v1` API your apps call) is on port 8080, the admin plane (the Admin API and
+the console) on 8081, both on 127.0.0.1. `docker compose ps` shows the gateway as `healthy` once it
+is ready.
+
+**2. Sign in.** Open <http://localhost:8081/ui/> and paste `ANTIRION_BOOTSTRAP_TOKEN` from `.env`
+into **Admin token**. From there you can invite your team, so everyone signs in with their own
+account.
+
+**3. Add a provider.** **Providers → Add provider**, choose **OpenAI** or **Anthropic** and paste its
+API key. **Test** the connection: the gateway asks the provider for its models, and the provider is
+saved only once the test passes, so a wrong key shows here. Then **Add provider**.
+
+**4. Add a Model.** **Models → Add model**, pick the provider, then a model from the list the
+provider returned, such as `gpt-4.1-mini` or `claude-haiku-4-5`. The list shows each model's list
+price, which applies when you leave the price fields blank. Name it `chat`, the name your apps will
+send, and **Add model**.
+
+**5. Create a key and send a request.** **API keys → Create key**, name it `my-app` (the project
+`default` is already chosen), then **Copy**: the key is shown once.
+
+```bash
+export ANTIRION_API_KEY=sk-antirion-…   # the key you copied
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $ANTIRION_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model": "chat", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+Any OpenAI SDK works the same way: point its base URL at `http://localhost:8080/v1`. Anthropic
+SDKs point at `http://localhost:8080`.
+
+**6. See it in the Request log.** **Request log** lists the request with its status, Model, key,
+tokens, latency and cost; select it for the details, from the route taken to the cost ledger. The
+**Playground** sends requests from the console.
+
+Invitations, password resets and email alerts go to Mailpit at <http://localhost:8025>, so nothing
+leaves your machine until you configure a real SMTP server.
+
+No API key yet? [docs/getting-started.md](docs/getting-started.md) shows a way to try Antirion
+without one, and covers other ports and host names, real email, the cluster, Kubernetes and
+running from source.
+
+## Deploy
+
+Antirion runs as a single standalone node with an embedded store, or as a cluster of nodes that
+share PostgreSQL and Valkey. Pick the way you run things.
+
+### Docker
+
+The image is distroless, runs as UID 65532 and keeps its data in `/var/lib/antirion`. Release
+images are published to `ghcr.io/eliasbiondo/antirion` for every `vX.Y.Z` tag; to build your own,
+run `docker build -f docker/Dockerfile -t antirion .` in the repository.
+
+```bash
+cat > antirion.yaml <<'YAML'
+version: 1
+server: { listen: "0.0.0.0:8080" }
+admin: { listen: "0.0.0.0:8081" }
+store: { backend: embedded, embedded: { path: /var/lib/antirion/data } }
+auth: { admin: { bootstrap_token: "${env:ANTIRION_BOOTSTRAP_TOKEN}" } }
+security: { secrets: { encryption_keys: ["${env:ANTIRION_ENCRYPTION_KEY}"] } }
+YAML
+export ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24) ANTIRION_ENCRYPTION_KEY=$(openssl rand -base64 32)
+docker run -d --name antirion --read-only -p 8080:8080 -p 8081:8081 \
+  -e ANTIRION_BOOTSTRAP_TOKEN -e ANTIRION_ENCRYPTION_KEY \
+  -v "$PWD/antirion.yaml:/etc/antirion/antirion.yaml:ro" -v antirion-data:/var/lib/antirion \
+  ghcr.io/eliasbiondo/antirion:v0.1.0
+```
+
+Keep both values: the token signs you in at <http://localhost:8081/ui/>, and the key seals the
+provider keys you store. Without the file, the image starts with its own default configuration and
+generates both into the volume.
+
+### Docker Compose
+
+```bash
+cp .env.example .env    # then set ANTIRION_BOOTSTRAP_TOKEN and ANTIRION_ENCRYPTION_KEY
+docker compose up -d                          # one node, embedded store, Mailpit for email
+docker compose -f compose.cluster.yaml up -d  # two nodes on PostgreSQL and Valkey behind a proxy
+```
+
+The cluster needs both values in `.env`, with a bootstrap token of at least 32 characters, and
+publishes the same ports, so stop the standalone node first (`docker compose down`).
+
+### Kubernetes
+
+The Helm chart is `deploy/helm/antirion`. It generates the bootstrap token and the encryption key
+into the Secret `<release>-keys` once and keeps them across upgrades (`secrets.existingSecret`
+names your own).
+
+```bash
+# Standalone: one replica, the embedded store on a persistent volume.
+helm install antirion deploy/helm/antirion \
+  --set image.repository=ghcr.io/eliasbiondo/antirion --set image.tag=v0.1.0 \
+  --set persistence.size=8Gi \
+  --set console.publicOrigin=https://antirion.example.com
+
+# Cluster: several replicas on your PostgreSQL and Valkey.
+kubectl create secret generic antirion-postgres --from-literal=url='postgres://user:password@host:5432/antirion'
+kubectl create secret generic antirion-valkey --from-literal=url='redis://host:6379/0'
+helm install antirion deploy/helm/antirion \
+  --set image.repository=ghcr.io/eliasbiondo/antirion --set image.tag=v0.1.0 \
+  --set mode=cluster --set replicaCount=3 \
+  --set postgresql.bundled.enabled=false --set postgresql.external.existingSecret=antirion-postgres \
+  --set valkey.bundled.enabled=false --set valkey.external.existingSecret=antirion-valkey \
+  --set console.publicOrigin=https://antirion.example.com
+
+kubectl get secret antirion-keys -o jsonpath='{.data.bootstrap-token}' | base64 -d; echo   # the token
+```
+
+`--set mode=cluster` on its own bundles PostgreSQL and Valkey, for trying it out.
+`autoscaling.enabled`, `serviceMonitor.enabled` and the rest are documented in
+`deploy/helm/antirion/values.yaml`.
+
+### From source
+
+```bash
+(cd console && pnpm install --frozen-lockfile && pnpm build)   # the console: Node 22+ and pnpm
+cargo build --release -p antirion                              # the toolchain is pinned in rust-toolchain.toml
+export ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
+./target/release/antirion serve --config ci/standalone.yaml    # data on :18080, admin and console on :18081
+```
+
+`ci/standalone.yaml` keeps its embedded store in `./dev-data`. The binary also validates a
+configuration offline (`antirion validate -f <file>`), prints its schema (`antirion schema`) and
+checks a node's health (`antirion healthcheck`).
 
 ## Features
 
@@ -198,85 +386,6 @@ with the admin console built in.
 - The Admin API is described by an OpenAPI document (`openapi/admin-api.yaml`); everything the
   console does goes through it.
 
-## Getting started
-
-### Prerequisites
-
-- **Docker** with Compose v2.24 or later, to run the published Compose setup; or
-- **Rust** (the toolchain in [`rust-toolchain.toml`](rust-toolchain.toml)), **Node 22+** and
-  **pnpm**, to build from source (see [From source](#from-source)).
-
-### 1. Start the gateway
-
-```bash
-git clone https://github.com/eliasbiondo/antirion.git
-cd antirion
-cp .env.example .env
-# Put a bootstrap token and an encryption key in .env:
-sed -i.bak "s|^ANTIRION_BOOTSTRAP_TOKEN=.*|ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)|; s|^ANTIRION_ENCRYPTION_KEY=.*|ANTIRION_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env && rm .env.bak
-docker compose --profile mock up -d    # the first run builds the images: 10 to 20 minutes
-```
-
-This starts one gateway with its data in a Docker volume, Mailpit to catch the email it sends, and
-a mock upstream that answers like OpenAI and Anthropic (the `mock` profile). The ports are published
-on 127.0.0.1 only:
-
-| Port | What                                                       |
-| ---- | ---------------------------------------------------------- |
-| 8080 | the data plane: the `/v1` API your apps call               |
-| 8081 | the admin plane: the Admin API and the console at `/ui/`   |
-| 8025 | Mailpit: every email the gateway sends, in a web interface |
-
-`docker compose ps` shows the gateway as `healthy` once it is ready.
-
-### 2. Sign in
-
-Open <http://localhost:8081/ui/> and paste `ANTIRION_BOOTSTRAP_TOKEN` from `.env` into **Admin
-token**. From there you can invite your team, so everyone signs in with their own account.
-
-### 3. Add a provider
-
-**Providers → Add provider.** To try it without a real key, choose **OpenAI-compatible**, name it
-`mock`, sign in with **No authentication** and use the base URL `http://mock-upstream:19401/v1`.
-For a real provider, choose it and paste its API key.
-
-**Test** the connection: the gateway asks the provider for its models, and the provider can only be
-saved once the test passes, so a wrong URL or key shows here. Then **Add provider**.
-
-### 4. Add a Model
-
-**Models → Add model.** Pick the provider, then the model from the list the provider returned. A
-real provider's list shows each model's list price, which applies when you leave the price fields
-blank. Give it the name your apps will send, such as `chat`, and **Add model**. The mock's models
-have no list price, so set prices such as `0.15` and `0.60` to see its requests cost something.
-
-### 5. Create a key and send a request
-
-**API keys → Create key**, name it `my-app` (the project `default` is already chosen), then
-**Copy**: the key is shown once.
-
-```bash
-export ANTIRION_API_KEY=sk-antirion-…   # the key you copied
-curl -s http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer $ANTIRION_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"model": "chat", "messages": [{"role": "user", "content": "Hello"}]}'
-```
-
-Any OpenAI SDK works the same way: point its base URL at `http://localhost:8080/v1`. Add
-`"stream": true` for a streamed answer.
-
-### 6. See it in the Request log
-
-**Request log** lists the request with its status, Model, key, tokens, latency and cost. Select it
-for the details, from the route taken to the cost ledger. The **Playground** sends requests from
-the console.
-
-Invitations, password resets and email alerts go to Mailpit at <http://localhost:8025>, so nothing
-leaves your machine until you configure a real SMTP server.
-
-[docs/getting-started.md](docs/getting-started.md) goes further: other ports and host names, test
-mode, real email, the Compose cluster, Kubernetes with Helm and running from source.
-
 ## Architecture
 
 ```mermaid
@@ -332,104 +441,6 @@ flowchart TB
 
 The code is a Rust workspace of layered crates, from parsing and the wire formats up to the
 pipeline, the Admin API and the binary; [docs/development.md](docs/development.md) has the map.
-
-## Performance
-
-A reference benchmark compares Antirion with Bifrost and LiteLLM on identical, dedicated hardware.
-
-- **Hardware.** Dedicated AWS c7i instances in one cluster placement group: the gateway on a
-  c7i.xlarge, the load generator and the upstream each on their own larger c7i, so the network
-  between them is short and steady and only the gateway is under test.
-- **Upstream.** A mock upstream with a fixed, scripted latency, so the time it takes is known and
-  everything above it is the gateway's.
-- **Load.** An open-loop generator sends each request at its scheduled time, whatever the gateway's
-  speed, and measures latency from that time, so a slow gateway cannot hide its queueing.
-- **What is measured.** Gateway overhead (latency above the upstream's scripted delay) at the
-  median and the tail, errors, CPU time per request, and memory under load and at idle.
-
-<!-- BENCH: results pending. This whole block stays hidden until the reference run is in.
-To publish: replace every [BENCH: …] placeholder below with its value, add the two SVG charts at
-docs/images/bench-overhead.svg and docs/images/bench-resources.svg, then delete this opening comment
-line and the closing "BENCH: end of results" line. (HTML comments cannot nest, so the placeholders
-inside this block are bracketed tokens; search for "BENCH:" to find them all.)
-
-[BENCH: headline sentence, e.g. "At 5,000 requests per second, Antirion adds X ms at p99 and uses Y× less CPU per request."]
-
-**Simple chat at 5,000 requests per second on a dedicated c7i.xlarge**
-
-| Gateway         | Overhead p50                | Overhead p99                | Errors                       | CPU per request             | Memory (RSS peak)           | Idle memory                  |
-| --------------- | --------------------------- | --------------------------- | ---------------------------- | --------------------------- | --------------------------- | ---------------------------- |
-| **Antirion**    | [BENCH: antirion p50]       | [BENCH: antirion p99]       | [BENCH: antirion errors]     | [BENCH: antirion cpu/req]   | [BENCH: antirion rss peak]  | [BENCH: antirion idle rss]   |
-| Bifrost 2.2.4   | [BENCH: bifrost p50]        | [BENCH: bifrost p99]        | [BENCH: bifrost errors]      | [BENCH: bifrost cpu/req]    | [BENCH: bifrost rss peak]   | [BENCH: bifrost idle rss]    |
-| LiteLLM 1.103.1 | [BENCH: litellm p50]        | [BENCH: litellm p99]        | [BENCH: litellm errors]      | [BENCH: litellm cpu/req]    | [BENCH: litellm rss peak]   | [BENCH: litellm idle rss]    |
-
-<p align="center">
-  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 for Antirion, Bifrost and LiteLLM" width="49%">
-  <img src="docs/images/bench-resources.svg" alt="CPU per request and memory for Antirion, Bifrost and LiteLLM" width="49%">
-</p>
-
-**More scenarios**
-
-| Scenario                                  | Antirion                     | Bifrost 2.2.4                | LiteLLM 1.103.1              |
-| ----------------------------------------- | ---------------------------- | ---------------------------- | ---------------------------- |
-| Simple chat at 1,000 RPS, p99 overhead    | [BENCH: 1k rps antirion]     | [BENCH: 1k rps bifrost]      | [BENCH: 1k rps litellm]      |
-| Larger request body, p99 overhead         | [BENCH: large body antirion] | [BENCH: large body bifrost]  | [BENCH: large body litellm]  |
-| Streaming, time to first token p99        | [BENCH: ttft antirion]       | [BENCH: ttft bifrost]        | [BENCH: ttft litellm]        |
-| Throughput over 64 connections            | [BENCH: 64 conn antirion]    | [BENCH: 64 conn bifrost]     | [BENCH: 64 conn litellm]     |
-| Rejections at 20,000 RPS                  | [BENCH: 20k rps antirion]    | [BENCH: 20k rps bifrost]     | [BENCH: 20k rps litellm]     |
-
-BENCH: end of results -->
-
-> [!NOTE]
-> Results from the reference run on c7i instances will be published here.
-
-The harness, its mock upstream and load generator live in `bench/`. **Reproduce it:**
-[docs/benchmarks.md](docs/benchmarks.md) has the topology, the scenarios and the steps to run the
-same benchmark on your own instances.
-
-## Deploy
-
-| Where                  | How                                                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Docker Compose**     | `compose.yaml`: one standalone gateway with the embedded store, Mailpit and the optional mock upstream.                    |
-| **A Compose cluster**  | `compose.cluster.yaml`: two gateways on PostgreSQL and Valkey behind a proxy, on the same ports.                            |
-| **Kubernetes**         | The Helm chart in `deploy/helm/antirion`: standalone with a persistent volume, or a cluster with your PostgreSQL and Valkey. |
-| **From source**        | `cargo build --release -p antirion`, with the console embedded from `console/out`.                                          |
-
-### Docker Compose
-
-```bash
-docker compose --profile mock up -d                          # standalone
-docker compose -f compose.cluster.yaml --profile mock up -d  # a cluster: stop the standalone one first
-```
-
-The cluster needs both keys in `.env`, with a bootstrap token of at least 32 characters.
-
-### Helm
-
-```bash
-helm install antirion deploy/helm/antirion \
-  --set image.repository=<your registry>/antirion --set image.tag=<tag> \
-  --set console.publicOrigin=https://antirion.example.com
-```
-
-`mode: standalone` (the default) runs one replica with the embedded store on a persistent volume;
-`mode: cluster` runs several replicas on PostgreSQL and Valkey, bundled for trying it out or your
-own for production. The chart generates the bootstrap token and the encryption key once and keeps
-them across upgrades. `values.yaml` documents every value.
-
-### From source
-
-```bash
-(cd console && pnpm install --frozen-lockfile && pnpm build)   # optional: without it the console is a placeholder page
-cargo build --release -p antirion
-./target/release/antirion serve --config <file>
-```
-
-The binary also validates a configuration offline (`antirion validate -f <file>`), prints its
-schema (`antirion schema`) and checks a node's health (`antirion healthcheck`).
-`docker/Dockerfile` builds the image: the console and the binary in a distroless image that runs as
-UID 65532 with a read-only root filesystem.
 
 ## Documentation
 
