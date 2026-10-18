@@ -1,7 +1,7 @@
 # The gateway image.
 image:
-  repository: antirion
-  tag: ""                      # default: the chart's appVersion
+  repository: ghcr.io/eliasbiondo/antirion
+  tag: ""                      # default: v<the chart's appVersion>, as the release workflow tags images
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
