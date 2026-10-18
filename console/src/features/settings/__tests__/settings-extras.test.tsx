@@ -7,6 +7,13 @@ import { emptySlot } from '@/lib/slot';
 import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
+import {
+  CatalogSection,
+  catalogSpec,
+  catalogValues,
+  checkEntry,
+  entryForm,
+} from '../components/catalog-section';
 import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
 import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
 import { AlertTimingCard, RequestDetailsCard } from '../components/observability-extras';
@@ -251,5 +258,101 @@ describe('Markups and tool prices', () => {
     ]);
     expect(checkCallPrice({ kind: 'tools', name: 'search', perCall: '0.1' }, [])).toHaveProperty('name');
     expect(checkCallPrice({ kind: 'agents', name: 'researcher', perCall: '0.1' }, [])).toEqual({});
+  });
+});
+
+describe('Model catalog', () => {
+  const status = (extra: Record<string, unknown> = {}) =>
+    http.get('*/admin/v1/catalog', () =>
+      HttpResponse.json({
+        bundled: { version: '2026-10-01', price_version: '2026-09-01', entries: 15 },
+        runtime: null,
+        items: [],
+        ...extra,
+      }),
+    );
+
+  beforeEach(() => {
+    signInAs(['models:read', 'models:write']);
+    useTraffic.setState({ catalog: emptySlot() });
+  });
+
+  it('turns models.dev fetching on with its defaults and shows the layers in use', async () => {
+    const patches = settingsKey('catalog', {});
+    server.use(status());
+    render(<CatalogSection />);
+    const c = await waitFor(() => card('Model catalog'));
+    expect(await within(c).findByText(/15 entries · capabilities 2026-10-01/)).toBeInTheDocument();
+    expect(
+      within(c).getByText(/bundled with the gateway; this gateway does not report its date/),
+    ).toBeInTheDocument();
+    expect(within(c).getByRole('textbox', { name: 'From' })).toHaveValue('https://models.dev/api.json');
+    await userEvent.click(within(c).getByRole('switch', { name: "Fetch models.dev's data regularly" }));
+    await pickOption(within(c).getByRole('combobox', { name: 'Every' }), '6 hours');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ remote: { enabled: true, refresh: '6h' } }]));
+  });
+
+  it('shows the models.dev snapshot date and the last refresh when the gateway reports them', async () => {
+    settingsKey('catalog', { remote: { enabled: true } });
+    server.use(
+      status({
+        models_dev: {
+          date: '2026-10-17',
+          source: 'remote',
+          refreshed_at: '2026-10-17T20:00:00Z',
+          last_error: null,
+        },
+      }),
+    );
+    render(<CatalogSection />);
+    const c = await waitFor(() => card('Model catalog'));
+    expect(await within(c).findByText(/Fetched data of Oct 17, 2026/)).toBeInTheDocument();
+    expect(within(c).getByText(/Last fetched/)).toBeInTheDocument();
+  });
+
+  it('adds an entry, keeps rates the drawer does not show, and removes one', async () => {
+    const patches = settingsKey('catalog', {
+      models: { 'openai/gpt-4.1': { price: { input: '2.00', output: '8.00', reasoning: '8.00' } } },
+    });
+    server.use(status());
+    render(<CatalogSection />);
+    const entries = await waitFor(() => card('Your entries'));
+    expect(within(entries).getByText('$2.00 in · $8.00 out')).toBeInTheDocument();
+
+    await userEvent.click(within(entries).getByRole('button', { name: 'Actions for openai/gpt-4.1' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    const edit = await screen.findByRole('dialog', { name: 'openai/gpt-4.1' });
+    const output = within(edit).getByLabelText(/^Output/);
+    await userEvent.clear(output);
+    await userEvent.type(output, '6.00');
+    await userEvent.click(within(edit).getByRole('button', { name: 'Save entry' }));
+    await waitFor(() =>
+      expect(patches[0]).toEqual({ models: { 'openai/gpt-4.1': { price: { output: '6.00' } } } }),
+    );
+
+    await userEvent.click(within(entries).getByRole('button', { name: 'Add entry' }));
+    const add = await screen.findByRole('dialog', { name: 'Add catalog entry' });
+    await userEvent.type(within(add).getByLabelText('Pattern'), 'acme/*');
+    await userEvent.type(within(add).getByLabelText(/^Input/), '1');
+    await userEvent.type(within(add).getByLabelText(/^Output/), '3');
+    await userEvent.click(within(add).getByRole('button', { name: 'Add entry' }));
+    await waitFor(() =>
+      expect(patches[1]).toEqual({ models: { 'acme/*': { price: { input: '1', output: '3' } } } }),
+    );
+  });
+
+  it('checks a new entry', () => {
+    const f = entryForm(null, undefined);
+    expect(
+      Object.keys(
+        checkEntry({ ...f, pattern: 'bad pattern', ttft: 'soon', capabilities: '[' }, [], true),
+      ).sort(),
+    ).toEqual(['capabilities', 'pattern', 'ttft']);
+    expect(catalogSpec(catalogValues(undefined))).toEqual({
+      mode: 'extend',
+      version: null,
+      remote: { enabled: false, url: 'https://models.dev/api.json', refresh: '24h' },
+    });
   });
 });

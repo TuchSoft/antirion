@@ -2,6 +2,7 @@
 
 import { BudgetsPricingSection } from './budgets-pricing-section';
 import { CacheSection } from './cache-section';
+import { CatalogSection } from './catalog-section';
 import { GuardrailsSection } from './guardrails-section';
 import { RoutingResilienceSection } from './routing-resilience-section';
 import type { Section } from './sections';
@@ -21,6 +22,15 @@ export const TRAFFIC_SECTIONS: Section[] = [
       'How unpriced requests are counted, markups and tool prices, and how budgets behave for every organization.',
     aliases: ['pricing', 'budgets'],
     render: () => <BudgetsPricingSection />,
+  },
+  {
+    id: 'catalog',
+    permission: 'models:read',
+    label: 'Model catalog',
+    icon: 'book',
+    description:
+      'Prices and capabilities the gateway knows for each Model, your own entries, and models.dev data.',
+    render: () => <CatalogSection />,
   },
   {
     id: 'cache',

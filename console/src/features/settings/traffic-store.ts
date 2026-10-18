@@ -16,6 +16,7 @@ export interface TrafficDocs {
   routing: S['RoutingSettings'];
   server: S['ServerSettings'];
   policies: S['PoliciesSettings'];
+  catalog: S['CatalogSettings'];
 }
 
 export type TrafficKey = keyof TrafficDocs;
@@ -31,6 +32,7 @@ const READ: { [K in TrafficKey]: () => Promise<TrafficDocs[K]> } = {
   routing: () => api.get('/settings/routing'),
   server: () => api.get('/settings/server'),
   policies: () => api.get('/settings/policies'),
+  catalog: () => api.get('/settings/catalog'),
 };
 
 type Patch = (spec: Spec, ifMatch: string | undefined, reason: string | undefined) => Promise<unknown>;
@@ -46,6 +48,7 @@ const PATCH: Record<TrafficKey, Patch> = {
   routing: (spec, ifMatch, reason) => api.patch('/settings/routing', { body: { spec }, ifMatch, reason }),
   server: (spec, ifMatch, reason) => api.patch('/settings/server', { body: { spec }, ifMatch, reason }),
   policies: (spec, ifMatch, reason) => api.patch('/settings/policies', { body: { spec }, ifMatch, reason }),
+  catalog: (spec, ifMatch, reason) => api.patch('/settings/catalog', { body: { spec }, ifMatch, reason }),
 };
 
 type TrafficState = { [K in TrafficKey]: Slot<TrafficDocs[K]> } & {
@@ -55,7 +58,7 @@ type TrafficState = { [K in TrafficKey]: Slot<TrafficDocs[K]> } & {
 };
 
 /**
- * Budgets, pricing, cache, guardrail, resilience, routing, admission and gateway policy settings,
+ * Budgets, pricing, the model catalog, cache, guardrail, resilience, routing, admission and gateway policy settings,
  * as the Traffic pages of Gateway settings read and write them.
  */
 export const useTraffic = create<TrafficState>()((set, get) => ({
@@ -67,6 +70,7 @@ export const useTraffic = create<TrafficState>()((set, get) => ({
   routing: emptySlot(),
   server: emptySlot(),
   policies: emptySlot(),
+  catalog: emptySlot(),
   async load(keys) {
     await Promise.all(keys.map((key) => loadSlot(set, get, key, READ[key])));
   },
