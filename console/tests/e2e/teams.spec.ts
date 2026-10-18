@@ -6,7 +6,7 @@ test('create, edit and delete a team', async ({ signedIn: page, request }) => {
   // On the Teams tab, Create team is the header's primary action.
   await page.getByRole('button', { name: 'Create team' }).first().click();
   const drawer = page.getByRole('dialog', { name: 'Create team' });
-  await drawer.getByLabel(/^Name/).fill(name);
+  await drawer.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
   await drawer.getByLabel('Display name').fill('E2E Team');
   await drawer.getByLabel('Monthly budget (USD)').fill('250');
   await drawer.getByRole('button', { name: 'Create team' }).click();

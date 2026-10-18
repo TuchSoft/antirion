@@ -62,7 +62,7 @@ test('a write under change control offers a change request with the same change'
     // On the Teams tab, Create team is the header's primary action.
     await page.getByRole('button', { name: 'Create team' }).first().click();
     const drawer = page.getByRole('dialog', { name: 'Create team' });
-    await drawer.getByLabel(/^Name/).fill(team);
+    await drawer.getByRole('textbox', { name: 'Name', exact: true }).fill(team);
     await drawer.getByRole('button', { name: 'Create team' }).click();
     const offer = page.getByRole('dialog', { name: 'This change needs a reviewer' });
     await expect(offer.getByLabel('Title')).toHaveValue(`Create team ${team}`);
