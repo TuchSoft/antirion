@@ -40,9 +40,20 @@ pub(crate) struct Assembler {
     created: Option<Value>,
     choices: BTreeMap<u64, Choice>,
     usage: Option<Value>,
+    /// The chunks were legacy Completions (`text_completion`, text in `choices[].text`).
+    completion: bool,
 }
 
 impl Assembler {
+    /// An assembler whose body names `model`, the name the client was sent, instead of the
+    /// upstream chunks' own.
+    pub(crate) fn naming(model: Option<&str>) -> Assembler {
+        Assembler {
+            model: model.map(Value::from),
+            ..Assembler::default()
+        }
+    }
+
     /// Takes one parsed chunk.
     pub(crate) fn push(&mut self, chunk: &Value) {
         for (field, slot) in [
@@ -67,6 +78,11 @@ impl Assembler {
             let choice = self.choices.entry(index).or_default();
             if let Some(f) = c.get("finish_reason").filter(|f| !f.is_null()) {
                 choice.finish = Some(f.clone());
+            }
+            if let Some(t) = c.get("text").and_then(Value::as_str) {
+                self.completion = true;
+                choice.content.push_str(t);
+                continue;
             }
             let Some(delta) = c.get("delta") else {
                 continue;
@@ -106,8 +122,23 @@ impl Assembler {
         }
     }
 
-    /// The assembled `chat.completion` body.
+    /// The assembled `chat.completion` body (`text_completion` for Completions chunks).
     pub(crate) fn finish(self) -> Value {
+        if self.completion {
+            let choices: Vec<Value> = self
+                .choices
+                .into_iter()
+                .map(|(index, c)| json!({"index": index, "text": c.content, "finish_reason": c.finish}))
+                .collect();
+            return json!({
+                "id": self.id,
+                "object": "text_completion",
+                "created": self.created,
+                "model": self.model,
+                "choices": choices,
+                "usage": self.usage,
+            });
+        }
         let choices: Vec<Value> = self
             .choices
             .into_iter()
@@ -172,6 +203,18 @@ mod tests {
         assert_eq!(call["function"]["arguments"], "{\"city\":\"Paris\"}");
         assert_eq!(body["choices"][0]["finish_reason"], "tool_calls");
         assert!(body["choices"][0]["message"]["content"].is_null());
+    }
+
+    #[test]
+    fn completions_chunks_keep_their_shape_and_the_client_model() {
+        let mut a = Assembler::naming(Some("public"));
+        a.push(&json!({"id": "c", "object": "text_completion", "model": "up", "choices": [{"index": 0, "text": "hel", "finish_reason": null}]}));
+        a.push(&json!({"id": "c", "object": "text_completion", "model": "up", "choices": [{"index": 0, "text": "lo", "finish_reason": "stop"}]}));
+        let body = a.finish();
+        assert_eq!(body["object"], "text_completion");
+        assert_eq!(body["model"], "public");
+        assert_eq!(body["choices"][0]["text"], "hello");
+        assert_eq!(body["choices"][0]["finish_reason"], "stop");
     }
 
     #[test]

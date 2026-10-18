@@ -1,5 +1,6 @@
 //! The request log keeps the response each client received wherever the gateway produced it: a
-//! cache hit, served as JSON or as a stream, with the usage the stored answer reported.
+//! cache hit (served as JSON or as a stream), a streamed legacy Completions answer, and the usage a
+//! hit of a translated stream reports.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -354,6 +355,41 @@ async fn a_cache_hit_logs_the_response_it_served() {
         "{hit}"
     );
     assert_eq!(logged_text(&hit), Some("Hello there"), "{hit}");
+
+    shutdown();
+    while tasks.join_next().await.is_some() {}
+    mock_task.abort_all();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_completions_are_logged_as_completions_under_the_public_model() {
+    let dir = ScratchDir::new("logged-completions");
+    let mock = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_addr = mock.local_addr().unwrap();
+    let mut mock_task = JoinSet::new();
+    mock_task.spawn(upstream(mock));
+    let (gw, shutdown, mut tasks) = gateway(&dir, mock_addr).await;
+
+    let (_, sent, record) = gw
+        .send(
+            "/v1/completions",
+            &json!({"model": "gpt", "stream": true, "prompt": "Say hello"}),
+        )
+        .await;
+    assert!(sent.contains("\"model\":\"gpt\""), "{sent}");
+    let body = &record["content"]["response"]["body"];
+    assert_eq!(body["object"], "text_completion", "{record}");
+    assert_eq!(body["choices"][0]["text"], "Hello there", "{record}");
+    assert_eq!(body["choices"][0]["finish_reason"], "stop", "{record}");
+    assert_eq!(body["model"], "gpt", "{record}");
+
+    // A streamed Chat answer is logged under the model name the client was sent, as a JSON one is.
+    let (_, sent, record) = gw
+        .send("/v1/chat/completions", &chat("gpt", "Say hello", true))
+        .await;
+    assert!(sent.contains("\"model\":\"gpt\""), "{sent}");
+    assert_eq!(record["content"]["response"]["body"]["model"], "gpt", "{record}");
+    assert_eq!(logged_text(&record), Some("Hello there"), "{record}");
 
     shutdown();
     while tasks.join_next().await.is_some() {}

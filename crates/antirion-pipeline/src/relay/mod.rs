@@ -256,7 +256,7 @@ pub(crate) async fn hold(
     // changes them (redactions, restored tokens): otherwise the sent frames are assembled.
     let mut assembler =
         (setup.assemble && setup.dialect == StreamDialect::Chat && shaper.translator.is_none() && !holding)
-            .then(Assembler::default);
+            .then(|| Assembler::naming(setup.rewrite_model.as_deref()));
     let headers_at = Instant::now();
     let hold_until = headers_at + setup.policy.max_hold;
     let far = headers_at + Duration::from_secs(86_400 * 365);
