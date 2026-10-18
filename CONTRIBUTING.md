@@ -27,13 +27,8 @@ plane) and keeps its embedded store in `./dev-data`; delete that directory for a
 mode adds the test clock, seed and reset endpoints under `/admin/v1/test/`. Never use it in
 production.
 
-The mock upstream answers like OpenAI and Anthropic without a real provider:
-
-```bash
-cargo run --manifest-path bench/Cargo.toml -p antirion-bench-mock -- --profile LS
-```
-
-A provider then reaches it at `http://127.0.0.1:19401/v1`.
+To send requests without a provider key, follow the no-cost option in
+[docs/getting-started.md](docs/getting-started.md).
 
 ### Run the console
 
