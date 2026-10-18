@@ -1736,7 +1736,14 @@ What the Cache screen reads and changes beyond the cache's own rules.
 ## Known gaps in observability
 
 - Hedged attempts overlap; the overhead formula takes the union of attempt intervals.
-  `include_unauthenticated` writes a record with null identity fields.
+- Refusals at `authenticate` (`auth::Refused`) are logged by what the credential established: once
+  a secret or token verified, every later refusal there (expired, disabled key or tenancy, a pause,
+  a client IP or endpoint outside the key's scopes, a request control it lacks the permission for, a
+  malformed end-user header, and in MCP and A2A a wrong audience or a missing end user) is recorded
+  under the key (`Record::refused`: its tenancy, owner and tags), as a refusal after authentication
+  is; a missing, unknown, revoked or unverifiable credential, an ambiguous one and the throttle's
+  refusals identify no one and are recorded, with null identity fields, only with
+  `include_unauthenticated`, so an invalid-key flood costs a throttle count and no record.
 - OTLP log sinks (`sinks.otlp`) are HTTP sinks whose batches are `ExportLogsServiceRequest`s
   (`antirion-obs/src/otlp_logs.rs`, encoded in the sink worker with the gateway clock as observed
   time); the `grpc` protocol has the trace exporter's TLS-only limit.

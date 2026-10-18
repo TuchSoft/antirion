@@ -215,10 +215,15 @@ pub(crate) async fn serve(
     };
     let caller = if antirion_mcp::a2a_requires_credential(&env.snap, &path) {
         let auth_start = std::time::Instant::now();
-        let authed = crate::auth::run(cx, parts, endpoint)
-            .await
-            .and_then(|a| wrong_audience(&env, &path, &a).map_or(Ok(a), Err))
-            .and_then(|a| crate::access::require_end_user(&a, a.end_user.as_deref()).map(|()| a));
+        let authed = crate::auth::run(cx, parts, endpoint).await.and_then(|a| {
+            match wrong_audience(&env, &path, &a)
+                .map_or(Ok(()), Err)
+                .and_then(|()| crate::access::require_end_user(&a, a.end_user.as_deref()))
+            {
+                Ok(()) => Ok(a),
+                Err(e) => Err(crate::auth::Refused::of(&a.key, e)),
+            }
+        });
         match authed {
             Ok(authed) => {
                 let span = (auth_start, std::time::Instant::now());
@@ -250,10 +255,10 @@ pub(crate) async fn serve(
                 }));
                 Some(caller)
             }
-            Err(mut e) => {
-                challenge(&mut e);
-                reqlog::begin_unauthenticated(cx, parts, endpoint, auth_start);
-                return reqlog::finish(cx, cx.error(&e));
+            Err(mut refused) => {
+                challenge(&mut refused.error);
+                reqlog::begin_refused(cx, parts, endpoint, refused.key.as_deref(), auth_start);
+                return reqlog::finish(cx, cx.error(&refused.error));
             }
         }
     } else {

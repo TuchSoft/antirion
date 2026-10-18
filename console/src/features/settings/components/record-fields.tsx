@@ -161,7 +161,7 @@ export function RecordFieldsCard() {
                   )}
                   <Checkbox
                     label="Also record requests without a valid key"
-                    description="Refused before a key was known, so they belong to no organization."
+                    description="Refused before a key was verified (missing, unknown or revoked), so they belong to no organization. Refusals of a verified key are always recorded under it."
                     checked={values.unauthenticated}
                     disabled={off}
                     onChange={(v) => set('unauthenticated', v)}

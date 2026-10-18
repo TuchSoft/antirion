@@ -434,9 +434,9 @@ async fn serve_endpoint(
         }
         endpoint if endpoint.kind == Kind::ResponsesSocket => socket::serve(cx, parts, &endpoint).await,
         endpoint => match auth::run(cx, parts, &endpoint).await.map(|a| (a, Instant::now())) {
-            Err(e) => {
-                reqlog::begin_unauthenticated(cx, parts, &endpoint, auth_start);
-                reqlog::finish(cx, cx.error(&e))
+            Err(refused) => {
+                reqlog::begin_refused(cx, parts, &endpoint, refused.key.as_deref(), auth_start);
+                reqlog::finish(cx, cx.error(&refused.error))
             }
             Ok((authed, authenticated)) => {
                 fault::maybe_panic(cx, parts, Stage::Authenticate);

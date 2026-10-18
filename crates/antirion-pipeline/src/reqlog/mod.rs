@@ -483,17 +483,36 @@ fn query_of(query: Option<&str>) -> Option<Map<String, Value>> {
     Some(out)
 }
 
-/// Starts the record of a request refused at `authenticate` when `include_unauthenticated` asks for
-/// one.
-pub(crate) fn begin_unauthenticated(cx: &Ctx, parts: &Parts, endpoint: &Endpoint, auth_start: Instant) {
-    if cx.snap.obs.request_logs.include_unauthenticated {
-        cx.log.begin(Record::anonymous(
-            cx,
-            parts,
-            endpoint,
-            (auth_start, Instant::now()),
-        ));
+/// Starts the record of a request refused at `authenticate`: under the key whose verified
+/// credential was refused (its tenancy, owner and tags), like any refusal after authentication; else,
+/// with every identity field null, only when `include_unauthenticated` asks for one.
+pub(crate) fn begin_refused(
+    cx: &Ctx,
+    parts: &Parts,
+    endpoint: &Endpoint,
+    key: Option<&antirion_runtime::identity::KeyRt>,
+    auth_start: Instant,
+) {
+    let span = (auth_start, Instant::now());
+    match key {
+        Some(key) => cx.log.begin(Record::refused(cx, parts, endpoint, key, span)),
+        None if cx.snap.obs.request_logs.include_unauthenticated => {
+            cx.log.begin(Record::anonymous(cx, parts, endpoint, span));
+        }
+        None => {}
     }
+}
+
+/// The tags of `key`'s tenancy and its own.
+fn key_tags(cx: &Ctx, key: &antirion_runtime::identity::KeyRt) -> Vec<String> {
+    cx.snap
+        .identity
+        .chain(key)
+        .iter()
+        .flatten()
+        .flat_map(|t| t.tags.iter().cloned())
+        .chain(key.tags.iter().cloned())
+        .collect()
 }
 
 impl Record {
@@ -517,16 +536,8 @@ impl Record {
         auth_span: (Instant, Instant),
     ) -> Record {
         let key = &auth.key;
-        let tags = cx
-            .snap
-            .identity
-            .chain(key)
-            .iter()
-            .flatten()
-            .flat_map(|t| t.tags.iter().cloned())
-            .chain(key.tags.iter().cloned())
-            .chain(auth.controls.tags.iter().cloned())
-            .collect();
+        let mut tags = key_tags(cx, key);
+        tags.extend(auth.controls.tags.iter().cloned());
         let (metadata, metadata_dropped) =
             crate::meta::recorded(cx, auth.controls.metadata.as_ref(), &auth.key);
         Record {
@@ -557,8 +568,30 @@ impl Record {
         }
     }
 
-    /// The record of a request refused at `authenticate`, written only with
-    /// `include_unauthenticated`: every identity field is null.
+    /// The record of a request whose verified credential `authenticate` refused: the key's tenancy,
+    /// owner and tags, none of the request controls it was refused before applying.
+    pub(crate) fn refused(
+        cx: &Ctx,
+        parts: &Parts,
+        endpoint: &Endpoint,
+        key: &antirion_runtime::identity::KeyRt,
+        auth_span: (Instant, Instant),
+    ) -> Record {
+        Record {
+            tenant: Some([
+                key.organization.clone(),
+                key.team.clone(),
+                key.project.clone(),
+                key.name.clone(),
+            ]),
+            owner: key.owner.clone(),
+            tags: key_tags(cx, key),
+            ..Record::anonymous(cx, parts, endpoint, auth_span)
+        }
+    }
+
+    /// The record of a request refused at `authenticate` before a credential was verified, written
+    /// only with `include_unauthenticated`: every identity field is null.
     pub(crate) fn anonymous(
         cx: &Ctx,
         parts: &Parts,

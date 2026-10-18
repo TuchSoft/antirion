@@ -77,7 +77,6 @@ pub(crate) async fn authenticate(cx: &Ctx, token: &str) -> Result<Credential, Ga
         .get(name)
         .cloned()
         .ok_or_else(|| invalid(Failure::Issuer))?;
-    crate::auth::expiry(&key, cx.rt.now())?;
     let end_user = provider
         .end_user_claim
         .as_deref()

@@ -104,9 +104,9 @@ fn event_headers(parts: &Parts) -> HeaderMap {
 /// Opens a socket: the 101 that starts it, or the error that refuses it.
 pub(crate) async fn serve(cx: &mut Ctx, parts: &Parts, endpoint: &Endpoint) -> Response<Body> {
     let started = std::time::Instant::now();
-    if let Err(e) = crate::auth::run(cx, parts, endpoint).await {
-        crate::reqlog::begin_unauthenticated(cx, parts, endpoint, started);
-        return crate::reqlog::finish(cx, cx.error(&e));
+    if let Err(refused) = crate::auth::run(cx, parts, endpoint).await {
+        crate::reqlog::begin_refused(cx, parts, endpoint, refused.key.as_deref(), started);
+        return crate::reqlog::finish(cx, cx.error(&refused.error));
     }
     match open(cx, parts) {
         Ok(resp) => resp,

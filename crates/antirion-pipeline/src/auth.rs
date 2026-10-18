@@ -1,6 +1,13 @@
 //! Stage `authenticate`: the credential is selected from headers only and checked, with the key's
 //! state, its client IP and endpoint scopes, its request controls and the end-user header, before
 //! any body byte is read.
+//!
+//! A refusal carries the key when the credential was verified before it (an expired or disabled
+//! key, a client IP or endpoint outside its scopes, a request control it may not use, a malformed
+//! end-user header): such a refusal is logged under the key, like a refusal later in the request.
+//! A credential that is missing, unknown, revoked or does not verify identifies no one: its refusal
+//! is logged only with `include_unauthenticated`, so a flood of invalid keys costs no more than the
+//! failed-authentication throttle's count.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -18,6 +25,31 @@ use http::request::Parts;
 
 use crate::controls::{self, Controls, END_USER};
 use crate::ctx::Ctx;
+
+/// A refusal at `authenticate`, with the key whose verified credential it refused, if any.
+#[derive(Debug)]
+pub(crate) struct Refused {
+    pub(crate) error: Box<GatewayError>,
+    pub(crate) key: Option<Arc<KeyRt>>,
+}
+
+impl Refused {
+    /// A refusal before any credential was verified.
+    fn anonymous(error: GatewayError) -> Refused {
+        Refused {
+            error: Box::new(error),
+            key: None,
+        }
+    }
+
+    /// A refusal of the verified credential of `key`.
+    pub(crate) fn of(key: &Arc<KeyRt>, error: GatewayError) -> Refused {
+        Refused {
+            error: Box::new(error),
+            key: Some(Arc::clone(key)),
+        }
+    }
+}
 
 /// What a request that passed `authenticate` carries to the later stages.
 #[derive(Debug)]
@@ -145,7 +177,7 @@ pub(crate) async fn catch_up_for_unknown_key(cx: &mut Ctx, parts: &Parts, endpoi
     cx.snap = cx.rt.gens.load();
 }
 
-/// Checks 1–3: the credential, its verifier and its expiry.
+/// Checks 1 and 2: the credential and its verifier (the expiry is checked by [`run`]).
 async fn credential(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<Credential, GatewayError> {
     if let Some(anonymous) = &cx.snap.identity.anonymous {
         return Ok(Credential::key(anonymous));
@@ -197,11 +229,11 @@ async fn credential(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<Cred
     } else {
         return Err(invalid_key());
     }
-    expiry(&secret.key, now)?;
     Ok(Credential::key(&secret.key))
 }
 
-pub(crate) fn expiry(key: &KeyRt, now: antirion_core::UtcMicros) -> Result<(), GatewayError> {
+/// Check 3: the key has not expired.
+fn expiry(key: &KeyRt, now: antirion_core::UtcMicros) -> Result<(), GatewayError> {
     if key.expires_at.is_some_and(|exp| now >= exp) {
         return Err(unauthenticated(
             reasons::EXPIRED_API_KEY,
@@ -231,7 +263,6 @@ fn legacy(cx: &Ctx, digest: &str) -> Result<Credential, GatewayError> {
     } else {
         cx.rt.state.verified.record(&id, now);
     }
-    expiry(&secret.key, now)?;
     Ok(Credential::key(&secret.key))
 }
 
@@ -331,7 +362,7 @@ fn scopes(
     Ok(())
 }
 
-pub(crate) async fn run(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<Authenticated, GatewayError> {
+pub(crate) async fn run(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<Authenticated, Refused> {
     let Credential {
         key,
         end_user: claimed_user,
@@ -346,9 +377,10 @@ pub(crate) async fn run(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<
                 Err(invalid_key())
             }
         })
-        .map_err(|e| throttled(cx, e))?;
+        .map_err(|e| Refused::anonymous(throttled(cx, e)))?;
+    expiry(&key, cx.rt.now()).map_err(|e| Refused::of(&key, throttled(cx, e)))?;
     let identity = &cx.snap.identity;
-    enabled(identity, &key)?;
+    enabled(identity, &key).map_err(|e| Refused::of(&key, e))?;
     if let Some(wait) = cx
         .rt
         .state
@@ -356,16 +388,22 @@ pub(crate) async fn run(cx: &Ctx, parts: &Parts, endpoint: &Endpoint) -> Result<
         .pauses
         .refusal(cx.started_at, Some(&key.organization))
     {
-        return Err(crate::accept::paused(Stage::Authenticate, wait));
+        return Err(Refused::of(
+            &key,
+            crate::accept::paused(Stage::Authenticate, wait),
+        ));
     }
-    scopes(identity, &key, cx.client_ip, endpoint)?;
-    let controls = controls::check(cx, &parts.headers, &key)?;
+    scopes(identity, &key, cx.client_ip, endpoint).map_err(|e| Refused::of(&key, e))?;
+    let controls = controls::check(cx, &parts.headers, &key).map_err(|e| Refused::of(&key, e))?;
     let end_user = match parts.headers.get(END_USER) {
         None => claimed_user,
         Some(v) => Some(enduser::from_header(v.as_bytes()).ok_or_else(|| {
-            controls::invalid_header(
-                END_USER,
-                "x-antirion-end-user must be 1 to 256 visible ASCII characters.",
+            Refused::of(
+                &key,
+                controls::invalid_header(
+                    END_USER,
+                    "x-antirion-end-user must be 1 to 256 visible ASCII characters.",
+                ),
             )
         })?),
     };

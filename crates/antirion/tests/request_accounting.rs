@@ -505,3 +505,78 @@ async fn a_request_larger_than_what_remains_does_not_exhaust_the_budget() {
 
     gw.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refusals_at_authentication_are_logged_under_the_key_they_verified() {
+    let gw = Gateway::start("accounting-auth", json!({})).await;
+    let plain = gw.key("plain", json!({})).await;
+    let off = gw.key("off", json!({"enabled": false})).await;
+    let far = gw.key("far", json!({"allowed_ips": ["10.0.0.0/8"]})).await;
+    let named = gw.key("named", json!({"end_user": "required"})).await;
+    let old = gw.key("old", json!({"expires_at": "2100-01-01T00:00:00Z"})).await;
+    let gone = gw.key("gone", json!({})).await;
+    let (status, body) = gw.admin("DELETE", "/admin/v1/keys/gone", "").await;
+    assert!(status == 204 || status == 200, "{status} {body}");
+    let body = chat("gpt", "Say hello");
+
+    // No credential was verified: nothing identifies the caller, and nothing is logged.
+    let mut unlogged = Vec::new();
+    for (key, want) in [("sk-not-a-key", 401), (gone.as_str(), 401)] {
+        let (status, headers, sent) = gw.send(key, "/v1/chat/completions", &[], &body).await;
+        assert_eq!(status, want, "{sent}");
+        unlogged.push(request_id(&headers));
+    }
+
+    // A verified credential refused: logged under its key, like a refusal later in the request.
+    // Each case: the key's name, its secret, the request's headers, the status and the reason.
+    type Case<'a> = (&'a str, &'a str, &'a [(&'a str, &'a str)], u16, &'a str);
+    let cases: [Case<'_>; 5] = [
+        (
+            "plain",
+            plain.as_str(),
+            &[("x-antirion-tags", "team:a")],
+            403,
+            "permission_required",
+        ),
+        ("off", off.as_str(), &[], 403, "key_disabled"),
+        ("far", far.as_str(), &[], 403, "ip_not_allowed"),
+        (
+            "plain",
+            plain.as_str(),
+            &[("x-antirion-end-user", "two words")],
+            400,
+            "invalid_header",
+        ),
+        ("named", named.as_str(), &[], 400, "missing_end_user"),
+    ];
+    for (name, key, headers, want, reason) in cases {
+        let (status, got, sent) = gw.send(key, "/v1/chat/completions", headers, &body).await;
+        assert_eq!(status, want, "{name}: {sent}");
+        let record = gw.record(&request_id(&got)).await;
+        assert_eq!(record["key"], name, "{record}");
+        assert_eq!(record["project"], "default", "{record}");
+        assert_eq!(record["status_code"], want, "{record}");
+        assert_eq!(record["reason"], reason, "{name}: {record}");
+    }
+
+    for id in &unlogged {
+        assert!(gw.try_record(id, 1).await.is_none(), "{id} was logged");
+    }
+
+    // An expired key's secret still verifies: its refusal is logged under it too.
+    let (status, clock) = gw
+        .admin(
+            "POST",
+            "/admin/v1/test/clock",
+            r#"{"set": "2100-01-02T00:00:00Z"}"#,
+        )
+        .await;
+    assert_eq!(status, 200, "{clock}");
+    let (status, got, sent) = gw.send(&old, "/v1/chat/completions", &[], &body).await;
+    assert_eq!(status, 401, "{sent}");
+    let record = gw.record(&request_id(&got)).await;
+    assert_eq!(record["key"], "old", "{record}");
+    assert_eq!(record["reason"], "expired_api_key", "{record}");
+
+    gw.stop().await;
+}
