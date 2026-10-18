@@ -1,6 +1,6 @@
 {
   "name": "antirion-console",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "The Antirion console: the web interface of the gateway's admin plane",
   "author": "Elias Biondo <contato@eliasbiondo.com>",

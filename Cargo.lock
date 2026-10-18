@@ -92,7 +92,7 @@ checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
 
 [[package]]
 name = "antirion"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-admin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-cache",
  "antirion-catalog",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-cache"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-error",
@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-catalog"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "serde_json",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-core",
  "antirion-json",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-console"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "http",
  "include_dir",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "jiff",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-dialects"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-core",
  "antirion-json",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-egress"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-error"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-core",
  "bytes",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-ext"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-guardrails"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-identity"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-json"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "serde_json",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-limits"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-catalog",
  "antirion-config",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-mail"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-obs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-cache",
  "antirion-config",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-providers"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-catalog",
  "antirion-config",
@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-redis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures-util",
  "redis",
@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-resilience"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-router"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-config",
  "antirion-core",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-cache",
  "antirion-catalog",
@@ -591,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-admin",
  "antirion-config",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "antirion-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-core",
  "antirion-json",
@@ -647,14 +647,14 @@ dependencies = [
 
 [[package]]
 name = "antirion-testkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-core",
 ]
 
 [[package]]
 name = "antirion-wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-compression",
  "bytes",
@@ -5066,7 +5066,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "antirion-catalog",
  "anyhow",
