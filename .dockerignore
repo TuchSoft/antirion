@@ -21,3 +21,4 @@ console/*.tsbuildinfo
 bench/results
 bench/aws/.state
 bench/aws/.build
+npm

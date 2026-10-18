@@ -4,6 +4,15 @@
 # shell and no package manager. It works with a read-only root filesystem: the only writable path
 # is the data directory, /var/lib/antirion (the embedded store, its spool and generated keys).
 #
+#   docker run -p 8080:8080 -p 8081:8081 <image>
+#       runs without a config file: a standalone node listening on 0.0.0.0, its store in
+#       /var/lib/antirion/data, a bootstrap token and an encryption key generated there on the first
+#       start (the token is printed in the log that once), and the console at
+#       http://localhost:8081/ui/. ANTIRION_PUBLIC_ORIGIN, ANTIRION_BOOTSTRAP_TOKEN,
+#       ANTIRION_ENCRYPTION_KEY and the other variables of `antirion serve --help` change it.
+#   docker run ... <image> serve --config /etc/antirion/antirion.yaml
+#       runs from a config file: mount yours over that path.
+#
 #   docker build -f docker/Dockerfile .
 #       builds the console's static export (console/, pnpm with the lockfile) and compiles the
 #       binary with it embedded (cargo auditable, --locked)
@@ -75,6 +84,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=binary --chmod=0555 /antirion /antirion
 COPY --from=layout --chown=65532:65532 /out/var/lib/antirion /var/lib/antirion
 COPY --from=layout /out/etc/antirion /etc/antirion
+ENV ANTIRION_DATA_DIR=/var/lib/antirion/data ANTIRION_HOST=0.0.0.0
 USER 65532:65532
 WORKDIR /var/lib/antirion
 VOLUME ["/var/lib/antirion"]
@@ -86,4 +96,4 @@ LABEL org.opencontainers.image.title="Antirion" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.source="https://github.com/eliasbiondo/antirion"
 ENTRYPOINT ["/antirion"]
-CMD ["serve", "--config", "/etc/antirion/antirion.yaml"]
+CMD ["serve"]
