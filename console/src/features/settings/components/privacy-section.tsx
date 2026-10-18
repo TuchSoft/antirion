@@ -20,6 +20,7 @@ import { notify } from '@/stores/ui';
 import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { type GovernanceSettings, type GuardrailResource, settingsApi } from '../api';
+import { ENTITY_CHECKS, entityCheck, type EntityCheck, entitySchema, patternLines } from '../custom-entities';
 import { type PolicyLevel, usePrivacy, type ZdrLevel } from '../privacy-store';
 import { useOrgSettings } from '../store';
 import { Card, Facts, SaveBar } from './parts';
@@ -388,18 +389,6 @@ const ACTION_LABEL: Record<string, string> = {
   flag: 'Flagged only',
 };
 
-const entitySchema = z.object({
-  label: z
-    .string()
-    .trim()
-    .regex(/^[A-Z][A-Z0-9_]{0,62}$/, 'Use capital letters, digits and _, starting with a letter'),
-  patterns: z
-    .string()
-    .refine((v) => v.split('\n').some((l) => l.trim() !== ''), 'Enter at least one pattern')
-    .refine((v) => v.split('\n').every((l) => l.length <= 1000), 'Keep each pattern under 1,000 characters')
-    .refine((v) => v.split('\n').filter((l) => l.trim()).length <= 256, 'Use at most 256 patterns'),
-});
-
 /** The guardrail name a custom entity gets: its label in lower case. */
 export function entityName(label: string): string {
   return `entity_${label.trim().toLowerCase()}`.slice(0, 63);
@@ -418,7 +407,7 @@ function EntityDrawer({
   const loadGuardrails = usePrivacy((s) => s.loadGuardrails);
   const [label, setLabel] = useState('');
   const [patterns, setPatterns] = useState('');
-  const [check, setCheck] = useState<'none' | 'luhn' | 'iban_mod97'>('none');
+  const [check, setCheck] = useState<EntityCheck>('none');
   const [action, setAction] = useState<Action>('redact');
   const [attach, setAttach] = useState(true);
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -451,10 +440,7 @@ function EntityDrawer({
         type: 'regex',
         action,
         regex: {
-          deny: patterns
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean),
+          deny: patternLines(patterns),
           label: label.trim(),
           validate: check,
         },
@@ -525,15 +511,7 @@ function EntityDrawer({
           <Textarea mono rows={4} value={patterns} onChange={(e) => setPatterns(e.target.value)} />
         </Field>
         <Field label="Extra check" hint="Only count a match that passes this check.">
-          <Select
-            value={check}
-            onChange={(v) => setCheck(v as typeof check)}
-            options={[
-              { value: 'none', label: 'None' },
-              { value: 'luhn', label: 'Luhn checksum (card-like numbers)' },
-              { value: 'iban_mod97', label: 'IBAN checksum' },
-            ]}
-          />
+          <Select value={check} onChange={(v) => setCheck(entityCheck(v))} options={ENTITY_CHECKS} />
         </Field>
         <RadioGroup<Action>
           label="When a request contains one"
@@ -574,7 +552,7 @@ function EntitiesCard() {
   return (
     <Card
       title="Custom entities"
-      description="Your own kinds of sensitive values, found in requests by pattern and replaced or refused."
+      description="Your own kinds of sensitive values, each a pattern rule, found in requests and replaced or refused. A personal data rule can also look for kinds of its own (Safety & PII › Personal data)."
       actions={
         <Gate operation="createGuardrail" mode="hide">
           <Button size="sm" icon="plus" onClick={() => setAdding(true)}>
