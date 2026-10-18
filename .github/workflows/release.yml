@@ -2,7 +2,7 @@
 # their SHA-256 checksums, and multi-arch images on ghcr.io, each with a CycloneDX SBOM, keyless
 # Sigstore signatures bound to this workflow, and SLSA v1.0 Build Level 3 provenance; the published
 # artefacts are verified before the release is published. publish.yml then copies the image to
-# Docker Hub and publishes the npm package.
+# Docker Hub.
 name: release
 
 on:
@@ -124,8 +124,7 @@ jobs:
             antirion-*.cdx.json
             dist/${{ matrix.arch }}/antirion
 
-  # One SHA-256 list of every archive, published with them (the npm package checks its download
-  # against it) and the subjects of their provenance.
+  # One SHA-256 list of every archive, published with them, and the subjects of their provenance.
   checksums:
     needs: binaries-linux
     runs-on: ubuntu-24.04
@@ -332,8 +331,8 @@ jobs:
             antirion-*.tar.gz antirion-*.cdx.json antirion-*-sha256sums.txt antirion-*.sigstore.json \
             antirion-*.intoto.jsonl
       # A release published with this workflow's token starts no other workflow, so the publish
-      # workflow (Docker Hub and npm) is started here.
-      - name: Publish to Docker Hub and npm
+      # workflow (Docker Hub) is started here.
+      - name: Publish to Docker Hub
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f tag="$GITHUB_REF_NAME"
