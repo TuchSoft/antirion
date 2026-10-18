@@ -137,7 +137,7 @@ test('strictness presets say what they change before replacing the rule', async 
 }) => {
   await page.goto('safety/?view=pii');
   await page.getByRole('radio', { name: 'Strict' }).click();
-  const confirm = page.getByRole('alertdialog', { name: 'Make redaction strict?' });
+  const confirm = page.getByRole('alertdialog', { name: `Make ${pii} strict?` });
   await expect(confirm).toContainText('Starts checking for');
   await confirm.getByRole('button', { name: 'Make it strict' }).click();
   await expect(confirm).toBeHidden();

@@ -27,7 +27,7 @@ import {
   rotationCheck,
   score,
 } from './posture';
-import type { GuardrailSpec } from './rules';
+import { type CustomKind, type GuardrailSpec, STRICTNESS, withCustomKind, withKind } from './rules';
 
 /** What the screen may read, so it never asks for what the principal can't see. */
 export interface SafetyReads {
@@ -80,6 +80,35 @@ interface SafetyState {
   updateRule: (rule: GuardrailResource, spec: GuardrailSpec) => Promise<void>;
   review: (id: string, state: ReviewState) => Promise<void>;
   setEnabled: (name: string, enabled: boolean) => Promise<void>;
+  /** Looks for one kind of personal data with a rule, or stops; reads the rule as it is now. */
+  setKind: (rule: string, kind: string, on: boolean) => Promise<void>;
+  /** Adds a kind of the rule's own to a personal data rule, looked for at once. */
+  addKind: (rule: string, kind: CustomKind) => Promise<void>;
+  /**
+   * Creates the personal data rule a gateway without one starts from (the balanced preset,
+   * replacing values with labels) and, when `attach`, runs it on every prompt. Returns its name.
+   */
+  createPiiRule: (attach: boolean) => Promise<string>;
+}
+
+/** A free rule name: `base`, else `base_2`, `base_3`… */
+export function freeName(base: string, taken: string[]): string {
+  if (!taken.includes(base)) return base;
+  let n = 2;
+  while (taken.includes(`${base}_${n}`)) n += 1;
+  return `${base}_${n}`;
+}
+
+/** The personal data rule offered in one step: the balanced preset, values replaced with labels. */
+export function defaultPiiSpec(): GuardrailSpec {
+  const p = STRICTNESS.balanced;
+  return {
+    type: 'pii',
+    enabled: true,
+    action: 'redact',
+    description: 'Replaces personal data with labels before a provider sees it.',
+    pii: { entities: p.entities, preserve: p.preserve },
+  };
 }
 
 /** Safety events in the range, the guardrails and their 24-hour figures. */
@@ -194,6 +223,31 @@ export const useSafety = create<SafetyState>()((set, get) => ({
     set((s) => ({
       events: { ...s.events, data: (s.events.data ?? []).map((e) => (e.id === id ? updated : e)) },
     }));
+  },
+  async setKind(rule, kind, on) {
+    const g = get().guardrails.data?.find((x) => x.name === rule);
+    if (!g) throw new Error(`The rule ${rule} no longer exists.`);
+    const spec = withKind(g.spec, kind, on);
+    if (!spec) throw new Error('A rule looks for at least one kind; turn the rule off instead.');
+    await get().updateRule(g, spec);
+  },
+  async addKind(rule, kind) {
+    const g = get().guardrails.data?.find((x) => x.name === rule);
+    if (!g) throw new Error(`The rule ${rule} no longer exists.`);
+    await get().updateRule(g, withCustomKind(g.spec, kind));
+  },
+  async createPiiRule(attach) {
+    const name = freeName(
+      'personal_data',
+      (get().guardrails.data ?? []).map((g) => g.name),
+    );
+    await get().saveRule({
+      name,
+      spec: defaultPiiSpec(),
+      original: null,
+      attach: attach ? { input: true, output: false } : null,
+    });
+    return name;
   },
   async setEnabled(name, enabled) {
     const g = get().guardrails.data?.find((x) => x.name === name);
