@@ -53,6 +53,7 @@ mod decision;
 mod downgrade;
 mod egress;
 mod embed;
+mod embedded;
 mod exposure;
 mod extend;
 mod external;

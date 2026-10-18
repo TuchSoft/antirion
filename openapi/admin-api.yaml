@@ -20345,7 +20345,8 @@ components:
           type:
             - object
             - 'null'
-          description: 'Null unless content logging applied. Else `{request: Body, response: Body|null}`'
+          description: 'Null unless content logging applied. Else `{request: Body, response: Body|null}`. An embeddings
+            response is logged without its vectors: `data` becomes `{vectors, dimensions, encoding_format, omitted: true}`'
         mcp:
           type:
             - object

@@ -439,15 +439,11 @@ pub(crate) async fn handle(a: &Attempt<'_>, up: InboundResponse) -> Result<(Done
                 .map(|done| (done, Class::Success))
         }
         Some(_) if a.aggregate => crate::aggregate::collect(a, up, api).await,
-        _ if api == apis::Api::Embeddings
-            && let Some(slot) = &a.plan.cache =>
-        {
-            buffered(a, up, slot).await
-        }
+        _ if api == apis::Api::Embeddings => embeddings(a, up).await,
         _ if api == apis::Api::Other && (counts_units(a, &up.headers) || transcript::applies(a)) => {
             counted(a, up).await
         }
-        _ if matches!(api, apis::Api::Other | apis::Api::Embeddings) => {
+        _ if api == apis::Api::Other => {
             a.record(Some(status), Class::Success, None);
             if a.plan.stream {
                 charge_requested_images(a);
@@ -488,12 +484,10 @@ pub(crate) fn response_head(a: &Attempt<'_>, resp: &mut Response<Body>, status: 
     a.cx.finish(resp, false);
 }
 
-/// A body otherwise relayed as it arrives, read whole because the response may be cached.
-async fn buffered(
-    a: &Attempt<'_>,
-    up: InboundResponse,
-    slot: &crate::cache::CacheSlot,
-) -> Result<(Done, Class), Failure> {
+/// An embeddings answer, read whole (within `max_upstream_response`) for the usage and model it
+/// reports and, when the request is cacheable, to be cached; relayed as the upstream wrote it. A body
+/// that is not an embeddings list is relayed too, without usage, and settled on the estimate.
+async fn embeddings(a: &Attempt<'_>, up: InboundResponse) -> Result<(Done, Class), Failure> {
     let status = up.status;
     let InboundResponse { headers, body, .. } = up;
     let raw = match a.read(body, a.body_cap()).await? {
@@ -501,11 +495,24 @@ async fn buffered(
         Err(why) => return Err(a.unread(why, status.as_u16())),
     };
     a.record(Some(status.as_u16()), Class::Success, None);
+    if let Some(e) = crate::embedded::Embeddings::read(&raw) {
+        let facts = e.facts();
+        let usage = apis::usage_of(&facts);
+        a.cx.log.update(|r| {
+            r.usage = usage;
+            r.usage_raw = facts.get("usage").cloned();
+            r.response_model = facts.get("model").and_then(Value::as_str).map(str::to_owned);
+            r.response_id = facts.get("id").and_then(Value::as_str).map(str::to_owned);
+        });
+    }
+    a.cx.log.response_content(&raw);
     let content_type = headers
         .get(CONTENT_TYPE)
         .cloned()
         .unwrap_or(HeaderValue::from_static("application/json"));
-    crate::cache::store_response(a, slot, status.as_u16(), &content_type, &raw, &headers).await;
+    if let Some(slot) = &a.plan.cache {
+        crate::cache::store_response(a, slot, status.as_u16(), &content_type, &raw, &headers).await;
+    }
     let mut resp = Response::new(full(raw));
     *resp.status_mut() = status;
     resp.headers_mut().insert(CONTENT_TYPE, content_type);

@@ -877,7 +877,8 @@ impl Draft {
         });
     }
 
-    /// Records the response body the client received as content, when content logging applies.
+    /// Records the response body the client received as content, when content logging applies. An
+    /// embeddings answer is recorded as its summary (`crate::embedded`): the vectors are left out.
     pub(crate) fn response_content(&self, bytes: &[u8]) {
         self.update(|r| {
             if !r.comparisons.is_empty() {
@@ -887,6 +888,17 @@ impl Draft {
                 return;
             }
             let max = r.snap.obs.request_logs.max_body_bytes;
+            if r.operation == "embeddings"
+                && let Some(e) = crate::embedded::Embeddings::read(bytes)
+            {
+                r.content.output_messages = Some(e.describe());
+                r.content.response = Some(serde_json::json!({
+                    "body": e.summary(),
+                    "truncated": false,
+                    "original_bytes": bytes.len(),
+                }));
+                return;
+            }
             let parsed: Option<Value> = serde_json::from_slice(bytes).ok();
             r.content.output_messages = Some(output_text(parsed.as_ref(), bytes, max));
             r.content.response = Some(antirion_obs::record::body(bytes, parsed, max));

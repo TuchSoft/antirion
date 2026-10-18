@@ -1636,6 +1636,15 @@ What the Cache screen reads and changes beyond the cache's own rules.
   makes the attempt's calls (Titan: one per text), decodes the answers into the client's shape and
   delivers it like any complete response (`outcome::json::deliver`). Token inputs make the provider
   cells ineligible.
+- **Embeddings answers in the record**: an OpenAI-family answer is read whole within
+  `max_upstream_response` (`outcome::embeddings`) and relayed as the upstream wrote it; the record
+  takes its `usage`, `model` and `id`, so settlement prices the tokens the upstream reported. A body
+  that is not an embeddings list is still relayed and settled on the estimate. Vectors are never
+  logged: with content logging, `content.response.body` is the answer with `data` replaced by
+  `{vectors, dimensions, encoding_format, omitted: true}` (`dimensions` one number when every vector
+  has the same length, else one per vector), `original_bytes` the size of the answer, and the
+  `gen_ai.output.messages` attribute says `<n> embeddings of <d> dimensions` (`embedded.rs`, which
+  counts each vector without collecting it). Translated cells and cache hits are logged the same way.
 - **Uploads** (`upload.rs`): multipart bodies are limited by `max_upload_body`. A body that ends
   within 1 MiB is held whole; a larger one is read until its file part starts and the rest becomes
   the upstream body's streamed `Tail` (`antirion-egress/src/payload.rs`), counted and timed as it
