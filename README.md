@@ -275,14 +275,14 @@ checks a node's health (`antirion healthcheck`).
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/budgets.png" alt="Budgets: projected spend for the month and team budgets, one of them at 95%"><br>
+      <img src="docs/images/budgets.png" alt="Budgets: projected spend for the month and team budgets, one of them at 92%"><br>
       <b>Budgets.</b> Limits per organization, team, project and key, with projections and the
       ledger behind every number.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/safety.png" alt="Safety and PII: guardrail events with redacted emails and phone numbers and blocked keys, and one event's details"><br>
-      <b>Safety &amp; PII.</b> What the guardrails caught, redacted or blocked, and where it came
-      from.
+      <img src="docs/images/safety.png" alt="Safety and PII, Personal data tab: the rule that redacts personal data, each kind it checks with its placeholder and matches in the last 24 hours, and the secrets it blocks"><br>
+      <b>Safety &amp; PII.</b> Which kinds of personal data and secrets each rule checks, what
+      replaces them, and what it caught.
     </td>
   </tr>
   <tr>
