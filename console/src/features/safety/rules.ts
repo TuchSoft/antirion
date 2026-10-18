@@ -454,7 +454,7 @@ export interface RuleDraft {
   description: string;
   divertTo: string;
   patterns: string;
-  validate: 'none' | 'luhn' | 'iban_mod97';
+  validate: 'none' | 'luhn' | 'iban_mod97' | 'cpf' | 'cnpj';
   label: string;
   words: string;
   match: 'word' | 'substring';

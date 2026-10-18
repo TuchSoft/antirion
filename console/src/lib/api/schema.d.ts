@@ -1681,6 +1681,22 @@ export interface paths {
         patch: operations["patchGuardrail"];
         trace?: never;
     };
+    "/guardrails:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["testUnsavedGuardrail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/guardrails/{name}:test": {
         parameters: {
             query?: never;
@@ -4679,14 +4695,27 @@ export interface components {
             stage: "input" | "output";
             body: Record<string, unknown>;
         };
+        GuardrailTestUnsavedRequest: {
+            name?: string;
+            spec: components["schemas"]["Guardrail"];
+            input: {
+                stage?: "input" | "output";
+                text: string;
+            } | {
+                stage?: "input" | "output";
+                body: Record<string, unknown>;
+            };
+        };
         GuardrailTestResult: {
             verdict: string;
             category?: string | null;
             redacted?: string | Record<string, unknown> | null;
+            restored?: string | Record<string, unknown> | null;
             spans: {
                 start: number;
                 end: number;
                 entity: string;
+                replacement?: string | null;
             }[];
         };
         GuardrailsSettings: {
@@ -6534,6 +6563,7 @@ export interface components {
         };
         AlwaysDenyHeader: unknown;
         FieldPath: string;
+        PatternCheck: "none" | "luhn" | "iban_mod97" | "cpf" | "cnpj";
         FieldPaths: components["schemas"]["FieldPath"][];
         EndpointToggle: {
             enabled?: boolean;
@@ -7484,6 +7514,12 @@ export interface components {
         CallPrice: {
             per_call: components["schemas"]["$defs-Money"];
         };
+        PiiCustomEntity: {
+            name: string;
+            pattern: string;
+            validate?: components["schemas"]["PatternCheck"];
+            label?: string;
+        };
         Severity: "critical" | "high" | "medium" | "low";
         Guardrail: {
             type: "regex" | "keywords" | "pii" | "secrets" | "moderation" | "webhook" | "system_prompt" | "decorator" | "llm_judge" | "json_schema" | "tool_permission" | "length" | "classifier" | "bedrock_guardrails" | "azure_content_safety" | "model_armor" | "lakera" | "template" | "llm_rewrite" | "json_repair" | "topic";
@@ -7510,7 +7546,8 @@ export interface components {
                 deny?: string[];
                 allow?: string[];
                 label?: string;
-                validate?: "none" | "luhn" | "iban_mod97";
+                validate?: components["schemas"]["PatternCheck"];
+                reversible?: boolean;
             };
             keywords?: {
                 words: string[];
@@ -7518,6 +7555,7 @@ export interface components {
             };
             pii?: {
                 entities?: ("email" | "phone" | "credit_card" | "us_ssn" | "iban" | "ip_address" | "ca_sin")[];
+                custom?: components["schemas"]["PiiCustomEntity"][];
                 preserve?: ("email_domain" | "ip_subnet" | "last4" | "country")[];
                 reversible?: boolean;
             };
@@ -9177,6 +9215,13 @@ export interface components {
                 TenantName: string;
                 UserName: string;
                 GuardrailName: string;
+                PatternCheck: "none" | "luhn" | "iban_mod97" | "cpf" | "cnpj";
+                PiiCustomEntity: {
+                    name: string;
+                    pattern: string;
+                    validate?: components["schemas"]["PatternCheck"];
+                    label?: string;
+                };
                 McpName: string;
                 PriorityClass: string;
                 LimitName: string;
@@ -10551,7 +10596,8 @@ export interface components {
                         deny?: string[];
                         allow?: string[];
                         label?: string;
-                        validate?: "none" | "luhn" | "iban_mod97";
+                        validate?: components["schemas"]["PatternCheck"];
+                        reversible?: boolean;
                     };
                     keywords?: {
                         words: string[];
@@ -10559,6 +10605,7 @@ export interface components {
                     };
                     pii?: {
                         entities?: ("email" | "phone" | "credit_card" | "us_ssn" | "iban" | "ip_address" | "ca_sin")[];
+                        custom?: components["schemas"]["PiiCustomEntity"][];
                         preserve?: ("email_domain" | "ip_subnet" | "last4" | "country")[];
                         reversible?: boolean;
                     };
@@ -12103,6 +12150,7 @@ export type SchemaGuardrailRuntimeList = components['schemas']['GuardrailRuntime
 export type SchemaGuardrailSummary = components['schemas']['GuardrailSummary'];
 export type SchemaGuardrailSummaryRow = components['schemas']['GuardrailSummaryRow'];
 export type SchemaGuardrailTestRequest = components['schemas']['GuardrailTestRequest'];
+export type SchemaGuardrailTestUnsavedRequest = components['schemas']['GuardrailTestUnsavedRequest'];
 export type SchemaGuardrailTestResult = components['schemas']['GuardrailTestResult'];
 export type SchemaGuardrailsSettings = components['schemas']['GuardrailsSettings'];
 export type SchemaGuardrailsSettingsReplace = components['schemas']['GuardrailsSettingsReplace'];
@@ -12351,6 +12399,7 @@ export type SchemaRulesAdditionalProperties = components['schemas']['rules-addit
 export type SchemaInvalidationRulesAdditionalProperties = components['schemas']['invalidation_rules-additionalProperties'];
 export type SchemaAlwaysDenyHeader = components['schemas']['AlwaysDenyHeader'];
 export type SchemaFieldPath = components['schemas']['FieldPath'];
+export type SchemaPatternCheck = components['schemas']['PatternCheck'];
 export type SchemaFieldPaths = components['schemas']['FieldPaths'];
 export type SchemaEndpointToggle = components['schemas']['EndpointToggle'];
 export type SchemaProviderName = components['schemas']['ProviderName'];
@@ -12450,6 +12499,7 @@ export type SchemaKeyPolicy = components['schemas']['KeyPolicy'];
 export type SchemaTagPattern = components['schemas']['TagPattern'];
 export type SchemaAuthThrottle = components['schemas']['AuthThrottle'];
 export type SchemaCallPrice = components['schemas']['CallPrice'];
+export type SchemaPiiCustomEntity = components['schemas']['PiiCustomEntity'];
 export type SchemaSeverity = components['schemas']['Severity'];
 export type SchemaGuardrail = components['schemas']['Guardrail'];
 export type SchemaStringMap = components['schemas']['StringMap'];
@@ -17123,6 +17173,37 @@ export interface operations {
             429: components["responses"]["RateLimited"];
             500: components["responses"]["Internal"];
             503: components["responses"]["StoreUnavailable"];
+        };
+    };
+    testUnsavedGuardrail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardrailTestUnsavedRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    "x-antirion-version": components["headers"]["XAntirionVersion"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardrailTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["Internal"];
         };
     };
     testGuardrail: {

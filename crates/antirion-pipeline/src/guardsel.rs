@@ -78,17 +78,19 @@ pub(crate) async fn run(cx: &Ctx, route: &RouteRt, facts: &RequestFacts<'_>, res
                         let Some(name) = results.take_wanted() else {
                             break holds;
                         };
-                        let result = match recorded(cx, &name) {
-                            Some(r) => r,
-                            None => crate::guardtest::test(
+                        let failed = || json!({"verdict": "error", "category": null});
+                        let result = match (recorded(cx, &name), cx.snap.guardrails.get(&name)) {
+                            (Some(r), _) => r,
+                            (None, Some(def)) => crate::guardtest::test(
                                 Arc::clone(&cx.rt),
                                 Arc::clone(&cx.snap),
-                                name.clone(),
+                                Arc::clone(def),
                                 false,
                                 Sample::Body(body.clone()),
                             )
                             .await
-                            .unwrap_or_else(|_| json!({"verdict": "error", "category": null})),
+                            .unwrap_or_else(|_| failed()),
+                            (None, None) => failed(),
                         };
                         results.keep(name, result);
                     };

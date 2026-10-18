@@ -176,6 +176,7 @@ fn runtime_state<'a>(call: &'a Call, segs: &'a [&'a str]) -> Option<Handled<'a>>
         ["reports", "spend", "summary"] => Box::pin(spend::summary(call)),
         ["pricing", "deployments", name] => done(spend::price(call, name)),
         ["pricing", "deployments"] => done(pricing::list(call)),
+        ["guardrails:test"] => Box::pin(guardtest::run_unsaved(call)),
         ["guardrails", action] if action.ends_with(":test") => {
             Box::pin(guardtest::run(call, action.trim_end_matches(":test")))
         }

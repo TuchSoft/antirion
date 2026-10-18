@@ -6,6 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
+use antirion_guardrails::Def;
 use serde_json::Value;
 
 use crate::Snapshot;
@@ -34,8 +35,9 @@ pub type TestFuture = Pin<Box<dyn Future<Output = Result<Value, TestError>> + Se
 
 /// Runs one guardrail on a sample, as the stage would, and reports its verdict.
 pub trait GuardrailTester: Send + Sync + fmt::Debug {
-    /// `output` selects the output stage. The answer is `{verdict, category, redacted, spans}`.
-    fn test(&self, snap: Arc<Snapshot>, name: String, output: bool, sample: Sample) -> TestFuture;
+    /// `def` is a saved guardrail or one compiled from an unsaved spec; `output` selects the
+    /// output stage. The answer is `{verdict, category, redacted, spans, restored}`.
+    fn test(&self, snap: Arc<Snapshot>, def: Arc<Def>, output: bool, sample: Sample) -> TestFuture;
 }
 
 /// The installed tester.

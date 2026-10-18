@@ -5925,6 +5925,52 @@ paths:
         '503':
           $ref: '#/components/responses/StoreUnavailable'
       x-antirion-permission: policies:write
+  /guardrails:test:
+    post:
+      operationId: testUnsavedGuardrail
+      summary: Try a guardrail before saving it
+      description: >-
+        Compiles `spec` as a save of it under `name` would (the same validation errors, at the same
+        `guardrails.definitions.<name>` paths) and runs it on `input` as `POST /guardrails/{name}:test` does, including
+        its own external calls; it stores nothing. `name` is the name the rule would be saved under, the existing
+        rule's when it is being edited; without it a name no saved rule has is used. `enabled: false` is ignored.
+        `input.stage` defaults to `input`. Secrets may be literal values or references; a `[REDACTED]` value stands for
+        the saved rule's secret and is accepted only when the spec keeps the saved rule's type and destinations (`url`,
+        `base_url`, `endpoint`, `region`, `provider`). When change control governs guardrails, only literal secrets are
+        accepted. Every call is audited with the rule's name, type and verdict.
+      tags:
+        - Guardrails
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardrailTestUnsavedRequest'
+      responses:
+        '200':
+          description: The verdict. No model call (other than the guardrail's own) and no ledger line.
+          headers:
+            x-antirion-version:
+              $ref: '#/components/headers/XAntirionVersion'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardrailTestResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/Internal'
+      x-antirion-permission: policies:write
   /guardrails/{name}:test:
     post:
       operationId: testGuardrail
@@ -18519,6 +18565,48 @@ components:
             - stage
             - body
           additionalProperties: false
+    GuardrailTestUnsavedRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The name the rule would be saved under; the edited rule's name when editing one.
+        spec:
+          $ref: ../schema/antirion-config.schema.json#/$defs/Guardrail
+        input:
+          oneOf:
+            - type: object
+              properties:
+                stage:
+                  type: string
+                  enum:
+                    - input
+                    - output
+                  default: input
+                text:
+                  type: string
+                  description: A user message (input) or an assistant answer (output).
+              required:
+                - text
+              additionalProperties: false
+            - type: object
+              properties:
+                stage:
+                  type: string
+                  enum:
+                    - input
+                    - output
+                  default: input
+                body:
+                  type: object
+                  description: A request (input) or response (output) body in a supported dialect.
+              required:
+                - body
+              additionalProperties: false
+      required:
+        - spec
+        - input
+      additionalProperties: false
     GuardrailTestResult:
       type: object
       properties:
@@ -18539,6 +18627,14 @@ components:
             - object
             - 'null'
           description: The text or body after the guardrail.
+        restored:
+          type:
+            - string
+            - object
+            - 'null'
+          description: >-
+            For a reversible guardrail at the input stage, `redacted` with its tokens put back: what the response gives
+            back where the model repeats them. Null when the guardrail handed out no token.
         spans:
           type: array
           items:
@@ -18547,12 +18643,21 @@ components:
               start:
                 type: integer
                 minimum: 0
-                description: Code-point offset.
+                description: Code-point offset in the segment.
               end:
                 type: integer
                 minimum: 0
               entity:
                 type: string
+                description: The entity or label matched, in lower case (`phone`, `cpf`, `redacted`).
+              replacement:
+                type:
+                  - string
+                  - 'null'
+                description: >-
+                  What replaces the match: its numbered token for a reversible guardrail at the input stage
+                  (`[PHONE_1]`), else the label, mask or hash of the redaction. Null when the guardrail does not
+                  replace matches (block, flag).
             required:
               - start
               - end

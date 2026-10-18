@@ -140,6 +140,7 @@ dependencies = [
  "antirion-core",
  "antirion-egress",
  "antirion-ext",
+ "antirion-guardrails",
  "antirion-identity",
  "antirion-limits",
  "antirion-mail",

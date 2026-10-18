@@ -225,6 +225,36 @@ impl Runtime {
         })
     }
 
+    /// Compiles the guardrail `name` of a candidate document as a commit of it would (the same
+    /// validation, the same secret resolution), and stores nothing: for testing a guardrail
+    /// before it is saved.
+    ///
+    /// # Errors
+    /// The validation errors a commit of the candidate would report.
+    pub async fn compile_guardrail(
+        &self,
+        candidate: Value,
+        previous: &ConfigState,
+        name: &str,
+    ) -> Result<Arc<antirion_guardrails::Def>, Vec<ConfigError>> {
+        let shaped = self.check_unread(candidate.clone(), &previous.doc)?;
+        let refused = crate::secretstores::check_api_write(&previous.doc, &shaped.doc);
+        if !refused.is_empty() {
+            return Err(refused);
+        }
+        Box::pin(self.prefetch_secrets(&candidate)).await;
+        let checked = self.check(candidate, &previous.doc)?;
+        let resolved = antirion_config::secrets::expand_document(&checked.doc, self.secrets.as_ref())?;
+        let compiled = antirion_guardrails::compile(&resolved)?;
+        compiled.defs.get(name).cloned().ok_or_else(|| {
+            vec![ConfigError::new(
+                &DocPath::root().key("spec"),
+                DetailCode::Required,
+                "the guardrail is not in the candidate document",
+            )]
+        })
+    }
+
     /// Applies `build` to the current configuration under the write lock and commits the result.
     pub async fn mutate<E>(
         &self,

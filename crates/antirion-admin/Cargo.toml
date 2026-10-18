@@ -16,6 +16,7 @@ antirion-console = { workspace = true }
 antirion-core = { workspace = true }
 antirion-egress = { workspace = true }
 antirion-ext = { workspace = true }
+antirion-guardrails = { workspace = true }
 antirion-identity = { workspace = true }
 antirion-limits = { workspace = true }
 antirion-mail = { workspace = true }

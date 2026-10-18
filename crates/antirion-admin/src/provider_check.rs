@@ -691,7 +691,7 @@ pub(crate) async fn test(call: &Call, name: &str) -> Result<Response, AdminError
 }
 
 /// Whether a spec has a secret reference, and whether it has a `[REDACTED]` placeholder.
-fn secret_forms(v: &Value) -> (bool, bool) {
+pub(crate) fn secret_forms(v: &Value) -> (bool, bool) {
     match v {
         Value::String(s) => (
             antirion_config::secrets::has_reference(s),

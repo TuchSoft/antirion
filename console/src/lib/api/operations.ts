@@ -539,6 +539,7 @@ export const OPERATIONS = {
   testMyPush: { method: 'post', path: '/auth/me/push:test', permission: 'authenticated' },
   testProvider: { method: 'post', path: '/providers/{name}:test', permission: 'providers:write' },
   testSmtp: { method: 'post', path: '/settings/smtp:test', permission: 'security:write' },
+  testUnsavedGuardrail: { method: 'post', path: '/guardrails:test', permission: 'policies:write' },
   testUnsavedProvider: { method: 'post', path: '/providers:test', permission: 'providers:write' },
   testWebhook: { method: 'post', path: '/alerts/webhooks/{webhook}:test', permission: 'alerts:write' },
   unsnoozeAlert: { method: 'post', path: '/alerts/{alert_id}:unsnooze', permission: 'alerts:write' },
