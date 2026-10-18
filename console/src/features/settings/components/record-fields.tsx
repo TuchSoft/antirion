@@ -1,6 +1,6 @@
 'use client';
 
-import { Field, MultiSelect, Select, Switch } from '@/components/ui/form';
+import { Field, MultiSelect, NumberInput, Select, Switch } from '@/components/ui/form';
 import { Checkbox } from '@/components/ui/choice';
 import { useCan } from '@/components/ui/gate';
 import { Icon } from '@/components/ui/icon';
@@ -9,6 +9,7 @@ import type { components } from '@/lib/api/schema';
 import type { FieldErrors } from '@/lib/validation';
 import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
+import { durationOptions, rangeError } from '../choices';
 import { useOrgSettings } from '../store';
 import { Card } from './parts';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
@@ -27,6 +28,11 @@ export interface RecordValues {
   maxBody: string;
   errorBodies: boolean;
   errorBodyMax: string;
+  stdout: boolean;
+  stdoutContent: boolean;
+  queueCapacity: string;
+  exportMax: string;
+  flushTimeout: string;
 }
 
 export function recordValues(logs: RequestLogs | undefined): RecordValues {
@@ -41,6 +47,11 @@ export function recordValues(logs: RequestLogs | undefined): RecordValues {
     maxBody: logs?.content?.max_body_bytes ?? defaults.content.max_body_bytes,
     errorBodies: logs?.content?.log_upstream_error_bodies ?? defaults.content.log_upstream_error_bodies,
     errorBodyMax: logs?.content?.upstream_error_body_max ?? defaults.content.upstream_error_body_max,
+    stdout: logs?.sinks?.stdout?.enabled ?? defaults.sinks.stdout.enabled,
+    stdoutContent: logs?.sinks?.stdout?.include_content ?? defaults.sinks.stdout.include_content,
+    queueCapacity: String(logs?.sinks?.store?.queue_capacity ?? defaults.sinks.store.queue_capacity),
+    exportMax: String(logs?.export_max_rows ?? defaults.export_max_rows),
+    flushTimeout: logs?.shutdown_flush_timeout ?? defaults.shutdown_flush_timeout,
   };
 }
 
@@ -56,6 +67,12 @@ export const recordSpec = (v: RecordValues) => ({
       log_upstream_error_bodies: v.errorBodies,
       upstream_error_body_max: v.errorBodyMax,
     },
+    sinks: {
+      stdout: { enabled: v.stdout, include_content: v.stdoutContent },
+      store: { queue_capacity: Number(v.queueCapacity) },
+    },
+    export_max_rows: Number(v.exportMax),
+    shutdown_flush_timeout: v.flushTimeout,
   },
 });
 
@@ -69,6 +86,10 @@ function check(v: RecordValues): FieldErrors {
   if (req) e.requestHeaders = `"${req}" isn't a header name`;
   const res = bad(v.responseHeaders);
   if (res) e.responseHeaders = `"${res}" isn't a header name`;
+  const queue = rangeError(v.queueCapacity, 100);
+  if (queue) e.queueCapacity = queue;
+  const rows = rangeError(v.exportMax, 1, 10_000_000);
+  if (rows) e.exportMax = rows;
   return e;
 }
 
@@ -113,6 +134,9 @@ export function RecordFieldsCard() {
             'observability.request_logs.headers.response': 'responseHeaders',
             'observability.request_logs.content.max_body_bytes': 'maxBody',
             'observability.request_logs.content.upstream_error_body_max': 'errorBodyMax',
+            'observability.request_logs.sinks.store.queue_capacity': 'queueCapacity',
+            'observability.request_logs.export_max_rows': 'exportMax',
+            'observability.request_logs.shutdown_flush_timeout': 'flushTimeout',
           }}
         >
           {({ values, set, errors, disabled }) => {
@@ -230,6 +254,69 @@ export function RecordFieldsCard() {
                         disabled={off || !values.errorBodies}
                         onChange={(v) => set('errorBodyMax', v)}
                         options={sizeOptions(ERROR_SIZES, values.errorBodyMax)}
+                      />
+                    </Field>
+                  </div>
+                </Advanced>
+                <Advanced label="Writing and exporting records">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div className="flex min-w-[16rem] flex-1 flex-col gap-1">
+                      <Switch
+                        label="Also print each record to the gateway's output"
+                        checked={values.stdout}
+                        disabled={off}
+                        onChange={(v) => set('stdout', v)}
+                      />
+                      <Hint>
+                        One JSON line per request, for a log collector reading the node&apos;s output.
+                      </Hint>
+                    </div>
+                    <Checkbox
+                      label="With prompts and responses"
+                      description="When the content policy keeps them."
+                      checked={values.stdoutContent}
+                      disabled={off || !values.stdout}
+                      onChange={(v) => set('stdoutContent', v)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
+                    <Field
+                      label="Records waiting to be stored, at most"
+                      error={errors.queueCapacity}
+                      hint="How many records can wait while the store is slow."
+                    >
+                      <NumberInput
+                        value={values.queueCapacity}
+                        min={100}
+                        step={1000}
+                        disabled={off}
+                        onChange={(v) => set('queueCapacity', v)}
+                      />
+                    </Field>
+                    <Field
+                      label="Most rows in one export"
+                      error={errors.exportMax}
+                      hint="CSV and JSON exports."
+                    >
+                      <NumberInput
+                        value={values.exportMax}
+                        min={1}
+                        max={10_000_000}
+                        step={10000}
+                        disabled={off}
+                        onChange={(v) => set('exportMax', v)}
+                      />
+                    </Field>
+                    <Field
+                      label="When stopping, wait for records up to"
+                      error={errors.flushTimeout}
+                      hint="Records still waiting after that are lost."
+                    >
+                      <Select
+                        value={values.flushTimeout}
+                        disabled={off}
+                        onChange={(v) => set('flushTimeout', v)}
+                        options={durationOptions(['0s', '5s', '10s', '30s', '1m', '5m'], values.flushTimeout)}
                       />
                     </Field>
                   </div>
