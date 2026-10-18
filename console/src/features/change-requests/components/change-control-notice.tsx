@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect } from 'react';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -37,9 +38,9 @@ export function ChangeControlNotice() {
       <span className="min-w-0 flex-1">
         Change control is off: changes apply at once, without a change request.
         {held ? ' Only actions held by the two-person rule wait here.' : ''}{' '}
-        <a href={`${dangerHref}#${CHANGE_CONTROL_ANCHOR}`} className="text-accent hover:underline">
+        <Link href={`${dangerHref}#${CHANGE_CONTROL_ANCHOR}`} className="text-accent hover:underline">
           Turn it on in Danger zone › Change control
-        </a>
+        </Link>
       </span>
     </p>
   );

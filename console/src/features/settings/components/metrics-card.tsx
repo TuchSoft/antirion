@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -59,9 +60,9 @@ export function MetricsCard() {
       title="Metrics"
       subtitle="What Prometheus scrapes from the admin listener."
       actions={
-        <a href={notificationsHref} className="text-ui text-accent hover:underline">
+        <Link href={notificationsHref} className="text-ui text-accent hover:underline">
           Change in Notifications
-        </a>
+        </Link>
       }
     >
       {observability.status === 'loading' && !observability.data ? <LoadingRows rows={3} /> : null}

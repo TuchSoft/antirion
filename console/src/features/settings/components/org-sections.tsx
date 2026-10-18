@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 
@@ -509,9 +510,9 @@ export function ApiAccessSection() {
           ]}
         />
         {dataPlane ? null : (
-          <a href={nodeHref} className="mt-3 inline-block text-ui text-accent hover:underline">
+          <Link href={nodeHref} className="mt-3 inline-block text-ui text-accent hover:underline">
             See the node&apos;s settings
-          </a>
+          </Link>
         )}
       </Card>
       <RateLimitCard />

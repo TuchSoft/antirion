@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useSettingsHref } from '@/components/layout/url-sync';
 import { Checkbox, Switch } from '@/components/ui/choice';
 import { Field, MultiSelect, Select } from '@/components/ui/form';
@@ -254,9 +255,9 @@ export function TransportCard() {
                 })}
                 <p className="text-caption text-muted">
                   Certificate and key files are paths on each node.{' '}
-                  <a href={configHref} className="text-accent hover:underline">
+                  <Link href={configHref} className="text-accent hover:underline">
                     Change them in Configuration
-                  </a>
+                  </Link>
                   .
                 </p>
               </fieldset>

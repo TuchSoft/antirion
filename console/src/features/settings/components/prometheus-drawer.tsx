@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -195,9 +196,9 @@ export function PrometheusDrawer({ onClose }: { onClose: () => void }) {
         />
         <p className="text-caption text-muted">
           The scrape address and what the series carry also show on{' '}
-          <a href={statusHref} className="text-accent hover:underline">
+          <Link href={statusHref} className="text-accent hover:underline">
             Status
-          </a>
+          </Link>
           .
         </p>
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />

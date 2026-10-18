@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useSettingsHref } from '@/components/layout/url-sync';
 import { Button, IconButton } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/choice';
@@ -157,7 +158,7 @@ export function RetryPolicyCard() {
   return (
     <Card
       title="Retries and timeouts"
-      description="The rarer parts of the gateway's retry policy. Attempts, backoff and the main timeouts are in Routing › Defaults."
+      description="The rarer parts of the gateway's retry policy. Attempts, backoff and the main timeouts are in Routing policy › Defaults."
     >
       <LoadError of={policies} subject="Retry policy" size="sm" />
       {policies.status === 'loading' && !policies.data ? <LoadingRows rows={3} /> : null}
@@ -563,9 +564,9 @@ export function FailureHandlingCard() {
                       hint: (
                         <>
                           Deployments with their own breaker or cooldowns.{' '}
-                          <a href={configHref} className="text-accent hover:underline">
+                          <Link href={configHref} className="text-accent hover:underline">
                             Edit them in Configuration
-                          </a>
+                          </Link>
                           .
                         </>
                       ),

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Fragment, useEffect, useState } from 'react';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -609,9 +610,9 @@ export function ApiEndpointsSection() {
                   hint: (
                     <>
                       Add or change them in{' '}
-                      <a href={configHref} className="text-accent hover:underline">
+                      <Link href={configHref} className="text-accent hover:underline">
                         Configuration
-                      </a>
+                      </Link>
                       .
                     </>
                   ),

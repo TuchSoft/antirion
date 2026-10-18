@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -74,9 +75,9 @@ function ApplyStatus() {
         , {convergenceWords(c, result.propagated)}
       </span>
       {c?.state === 'lagging' || c?.state === 'waiting' ? (
-        <a href={statusHref} className="text-accent hover:underline">
+        <Link href={statusHref} className="text-accent hover:underline">
           See the nodes
-        </a>
+        </Link>
       ) : null}
     </span>
   );
@@ -281,9 +282,9 @@ export function ConfigSection() {
             {diff.data.static_ignored.length === 1 ? 'is' : 'are'} read from the configuration file when the
             gateway starts. Change {diff.data.static_ignored.length === 1 ? 'it' : 'them'} there, then restart
             the gateway.{' '}
-            <a href={nodeHref} className="text-accent hover:underline">
+            <Link href={nodeHref} className="text-accent hover:underline">
               See the node&apos;s settings
-            </a>
+            </Link>
           </p>
         ) : null}
         <ul>

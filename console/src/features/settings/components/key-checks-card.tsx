@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect } from 'react';
 
 import { useSettingsHref } from '@/components/layout/url-sync';
@@ -182,9 +183,9 @@ export function KeyChecksCard() {
                   ]}
                 />
                 <p className="text-caption text-muted">
-                  <a href={configHref} className="text-accent hover:underline">
+                  <Link href={configHref} className="text-accent hover:underline">
                     Edit them in Configuration
-                  </a>
+                  </Link>
                   ; the key pepper only in the configuration file.
                 </p>
               </Advanced>
