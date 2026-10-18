@@ -117,9 +117,11 @@ export function useSend(): {
     const readRecord = async (signal: AbortSignal) => {
       const recordId = logId;
       if (!recordId) return;
-      for (let i = 0; i < RECORD_TRIES && !signal.aborted && seq.current === id; i += 1) {
+      // Read through a call: the page can be left, or another request sent, during the wait.
+      const stopped = () => signal.aborted || seq.current !== id;
+      for (let i = 0; i < RECORD_TRIES && !stopped(); i += 1) {
         await new Promise((resolve) => setTimeout(resolve, RECORD_EVERY_MS));
-        if (signal.aborted || seq.current !== id) return;
+        if (stopped()) return;
         try {
           const record = await playgroundApi.record(recordId);
           if (record) {
