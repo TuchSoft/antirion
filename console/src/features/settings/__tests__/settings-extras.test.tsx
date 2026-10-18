@@ -15,6 +15,7 @@ import {
   entryForm,
 } from '../components/catalog-section';
 import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
+import { McpSessionsCard } from '../components/mcp-sessions-card';
 import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
 import { AlertTimingCard, RequestDetailsCard } from '../components/observability-extras';
 import { PrometheusDrawer } from '../components/prometheus-drawer';
@@ -418,5 +419,27 @@ describe('Retry and timeout policy', () => {
     await waitFor(() =>
       expect(patches).toEqual([{ classification: { status_overrides: { '529': 'overloaded' } } }]),
     );
+  });
+});
+
+describe('MCP sessions', () => {
+  it('shortens sessions and shows the local commands from the file', async () => {
+    signInAs(['mcp:read', 'mcp:write']);
+    const patches = settingsKey('mcp', {
+      session: {
+        keys: [
+          { id: 1, secret: '[REDACTED]' },
+          { id: 2, secret: '[REDACTED]' },
+        ],
+      },
+      stdio: { allowed_commands: ['/usr/bin/npx'] },
+    });
+    render(<McpSessionsCard />);
+    const c = await waitFor(() => card('MCP sessions'));
+    expect(await within(c).findByText('2 keys, newest id 2')).toBeInTheDocument();
+    expect(within(c).getByText('/usr/bin/npx')).toBeInTheDocument();
+    await pickOption(within(c).getByRole('combobox', { name: 'A session lasts at most' }), '8 hours');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toEqual([{ session: { max_lifetime: '8h' } }]));
   });
 });

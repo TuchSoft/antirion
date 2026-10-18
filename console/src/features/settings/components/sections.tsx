@@ -13,6 +13,7 @@ import { MetricsCard } from './metrics-card';
 import { ObjectivesSection } from './objectives-section';
 import { AdminMcpCard } from './admin-mcp-card';
 import { DangerSection } from './danger-section';
+import { McpSessionsCard } from './mcp-sessions-card';
 import { EncryptionCard } from './encryption-card';
 import { AuditSinksSection } from './audit-sinks-section';
 import { ConnectionsSection } from './connections-section';
@@ -172,13 +173,14 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
         label: 'Endpoints & security',
         icon: 'globe',
         description:
-          'Where apps send requests, rate limiting, network and browser access, request sizes, encryption and the admin MCP server.',
+          'Where apps send requests, rate limiting, network and browser access, request sizes, encryption and MCP.',
         aliases: ['encryption'],
         render: () => (
           <>
             <ApiAccessSection />
             <EncryptionCard />
             <AdminMcpCard />
+            <McpSessionsCard />
           </>
         ),
       },
