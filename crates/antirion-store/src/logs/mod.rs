@@ -276,6 +276,9 @@ pub struct LogOrder {
     pub desc: bool,
     pub after: Option<SortPos>,
     pub limit: usize,
+    /// Whether the records come with their content (request and response bodies). A scan that
+    /// reads only the records' facts leaves it out: content is often most of a record's size.
+    pub content: bool,
 }
 
 /// A listed record with its sort position.
@@ -305,6 +308,7 @@ impl Store {
             desc: true,
             after: None,
             limit: 1,
+            content: true,
         };
         Ok(self.list_logs(f, order).await?.into_iter().next().map(|l| l.log))
     }

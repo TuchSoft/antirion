@@ -265,6 +265,7 @@ pub(crate) fn export(call: &Call) -> Result<Response, AdminError> {
             desc,
             after: None,
             limit: BATCH,
+            content: true,
         },
         format,
         left: call.snap.obs.request_logs.export_max_rows,

@@ -76,6 +76,7 @@ async fn records_round_trip_on_a_server() {
         desc: true,
         after: None,
         limit: 2,
+        content: true,
     };
     let page = s.list(&all, &order).await.unwrap();
     assert_eq!(

@@ -41,6 +41,7 @@ fn order(sort: SortKey, desc: bool, limit: usize) -> LogOrder {
         desc,
         after: None,
         limit,
+        content: true,
     }
 }
 
@@ -74,6 +75,21 @@ pub(crate) async fn records(store: &Store) {
         .unwrap();
     assert_eq!(all.len(), 10);
     assert_eq!(all[0].log.id, "r9");
+    assert!(all.iter().all(|l| l.log.content.is_some()));
+    // A scan of the facts leaves the content out and keeps the records.
+    let facts = store
+        .list_logs(
+            LogFilter::default(),
+            LogOrder {
+                content: false,
+                ..order(SortKey::StartedAt, true, 100)
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(facts.len(), 10);
+    assert!(facts.iter().all(|l| l.log.content.is_none()));
+    assert_eq!(facts[0].log.record, all[0].log.record);
 
     let team_a = LogFilter {
         any_of: vec![(LogColumn::Team, vec![Arg::Text("a".into())])],

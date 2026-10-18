@@ -432,6 +432,7 @@ impl Runtime {
             desc: false,
             after: None,
             limit: SCAN_BATCH,
+            content: false,
         };
         loop {
             let page = self.list_stored(filter.clone(), order.clone()).await?;

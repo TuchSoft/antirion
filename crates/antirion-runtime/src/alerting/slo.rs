@@ -98,6 +98,7 @@ pub async fn for_each_record(
             desc: false,
             after,
             limit: SCAN,
+            content: false,
         };
         let page = match rt.list_logs(filter, order).await {
             Ok(p) => p,

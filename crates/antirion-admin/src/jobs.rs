@@ -401,6 +401,7 @@ impl Export {
             desc: true,
             after: None,
             limit: BATCH,
+            content: self.content,
         };
         let mut out = Lines::default();
         loop {

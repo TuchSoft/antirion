@@ -238,6 +238,7 @@ pub(crate) async fn simulate(call: &Call, route: &str) -> Result<Response, Admin
             desc: true,
             after: after.take(),
             limit: usize::try_from(want).unwrap_or(usize::MAX),
+            content: true,
         };
         let page = call
             .rt

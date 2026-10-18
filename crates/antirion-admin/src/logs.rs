@@ -219,16 +219,36 @@ async fn total(call: &Call, sel: &Selection) -> Result<(u64, bool), AdminError> 
             .map_err(|_| AdminError::store_unavailable())?;
         return Ok((n.min(TOTAL_CAP), n <= TOTAL_CAP));
     }
-    let order = LogOrder {
+    // The metadata filters are checked on each record: count the matches a batch at a time, keeping
+    // none of them.
+    let mut order = LogOrder {
         sort: SortKey::StartedAt,
         desc: true,
         after: None,
         limit: SCAN_BATCH,
+        content: false,
     };
-    let cap = usize::try_from(TOTAL_CAP).unwrap_or(usize::MAX);
-    let n = page(call, sel, order, cap).await?.len();
-    let n = u64::try_from(n).unwrap_or(u64::MAX);
-    Ok((n.min(TOTAL_CAP), n <= TOTAL_CAP))
+    let mut n: u64 = 0;
+    loop {
+        let batch = call
+            .rt
+            .list_logs(sel.filter.clone(), order.clone())
+            .await
+            .map_err(|_| AdminError::store_unavailable())?;
+        let full = batch.len() == order.limit;
+        order.after = batch.last().map(|l| l.pos.clone());
+        let matched = batch
+            .iter()
+            .filter(|l| {
+                serde_json::from_str::<Value>(&l.log.record)
+                    .is_ok_and(|r| metadata_matches(&r, &sel.metadata))
+            })
+            .count();
+        n = n.saturating_add(u64::try_from(matched).unwrap_or(u64::MAX));
+        if !full || n > TOTAL_CAP {
+            return Ok((n.min(TOTAL_CAP), n <= TOTAL_CAP));
+        }
+    }
 }
 
 pub(crate) async fn list(call: &Call) -> Result<Response, AdminError> {
@@ -255,6 +275,7 @@ pub(crate) async fn list(call: &Call) -> Result<Response, AdminError> {
         desc,
         after,
         limit,
+        content: true,
     };
     let mut rows = page(call, &sel, order, limit).await?;
     let more = rows.len() > limit;

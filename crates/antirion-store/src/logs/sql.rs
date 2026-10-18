@@ -293,11 +293,17 @@ pub(crate) fn scope_clause(q: &mut Sql, scopes: &[ScopeRef], org: &str, team: &s
     q.push(&format!(" AND ({})", parts.join(" OR ")));
 }
 
-/// The ordered list query of a filter: `SELECT id, started_us, record, content, <sort value>`.
+/// The ordered list query of a filter: `SELECT id, started_us, record, content, <sort value>`, the
+/// content as NULL when the order leaves it out.
 pub(crate) fn list(pg: bool, f: &LogFilter, order: &LogOrder) -> Sql {
     let column = order.sort.column();
+    let content = if order.content {
+        "content"
+    } else {
+        "CAST(NULL AS TEXT) AS content"
+    };
     let head = format!(
-        "SELECT id, started_us, record, content, {column}, user_name, environment, route_node FROM request_logs"
+        "SELECT id, started_us, record, {content}, {column}, user_name, environment, route_node FROM request_logs"
     );
     list_with(Sql::new(pg, &head), f, order)
 }
@@ -306,8 +312,13 @@ pub(crate) fn list(pg: bool, f: &LogFilter, order: &LogOrder) -> Sql {
 /// integer and a real.
 pub(crate) fn list_clickhouse(f: &LogFilter, order: &LogOrder) -> Sql {
     let column = order.sort.column();
+    let content = if order.content {
+        "content"
+    } else {
+        "CAST(NULL AS Nullable(String)) AS content"
+    };
     let head = format!(
-        "SELECT id, started_us, record, content, toInt64({column}) AS sort_int, toFloat64({column}) AS sort_real, \
+        "SELECT id, started_us, record, {content}, toInt64({column}) AS sort_int, toFloat64({column}) AS sort_real, \
          user_name, environment, route_node FROM request_logs FINAL"
     );
     list_with(Sql::in_dialect(Dialect::ClickHouse, &head), f, order)
@@ -489,6 +500,7 @@ mod tests {
                 id: "i".into(),
             }),
             limit: 10,
+            content: true,
         };
         let pg = list(true, &f, &order);
         assert!(pg.text.contains("$1") && !pg.text.contains('?'));

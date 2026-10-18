@@ -329,6 +329,7 @@ impl ClickHouseLogs {
             desc: true,
             after: None,
             limit: 1,
+            content: true,
         };
         Ok(self.list(&f, &order).await?.into_iter().next().map(|l| l.log))
     }
