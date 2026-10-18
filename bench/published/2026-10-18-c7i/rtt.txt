@@ -1,0 +1,8 @@
+phase          target                 samples  connect p50 us  p99 us  (reference bound: p99 <= 100 us)
+selftest-a     mock:19401          200             354     658  OVER
+A2/selftest-a2 mock:19401        200             259     592  OVER
+A3/selftest-a3 mock:19401         200             352     614  OVER
+A4/selftest-a4 mock:19401          200             378     696  OVER
+A5/selftest-a5 mock:19401        200             281     871  OVER
+A6/selftest-a6 mock:19401        200             256     603  OVER
+A7/selftest-a7 mock:19401         200             133     409  OVER

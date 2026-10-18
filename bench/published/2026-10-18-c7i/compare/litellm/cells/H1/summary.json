@@ -1,0 +1,212 @@
+{
+  "cell": "H1",
+  "valid": false,
+  "reasons": [
+    "rep-1: direct p99 1.101ms above the scripted delay + 1 ms (1ms)",
+    "rep-2: direct p99 1.08ms above the scripted delay + 1 ms (1ms)",
+    "rep-3: direct p99 1.072ms above the scripted delay + 1 ms (1ms)",
+    "rep-4: direct p99 1.091ms above the scripted delay + 1 ms (1ms)",
+    "rep-5: direct p99 1.08ms above the scripted delay + 1 ms (1ms)"
+  ],
+  "repetitions": 5,
+  "reference": true,
+  "overhead_us": null,
+  "ttft_overhead_us": null,
+  "inter_event_overhead_us": null,
+  "saturation_rps": null,
+  "achieved_rps": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "direct": {
+    "achieved_rps": {
+      "median": 5000.0,
+      "min": 5000.0,
+      "max": 5000.0
+    },
+    "error_rate": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "errors": {
+      "connect_errors": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "non_2xx": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "timeouts": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      }
+    },
+    "late_fraction": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "success_fraction": {
+      "median": 1.0,
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "direct_latency_us": {
+    "max": {
+      "median": 1605.0,
+      "min": 1483.0,
+      "max": 1673.0
+    },
+    "mean": {
+      "median": 573.327,
+      "min": 563.372,
+      "max": 603.693
+    },
+    "p50": {
+      "median": 561.0,
+      "min": 551.0,
+      "max": 596.0
+    },
+    "p90": {
+      "median": 851.0,
+      "min": 836.0,
+      "max": 871.0
+    },
+    "p99": {
+      "median": 1080.0,
+      "min": 1072.0,
+      "max": 1101.0
+    },
+    "p99_9": {
+      "median": 1244.0,
+      "min": 1242.0,
+      "max": 1262.0
+    }
+  },
+  "error_rate": {
+    "median": 1.0,
+    "min": 1.0,
+    "max": 1.0
+  },
+  "errors": {
+    "connect_errors": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "non_2xx": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "timeouts": {
+      "median": 150000.0,
+      "min": 150000.0,
+      "max": 150000.0
+    },
+    "total": {
+      "median": 150000.0,
+      "min": 150000.0,
+      "max": 150000.0
+    }
+  },
+  "generator_cpu_pct": {
+    "median": 7.983,
+    "min": 7.854,
+    "max": 7.989
+  },
+  "lag_us": {
+    "max": {
+      "median": 2231.0,
+      "min": 1372.0,
+      "max": 4207.0
+    },
+    "mean": {
+      "median": 82.094,
+      "min": 79.935,
+      "max": 83.339
+    },
+    "p50": {
+      "median": 44.0,
+      "min": 37.0,
+      "max": 50.0
+    },
+    "p90": {
+      "median": 215.0,
+      "min": 202.0,
+      "max": 224.0
+    },
+    "p99": {
+      "median": 307.0,
+      "min": 294.0,
+      "max": 319.0
+    },
+    "p99_9": {
+      "median": 395.0,
+      "min": 357.0,
+      "max": 411.0
+    }
+  },
+  "late_fraction": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "mock_cpu_pct": {
+    "median": 1.063,
+    "min": 1.056,
+    "max": 1.079
+  },
+  "rss_bytes": {
+    "idle": {
+      "median": 1733566464.0,
+      "min": 1733017600.0,
+      "max": 1755996160.0
+    },
+    "peak": {
+      "median": 1940783104.0,
+      "min": 1939750912.0,
+      "max": 1959690240.0
+    },
+    "steady": {
+      "median": 1924663959.437,
+      "min": 1923771781.408,
+      "max": 1943350067.2
+    }
+  },
+  "rss_over_idle_bytes": {
+    "median": 206733312.0,
+    "min": 203694080.0,
+    "max": 207323136.0
+  },
+  "success_fraction": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "upstream_requests": {
+    "median": 9923.0,
+    "min": 9847.0,
+    "max": 9963.0
+  },
+  "direct_spread_us": {
+    "p50": 45.0,
+    "p90": 35.0,
+    "p99": 29.0,
+    "p99_9": 20.0,
+    "max": 190.0,
+    "mean": 40.321
+  }
+}

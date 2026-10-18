@@ -1,0 +1,25 @@
+Resources of run aws-20261018t0107-3a9d (topology ref):
+  security group sg-0de931c2d5d9e3b8d, key pair ab-aws-20261018t0107-3a9d, placement group ab-aws-20261018t0107-3a9d, AZ us-east-1a, AMI ami-02a9cdd4e98bc3c78
+  machine type        role      instance              hours on-demand
+  gen-a   c7i.4xlarge generator i-09c125b2add4b327a    0.52     0.374
+  mock-a  c7i.4xlarge mock      i-0e939e4e5100869b3    0.52     0.374
+  gw-a    c7i.xlarge  gateway   i-09f63a62bb6ca72da    0.52     0.096
+  gen-a2  c7i.4xlarge generator i-0f4ab98dbe5ea6a0c    0.33     0.234
+  mock-a2 c7i.4xlarge mock      i-0e62991a4287037ec    0.32     0.234
+  gw-a2   c7i.xlarge  gateway   i-04bb15582e7b3889d    0.32     0.060
+  gen-a3  c7i.4xlarge generator i-001b0610421f49d41    0.22     0.160
+  mock-a3 c7i.4xlarge mock      i-08618a765bf6e9cb5    0.22     0.159
+  gw-a3   c7i.xlarge  gateway   i-0907656ff956c654c    0.22     0.041
+  gen-a4  c7i.4xlarge generator i-0377230f1f37d92a6    0.43     0.307
+  mock-a4 c7i.4xlarge mock      i-0fbb66ded6ba24a56    0.42     0.306
+  gw-a4   c7i.xlarge  gateway   i-033b4d9ddb43290df    0.42     0.079
+  gen-a5  c7i.4xlarge generator i-021e1a22212203362    0.40     0.291
+  mock-a5 c7i.4xlarge mock      i-0cf6cc335f613d6c5    0.40     0.290
+  gw-a5   c7i.xlarge  gateway   i-07430a1bc53efbb72    0.40     0.075
+  gen-a6  c7i.4xlarge generator i-0ad555e94d341e315    0.36     0.261
+  mock-a6 c7i.4xlarge mock      i-0d50834a2c0879c6c    0.36     0.261
+  gw-a6   c7i.xlarge  gateway   i-0d2c3d042fa9e610e    0.36     0.067
+  gen-a7  c7i.4xlarge generator i-056e8f87c12c43f89    0.34     0.245
+  mock-a7 c7i.4xlarge mock      i-05670ac0490bad02e    0.34     0.244
+  gw-a7   c7i.xlarge  gateway   i-0b27209c18dc32f83    0.34     0.063
+  on-demand (with public IPv4 and gp3): $4.22

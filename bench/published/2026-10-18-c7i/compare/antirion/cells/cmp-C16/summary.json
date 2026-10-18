@@ -1,0 +1,28 @@
+{
+  "cell": "cmp-C16",
+  "valid": true,
+  "reasons": [],
+  "repetitions": 3,
+  "reference": true,
+  "overhead_us": null,
+  "ttft_overhead_us": null,
+  "inter_event_overhead_us": null,
+  "saturation_rps": null,
+  "rss_bytes": {
+    "idle": {
+      "median": 42507915.636,
+      "min": 41797445.818,
+      "max": 42803944.727
+    },
+    "peak": {
+      "median": 42573824.0,
+      "min": 42487808.0,
+      "max": 42868736.0
+    },
+    "steady": {
+      "median": 42507915.636,
+      "min": 41797445.818,
+      "max": 42803944.727
+    }
+  }
+}

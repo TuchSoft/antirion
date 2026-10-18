@@ -1,0 +1,13 @@
+compare: self-test selftest-a: mock-latency failed: L0 at 50000 RPS: p99 1232 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A2/selftest-a2: mock-latency failed: L0 at 50000 RPS: p99 1258 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A2/selftest-a2.log: no result (it did not finish)
+compare: self-test shards/A3/selftest-a3: mock-latency failed: L0 at 50000 RPS: p99 1098 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A3/selftest-a3.log: no result (it did not finish)
+compare: self-test shards/A4/selftest-a4: mock-latency failed: L0 at 50000 RPS: p99 1147 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A4/selftest-a4.log: no result (it did not finish)
+compare: self-test shards/A5/selftest-a5: mock-latency failed: L0 at 50000 RPS: p99 1280 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A5/selftest-a5.log: no result (it did not finish)
+compare: self-test shards/A6/selftest-a6: mock-latency failed: L0 at 50000 RPS: p99 1102 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A6/selftest-a6.log: no result (it did not finish)
+compare: self-test shards/A7/selftest-a7: mock-latency failed: L0 at 50000 RPS: p99 949 µs (bound 50 µs), 1500000 of 1500000 ok
+compare: self-test shards/A7/selftest-a7.log: no result (it did not finish)

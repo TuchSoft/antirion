@@ -1,0 +1,119 @@
+Run plan: AWS us-east-1, default VPC, one AZ, one cluster placement group, c7i on-demand
+(topology ref; lanes A; cells compare; shards 7; release gates off; deadline 45 min)
+
+Machines (all launched together; each lane's are terminated as soon as the lane is done):
+  machine type        role      vCPU lane  hosts.env
+  gen-a   c7i.4xlarge generator   16 A     GEN_A
+  mock-a  c7i.4xlarge mock        16 A     MOCK_A
+  gw-a    c7i.xlarge  gateway      4 A     GWX
+  gen-a2  c7i.4xlarge generator   16 A2    GEN_A2
+  mock-a2 c7i.4xlarge mock        16 A2    MOCK_A2
+  gw-a2   c7i.xlarge  gateway      4 A2    GW_A2
+  gen-a3  c7i.4xlarge generator   16 A3    GEN_A3
+  mock-a3 c7i.4xlarge mock        16 A3    MOCK_A3
+  gw-a3   c7i.xlarge  gateway      4 A3    GW_A3
+  gen-a4  c7i.4xlarge generator   16 A4    GEN_A4
+  mock-a4 c7i.4xlarge mock        16 A4    MOCK_A4
+  gw-a4   c7i.xlarge  gateway      4 A4    GW_A4
+  gen-a5  c7i.4xlarge generator   16 A5    GEN_A5
+  mock-a5 c7i.4xlarge mock        16 A5    MOCK_A5
+  gw-a5   c7i.xlarge  gateway      4 A5    GW_A5
+  gen-a6  c7i.4xlarge generator   16 A6    GEN_A6
+  mock-a6 c7i.4xlarge mock        16 A6    MOCK_A6
+  gw-a6   c7i.xlarge  gateway      4 A6    GW_A6
+  gen-a7  c7i.4xlarge generator   16 A7    GEN_A7
+  mock-a7 c7i.4xlarge mock        16 A7    MOCK_A7
+  gw-a7   c7i.xlarge  gateway      4 A7    GW_A7
+
+The comparison: the targets of bench/targets (each with a target.yaml) and antirion, interleaved per cell
+and repetition on one shard's machines. H1: S1 at 5,000 RPS open loop, P-min, mock L0, 10 s warm-up, 30 s
+measurement, 5 reps; compare cells (cmp-*): the matrix's cells at P-min, 5 s warm-up, 15 s measurement,
+3 reps (ladders 1 rep, 7 s steps). Selected: H1 cmp-C1 cmp-C2 cmp-C4 cmp-C5 cmp-C8 cmp-C11 cmp-C13 cmp-C16 cmp-C17 cmp-C21.401 cmp-C21.404 cmp-C32.c64 
+7 shard(s), balanced by expected duration (cells are compared within a shard, never across):
+Lane A, ref-4 (gw-a c7i.xlarge; gen-a, mock-a c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a   expected   2 min, budget  10 min
+  compare      expected  29 min, budget  53 min
+    H1              28.8 min
+Lane A2, ref-4 (gw-a2 c7i.xlarge; gen-a2, mock-a2 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a2  expected   2 min, budget  10 min
+  compare      expected  28 min, budget  52 min
+    cmp-C11         19.1 min
+    cmp-C21.404      8.2 min
+Lane A3, ref-4 (gw-a3 c7i.xlarge; gen-a3, mock-a3 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a3  expected   2 min, budget  10 min
+  compare      expected  24 min, budget  46 min
+    cmp-C13         19.1 min
+    cmp-C16          4.5 min
+Lane A4, ref-4 (gw-a4 c7i.xlarge; gen-a4, mock-a4 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a4  expected   2 min, budget  10 min
+  compare      expected  23 min, budget  44 min
+    cmp-C1          11.2 min
+    cmp-C8          11.2 min
+Lane A5, ref-4 (gw-a5 c7i.xlarge; gen-a5, mock-a5 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a5  expected   2 min, budget  10 min
+  compare      expected  23 min, budget  44 min
+    cmp-C2          11.2 min
+    cmp-C17         11.2 min
+Lane A6, ref-4 (gw-a6 c7i.xlarge; gen-a6, mock-a6 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a6  expected   2 min, budget  10 min
+  compare      expected  23 min, budget  44 min
+    cmp-C4          11.2 min
+    cmp-C32.c64     11.2 min
+Lane A7, ref-4 (gw-a7 c7i.xlarge; gen-a7, mock-a7 c7i.4xlarge; generator workers 16, mock workers 16):
+  selftest-a7  expected   2 min, budget  10 min
+  compare      expected  20 min, budget  40 min
+    cmp-C5          11.2 min
+    cmp-C21.401      8.2 min
+
+Every machine: the reference system settings (ulimit -n 1048576, somaxconn 65535, ip_local_port_range
+1024 65535, tcp_tw_reuse 1, governor performance where exposed), the same on every machine, read back
+into the inventory; the harness's RTT to the mock (connect p50/p99) from each phase's inventory into rtt.txt.
+
+Wall (setup 10 + phases + fetch 3), dead-man (planned + 30 min after launch):
+  lane A: planned  44 min, dead-man  74 min
+  lane A2: planned  43 min, dead-man  73 min
+  lane A3: planned  39 min, dead-man  69 min
+  lane A4: planned  38 min, dead-man  68 min
+  lane A5: planned  38 min, dead-man  68 min
+  lane A6: planned  38 min, dead-man  68 min
+  lane A7: planned  35 min, dead-man  65 min
+  run: ~44 min wall; the last dead-man switch fires 74 min after launch
+
+Peak concurrent vCPUs: 252 (all lanes at once), against quota L-1216C47A (Running On-Demand Standard instances)
+
+Cost, expected (each machine for its lane's planned time):
+  machine type        role      cpu hours on-demand  surplus    total
+  gen-a   c7i.4xlarge generator  16  0.73    0.529    0.000    0.529
+  mock-a  c7i.4xlarge mock       16  0.73    0.529    0.000    0.529
+  gw-a    c7i.xlarge  gateway     4  0.73    0.136    0.000    0.136
+  gen-a2  c7i.4xlarge generator  16  0.72    0.517    0.000    0.517
+  mock-a2 c7i.4xlarge mock       16  0.72    0.517    0.000    0.517
+  gw-a2   c7i.xlarge  gateway     4  0.72    0.133    0.000    0.133
+  gen-a3  c7i.4xlarge generator  16  0.65    0.468    0.000    0.468
+  mock-a3 c7i.4xlarge mock       16  0.65    0.468    0.000    0.468
+  gw-a3   c7i.xlarge  gateway     4  0.65    0.120    0.000    0.120
+  gen-a4  c7i.4xlarge generator  16  0.63    0.456    0.000    0.456
+  mock-a4 c7i.4xlarge mock       16  0.63    0.456    0.000    0.456
+  gw-a4   c7i.xlarge  gateway     4  0.63    0.117    0.000    0.117
+  gen-a5  c7i.4xlarge generator  16  0.63    0.456    0.000    0.456
+  mock-a5 c7i.4xlarge mock       16  0.63    0.456    0.000    0.456
+  gw-a5   c7i.xlarge  gateway     4  0.63    0.117    0.000    0.117
+  gen-a6  c7i.4xlarge generator  16  0.63    0.456    0.000    0.456
+  mock-a6 c7i.4xlarge mock       16  0.63    0.456    0.000    0.456
+  gw-a6   c7i.xlarge  gateway     4  0.63    0.117    0.000    0.117
+  gen-a7  c7i.4xlarge generator  16  0.58    0.420    0.000    0.420
+  mock-a7 c7i.4xlarge mock       16  0.58    0.420    0.000    0.420
+  gw-a7   c7i.xlarge  gateway     4  0.58    0.108    0.000    0.108
+  total 7.45 USD
+Ceiling (every machine until its dead-man switch): 13.15 USD
+By lane (expected / ceiling, USD):
+  lane A     1.19 /   2.01
+  lane A2    1.17 /   1.98
+  lane A3    1.06 /   1.87
+  lane A4    1.03 /   1.84
+  lane A5    1.03 /   1.84
+  lane A6    1.03 /   1.84
+  lane A7    0.95 /   1.76
+Prices (on-demand, Linux, us-east-1): c7i.xlarge $0.1785/h, c7i.2xlarge $0.357, c7i.4xlarge $0.714, c7i.8xlarge $1.428;
+public IPv4 $0.005/h per machine, gp3 16 GB at $0.08/GB-month.
+Expected cost within the cap of $15 (COST_CAP).

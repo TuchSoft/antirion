@@ -1,0 +1,122 @@
+{
+  "cell": "cmp-C21.404",
+  "valid": true,
+  "reasons": [],
+  "repetitions": 3,
+  "reference": true,
+  "overhead_us": null,
+  "ttft_overhead_us": null,
+  "inter_event_overhead_us": null,
+  "saturation_rps": null,
+  "achieved_rps": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "error_rate": {
+    "median": 1.0,
+    "min": 1.0,
+    "max": 1.0
+  },
+  "errors": {
+    "connect_errors": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "non_2xx": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "timeouts": {
+      "median": 300000.0,
+      "min": 300000.0,
+      "max": 300000.0
+    },
+    "total": {
+      "median": 300000.0,
+      "min": 300000.0,
+      "max": 300000.0
+    }
+  },
+  "generator_cpu_pct": {
+    "median": 7.611,
+    "min": 7.599,
+    "max": 7.632
+  },
+  "lag_us": {
+    "max": {
+      "median": 3137.0,
+      "min": 1704.0,
+      "max": 3841.0
+    },
+    "mean": {
+      "median": 69.401,
+      "min": 66.999,
+      "max": 70.0
+    },
+    "p50": {
+      "median": 44.0,
+      "min": 37.0,
+      "max": 47.0
+    },
+    "p90": {
+      "median": 165.0,
+      "min": 164.0,
+      "max": 165.0
+    },
+    "p99": {
+      "median": 286.0,
+      "min": 283.0,
+      "max": 286.0
+    },
+    "p99_9": {
+      "median": 398.0,
+      "min": 381.0,
+      "max": 399.0
+    }
+  },
+  "late_fraction": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "mock_cpu_pct": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "rss_bytes": {
+    "idle": {
+      "median": 1737064448.0,
+      "min": 1736654848.0,
+      "max": 1737658368.0
+    },
+    "peak": {
+      "median": 2552119296.0,
+      "min": 2529329152.0,
+      "max": 2561646592.0
+    },
+    "steady": {
+      "median": 2296247091.2,
+      "min": 2289640949.961,
+      "max": 2298279012.392
+    }
+  },
+  "rss_over_idle_bytes": {
+    "median": 815464448.0,
+    "min": 791670784.0,
+    "max": 824582144.0
+  },
+  "success_fraction": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "upstream_requests": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  }
+}

@@ -1,0 +1,5 @@
+System settings as read back on each machine after setup (vm/setup.sh tune):
+  settings_of: ref
+  ulimit_n_setup: 1048576
+  governor: not exposed (the hypervisor manages the CPU frequency)
+  identical on all 21 machines

@@ -1,0 +1,13 @@
+{
+  "built_at": "2026-10-18T00:59:42Z",
+  "gateway": "prebuilt",
+  "gateway_commit": "unknown (prebuilt binary)",
+  "bench_commit": "d461c20d900198add16216d329f9fdf582a523c8-dirty",
+  "sha256": {
+    "antirion": "0997b55c0003225b59530abc51390fcab76a6cd8d223714c7e6ec1ebba008141",
+    "antirion-bench": "fae5c9be80d99825e0f2c6fcf66eaf9a7c71b85d1d5260f1c62f8c3efe82aaa2",
+    "antirion-bench-mock": "ab53478658c55896717ddc2fb627221df752713168f87fc32b85ee0b4a091e0e",
+    "bundle": "92fb2d4e1b689636587c300422ab79b20d7d07eb8067ddae57b9d111d0d9e373"
+  },
+  "repacked_at": "2026-10-18T01:05:14Z"
+}

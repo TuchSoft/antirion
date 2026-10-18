@@ -1,0 +1,22 @@
+{
+  "targets": [
+    "bifrost",
+    "litellm",
+    "antirion"
+  ],
+  "cells": [
+    "H1",
+    "cmp-C1",
+    "cmp-C2",
+    "cmp-C4",
+    "cmp-C5",
+    "cmp-C8",
+    "cmp-C11",
+    "cmp-C13",
+    "cmp-C16",
+    "cmp-C17",
+    "cmp-C21.401",
+    "cmp-C21.404",
+    "cmp-C32.c64"
+  ]
+}

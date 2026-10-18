@@ -1,0 +1,19 @@
+{
+  "shards": 7,
+  "cell_shard": {
+    "H1": "A",
+    "cmp-C1": "A4",
+    "cmp-C2": "A5",
+    "cmp-C4": "A6",
+    "cmp-C5": "A7",
+    "cmp-C8": "A4",
+    "cmp-C11": "A2",
+    "cmp-C13": "A3",
+    "cmp-C16": "A3",
+    "cmp-C17": "A5",
+    "cmp-C21.401": "rerun aws-20261018t0157-253e (failed-auth throttle set in P-min)",
+    "cmp-C21.404": "A2",
+    "cmp-C32.c64": "A6"
+  },
+  "note": "cells are compared within a shard (one machine set), never across shards"
+}

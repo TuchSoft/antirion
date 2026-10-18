@@ -506,15 +506,131 @@ Notes:
 
 ## Results
 
-> **Reference results: not yet published.**
->
-> This section takes the numbers of the reference run (`run.sh --topology ref`, c7i.xlarge
-> gateway, us-east-1) when it finishes: the run ID, the date, the commit and versions of the three
-> targets, and H1's table (overhead p50/p99/p99.9, achieved RPS, errors, CPU µs per request, RSS
-> idle and peak, per target), then the link to the full `comparison.md`. No figure is given here
-> until then.
+Reference run `aws-20261018t0107-3a9d` on 2026-10-18 (us-east-1; c7i.xlarge gateway, c7i.4xlarge generator and mock, one placement group; 7 shards). Cell C21.401 comes from the rerun `aws-20261018t0157-253e`, after the failed-authentication throttle was set in P-min. Versions: Antirion 0.1.0, Bifrost v2.2.4, LiteLLM 1.103.1. The curated results (tables, per-cell summaries, plan, system settings, self-test) are in [`bench/published/2026-10-18-c7i/`](../bench/published/2026-10-18-c7i/compare/comparison.md); `bench/aws/charts.py` draws the charts from them.
 
-<!-- RESULTS: reference run, H1 first, filled from bench/results/<run id>/compare/comparison.md -->
+### H1: simple chat at 5,000 RPS
+
+Latency is the gateway's overhead over a direct call to the same mock; medians of 5 repetitions.
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.53 ms | 0.95 ms | 1.18 ms | 5,000 | 0 % | 247 µs | 41 MiB | 215 MiB |
+| Bifrost | 19.7 ms | 95.2 ms | 119.4 ms | 5,000 | 0 % | 717 µs | 498 MiB | 1,389 MiB |
+| LiteLLM | — | — | — | 0 | 100 % | — | 1,653 MiB | 1,851 MiB |
+
+![Gateway overhead at 5,000 requests per second](images/bench-overhead.svg)
+
+![CPU per request and peak memory at 5,000 requests per second](images/bench-resources.svg)
+
+![Throughput at 64 concurrent connections](images/bench-throughput.svg)
+
+### Every cell
+
+**C1: S1 10000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.61 ms | 1.50 ms | 3.05 ms | 10,000 | 0 % | 176 µs | 41 MiB | 295 MiB |
+| Bifrost | 12.1 s | 19.1 s | 19.5 s | 10,000 | 0 % | 399 µs | 514 MiB | 3,283 MiB |
+| LiteLLM | — | — | — | 0 | 100 % | — | 1,653 MiB | 1,850 MiB |
+
+**C2: S1 1000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.76 ms | 0.95 ms | 1.02 ms | 1,000 | 0 % | 351 µs | 41 MiB | 87 MiB |
+| Bifrost | 0.72 ms | 1.16 ms | 2.65 ms | 1,000 | 0 % | 897 µs | 517 MiB | 815 MiB |
+| LiteLLM | 9.1 s | 29.1 s | 29.8 s | 719 | 28 % | 5,399 µs | 1,655 MiB | 1,855 MiB |
+
+**C4: S4 5000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.81 ms | 1.93 ms | 6.66 ms | 5,000 | 0 % | 417 µs | 41 MiB | 210 MiB |
+| Bifrost | 2.50 ms | 70.0 ms | 85.4 ms | 5,000 | 0 % | 661 µs | 500 MiB | 1,401 MiB |
+| LiteLLM | 29.3 s | 30.0 s | 30.0 s | 35 | 99 % | 109,415 µs | 1,655 MiB | 1,806 MiB |
+
+**C5: S2 1000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.93 ms | 1.17 ms | 1.34 ms | 1,000 | 0 % | 623 µs | 41 MiB | 88 MiB |
+| Bifrost | 1.48 ms | 27.2 ms | 38.3 ms | 1,000 | 0 % | 2,335 µs | 507 MiB | 1,133 MiB |
+| LiteLLM | 10.2 s | 29.2 s | 29.9 s | 653 | 35 % | 6,050 µs | 1,653 MiB | 2,064 MiB |
+
+**C8: S3 1000 RPS (LS)**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.51 ms | 0.51 ms | 0.51 ms | 1,000 | 0 % | 1,425 µs | 41 MiB | 198 MiB |
+| Bifrost | 12.3 ms | 150.5 ms | 184.3 ms | 1,000 | 0 % | 3,585 µs | 507 MiB | 1,317 MiB |
+| LiteLLM | 21.3 s | 28.9 s | 29.0 s | 182 | 82 % | 21,120 µs | 1,652 MiB | 1,986 MiB |
+
+**C11: S1 saturation ladder**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.61 ms | 2.73 ms | 8.28 ms | 14,000 (saturation 14,000) | 0 % | 199 µs | 40 MiB | 373 MiB |
+| Bifrost | 0.56 ms | 2.54 ms | 5.05 ms | 3,500 (saturation 3,500) | 0 % | 717 µs | 500 MiB | 1,118 MiB |
+| LiteLLM | — | — | — | — | — | — | 1,680 MiB | — |
+
+**C13: M1 saturation ladder**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.80 ms | 4.34 ms | 9.22 ms | 6,000 (saturation 6,000) | 0 % | 454 µs | 41 MiB | 900 MiB |
+| Bifrost | — | — | — | — | — | — | 509 MiB | — |
+| LiteLLM | — | — | — | — | — | — | 1,695 MiB | — |
+
+**C16: no load**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | — | — | — | — | — | — | 41 MiB | 41 MiB |
+| Bifrost | — | — | — | — | — | — | 504 MiB | 504 MiB |
+| LiteLLM | — | — | — | — | — | — | 1,662 MiB | 1,662 MiB |
+
+**C17: S1 5000 RPS (L1500)**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.00 ms | 0.00 ms | 6.14 ms | 5,000 | 0 % | 230 µs | 41 MiB | 1,196 MiB |
+| Bifrost | 6.7 s | 10.5 s | 10.7 s | 5,000 | 0 % | 495 µs | 509 MiB | 3,244 MiB |
+| LiteLLM | — | — | — | 0 | 100 % | — | 1,656 MiB | 1,951 MiB |
+
+**C21.401: S8 20000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.30 ms | 0.75 ms | 0.88 ms | 20,000 | 0 % | 61 µs | 41 MiB | 47 MiB |
+| Bifrost | 1.9 s | 2.5 s | 2.5 s | 20,000 | 0 % | 199 µs | 509 MiB | 2,108 MiB |
+| LiteLLM | — | — | — | 0 | 100 % | — | 1,654 MiB | 2,269 MiB |
+
+**C21.404: S8-404 20000 RPS**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 0.57 ms | 1.27 ms | 1.51 ms | 20,000 | 0 % | 39 µs | 38 MiB | 60 MiB |
+| Bifrost | 17.7 s | 27.4 s | 27.5 s | 20,000 | 0 % | 200 µs | 512 MiB | 2,947 MiB |
+| LiteLLM | — | — | — | 0 | 100 % | — | 1,657 MiB | 2,434 MiB |
+
+**C32.c64: S1 closed loop, 64 connections**
+
+| Gateway | p50 | p99 | p99.9 | Achieved RPS | Errors | CPU per request | RSS idle | RSS peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Antirion | 2.80 ms | 6.15 ms | 10.6 ms | 21,512 | 0 % | 185 µs | 41 MiB | 385 MiB |
+| Bifrost | 7.88 ms | 32.1 ms | 42.0 ms | 6,568 | 0 % | 606 µs | 518 MiB | 1,068 MiB |
+| LiteLLM | 132.2 ms | 488.4 ms | 568.6 ms | 424 | 0 % | 9,018 µs | 1,655 MiB | 1,786 MiB |
+
+### Reading the validity flags
+
+The harness's validity rules were written for a mock on the generator's host. Across machines in a
+placement group a plain TCP connect already takes about 0.5–0.7 ms at p99 (`rtt.txt`), so on this
+topology the mock self-test (p99 ≤ 50 µs at 50,000 RPS) fails and most cells are flagged "direct p99
+above the scripted delay + 1 ms". Those flags concern the network floor every target shares, not a
+target: each cell ran all three gateways interleaved on the same machines, and each overhead is
+measured against the direct run of that same cell. `selftest.txt` and each target's `report.md`
+list every flag.
 
 ## Files
 

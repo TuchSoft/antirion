@@ -1,0 +1,310 @@
+{
+  "cell": "cmp-C4",
+  "valid": false,
+  "reasons": [
+    "rep-1: direct p99 1.034ms above the scripted delay + 1 ms (1ms)",
+    "rep-2: direct p99 1.07ms above the scripted delay + 1 ms (1ms)",
+    "rep-3: direct p99 1.069ms above the scripted delay + 1 ms (1ms)"
+  ],
+  "repetitions": 3,
+  "reference": true,
+  "overhead_us": {
+    "max": {
+      "median": 21048.0,
+      "min": 16367.0,
+      "max": 24423.0
+    },
+    "mean": {
+      "median": 901.075,
+      "min": 820.657,
+      "max": 908.55
+    },
+    "p50": {
+      "median": 805.0,
+      "min": 747.0,
+      "max": 836.0
+    },
+    "p90": {
+      "median": 1214.0,
+      "min": 1044.0,
+      "max": 1238.0
+    },
+    "p99": {
+      "median": 1933.0,
+      "min": 1482.0,
+      "max": 2073.0
+    },
+    "p99_9": {
+      "median": 6655.0,
+      "min": 5561.0,
+      "max": 14216.0
+    }
+  },
+  "ttft_overhead_us": null,
+  "inter_event_overhead_us": null,
+  "saturation_rps": null,
+  "achieved_rps": {
+    "median": 5000.0,
+    "min": 5000.0,
+    "max": 5000.0
+  },
+  "cpu_us_per_request": {
+    "median": 416.8,
+    "min": 401.2,
+    "max": 419.867
+  },
+  "direct": {
+    "achieved_rps": {
+      "median": 5000.0,
+      "min": 5000.0,
+      "max": 5000.0
+    },
+    "error_rate": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "errors": {
+      "connect_errors": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "non_2xx": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "timeouts": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total": {
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      }
+    },
+    "late_fraction": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "success_fraction": {
+      "median": 1.0,
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "direct_latency_us": {
+    "max": {
+      "median": 1352.0,
+      "min": 1335.0,
+      "max": 1376.0
+    },
+    "mean": {
+      "median": 626.569,
+      "min": 603.411,
+      "max": 634.856
+    },
+    "p50": {
+      "median": 626.0,
+      "min": 596.0,
+      "max": 634.0
+    },
+    "p90": {
+      "median": 886.0,
+      "min": 855.0,
+      "max": 889.0
+    },
+    "p99": {
+      "median": 1069.0,
+      "min": 1034.0,
+      "max": 1070.0
+    },
+    "p99_9": {
+      "median": 1191.0,
+      "min": 1174.0,
+      "max": 1200.0
+    }
+  },
+  "error_rate": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "errors": {
+    "connect_errors": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "non_2xx": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "timeouts": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "total": {
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    }
+  },
+  "generator_cpu_pct": {
+    "median": 8.087,
+    "min": 8.087,
+    "max": 8.124
+  },
+  "lag_us": {
+    "max": {
+      "median": 337.0,
+      "min": 333.0,
+      "max": 360.0
+    },
+    "mean": {
+      "median": 85.874,
+      "min": 79.687,
+      "max": 86.125
+    },
+    "p50": {
+      "median": 59.0,
+      "min": 58.0,
+      "max": 59.0
+    },
+    "p90": {
+      "median": 201.0,
+      "min": 183.0,
+      "max": 203.0
+    },
+    "p99": {
+      "median": 262.0,
+      "min": 257.0,
+      "max": 263.0
+    },
+    "p99_9": {
+      "median": 294.0,
+      "min": 292.0,
+      "max": 295.0
+    }
+  },
+  "late_fraction": {
+    "median": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "latency_us": {
+    "max": {
+      "median": 22383.0,
+      "min": 17743.0,
+      "max": 25775.0
+    },
+    "mean": {
+      "median": 1511.962,
+      "min": 1447.226,
+      "max": 1535.931
+    },
+    "p50": {
+      "median": 1432.0,
+      "min": 1373.0,
+      "max": 1439.0
+    },
+    "p90": {
+      "median": 2069.0,
+      "min": 1930.0,
+      "max": 2127.0
+    },
+    "p99": {
+      "median": 2967.0,
+      "min": 2551.0,
+      "max": 3143.0
+    },
+    "p99_9": {
+      "median": 7855.0,
+      "min": 6735.0,
+      "max": 15407.0
+    }
+  },
+  "mock_cpu_pct": {
+    "median": 1.067,
+    "min": 1.067,
+    "max": 1.071
+  },
+  "overhead_header_us": {
+    "max": {
+      "median": 8167.0,
+      "min": 7995.0,
+      "max": 8231.0
+    },
+    "mean": {
+      "median": 216.257,
+      "min": 208.672,
+      "max": 217.184
+    },
+    "p50": {
+      "median": 215.0,
+      "min": 207.0,
+      "max": 215.0
+    },
+    "p90": {
+      "median": 269.0,
+      "min": 261.0,
+      "max": 273.0
+    },
+    "p99": {
+      "median": 318.0,
+      "min": 309.0,
+      "max": 322.0
+    },
+    "p99_9": {
+      "median": 394.0,
+      "min": 356.0,
+      "max": 430.0
+    }
+  },
+  "rss_bytes": {
+    "idle": {
+      "median": 42654378.667,
+      "min": 42448213.333,
+      "max": 42725376.0
+    },
+    "peak": {
+      "median": 220114944.0,
+      "min": 218382336.0,
+      "max": 223047680.0
+    },
+    "steady": {
+      "median": 169515690.667,
+      "min": 163511344.762,
+      "max": 173309171.81
+    }
+  },
+  "rss_over_idle_bytes": {
+    "median": 177389568.0,
+    "min": 175934122.667,
+    "max": 180393301.333
+  },
+  "success_fraction": {
+    "median": 1.0,
+    "min": 1.0,
+    "max": 1.0
+  },
+  "upstream_requests": {
+    "median": 74980.0,
+    "min": 74980.0,
+    "max": 74982.0
+  },
+  "direct_spread_us": {
+    "p50": 38.0,
+    "p90": 34.0,
+    "p99": 36.0,
+    "p99_9": 26.0,
+    "max": 41.0,
+    "mean": 31.445
+  }
+}

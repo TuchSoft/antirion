@@ -1,0 +1,889 @@
+{
+  "schema_version": 1,
+  "targets": [
+    {
+      "name": "bifrost",
+      "version": "transports/v2.2.4",
+      "commit": "n/a",
+      "not_publishable": [
+        "self-test selftest-a: mock-latency failed: L0 at 50000 RPS: p99 1232 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2: mock-latency failed: L0 at 50000 RPS: p99 1258 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2.log: no result (it did not finish)",
+        "self-test shards/A3/selftest-a3: mock-latency failed: L0 at 50000 RPS: p99 1098 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A3/selftest-a3.log: no result (it did not finish)",
+        "self-test shards/A4/selftest-a4: mock-latency failed: L0 at 50000 RPS: p99 1147 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A4/selftest-a4.log: no result (it did not finish)",
+        "self-test shards/A5/selftest-a5: mock-latency failed: L0 at 50000 RPS: p99 1280 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A5/selftest-a5.log: no result (it did not finish)",
+        "self-test shards/A6/selftest-a6: mock-latency failed: L0 at 50000 RPS: p99 1102 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A6/selftest-a6.log: no result (it did not finish)",
+        "self-test shards/A7/selftest-a7: mock-latency failed: L0 at 50000 RPS: p99 949 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A7/selftest-a7.log: no result (it did not finish)"
+      ]
+    },
+    {
+      "name": "litellm",
+      "version": "1.103.1",
+      "commit": "n/a",
+      "not_publishable": [
+        "self-test selftest-a: mock-latency failed: L0 at 50000 RPS: p99 1232 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2: mock-latency failed: L0 at 50000 RPS: p99 1258 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2.log: no result (it did not finish)",
+        "self-test shards/A3/selftest-a3: mock-latency failed: L0 at 50000 RPS: p99 1098 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A3/selftest-a3.log: no result (it did not finish)",
+        "self-test shards/A4/selftest-a4: mock-latency failed: L0 at 50000 RPS: p99 1147 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A4/selftest-a4.log: no result (it did not finish)",
+        "self-test shards/A5/selftest-a5: mock-latency failed: L0 at 50000 RPS: p99 1280 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A5/selftest-a5.log: no result (it did not finish)",
+        "self-test shards/A6/selftest-a6: mock-latency failed: L0 at 50000 RPS: p99 1102 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A6/selftest-a6.log: no result (it did not finish)",
+        "self-test shards/A7/selftest-a7: mock-latency failed: L0 at 50000 RPS: p99 949 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A7/selftest-a7.log: no result (it did not finish)"
+      ]
+    },
+    {
+      "name": "antirion",
+      "version": "0.1.0",
+      "commit": "unknown (prebuilt binary)",
+      "not_publishable": [
+        "self-test selftest-a: mock-latency failed: L0 at 50000 RPS: p99 1232 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2: mock-latency failed: L0 at 50000 RPS: p99 1258 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A2/selftest-a2.log: no result (it did not finish)",
+        "self-test shards/A3/selftest-a3: mock-latency failed: L0 at 50000 RPS: p99 1098 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A3/selftest-a3.log: no result (it did not finish)",
+        "self-test shards/A4/selftest-a4: mock-latency failed: L0 at 50000 RPS: p99 1147 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A4/selftest-a4.log: no result (it did not finish)",
+        "self-test shards/A5/selftest-a5: mock-latency failed: L0 at 50000 RPS: p99 1280 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A5/selftest-a5.log: no result (it did not finish)",
+        "self-test shards/A6/selftest-a6: mock-latency failed: L0 at 50000 RPS: p99 1102 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A6/selftest-a6.log: no result (it did not finish)",
+        "self-test shards/A7/selftest-a7: mock-latency failed: L0 at 50000 RPS: p99 949 µs (bound 50 µs), 1500000 of 1500000 ok",
+        "self-test shards/A7/selftest-a7.log: no result (it did not finish)"
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "cell": "H1",
+      "load": "S1 5000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 19727.0,
+          "p99_us": 95163.0,
+          "p99_9_us": 119429.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 717.067,
+          "rss_idle_bytes": 522317824.0,
+          "rss_peak_bytes": 1456803840.0,
+          "repetitions": 5,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.082ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.156ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.134ms above the scripted delay + 1 ms (1ms)",
+            "rep-4: direct p99 1.12ms above the scripted delay + 1 ms (1ms)",
+            "rep-5: direct p99 1.129ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": 0.0,
+          "saturation_rps": null,
+          "error_rate": 1.0,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1733566464.0,
+          "rss_peak_bytes": 1940783104.0,
+          "repetitions": 5,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.101ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.08ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.072ms above the scripted delay + 1 ms (1ms)",
+            "rep-4: direct p99 1.091ms above the scripted delay + 1 ms (1ms)",
+            "rep-5: direct p99 1.08ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 528.0,
+          "p99_us": 955.0,
+          "p99_9_us": 1177.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 247.4,
+          "rss_idle_bytes": 42669397.333,
+          "rss_peak_bytes": 225153024.0,
+          "repetitions": 5,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.118ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.112ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.131ms above the scripted delay + 1 ms (1ms)",
+            "rep-4: direct p99 1.102ms above the scripted delay + 1 ms (1ms)",
+            "rep-5: direct p99 1.142ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C1",
+      "load": "S1 10000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 12123541.0,
+          "p99_us": 19102627.0,
+          "p99_9_us": 19544832.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 10000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 398.733,
+          "rss_idle_bytes": 538624000.0,
+          "rss_peak_bytes": 3442122752.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.116ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.106ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.122ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": 0.0,
+          "saturation_rps": null,
+          "error_rate": 1.0,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1732927488.0,
+          "rss_peak_bytes": 1940160512.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.112ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.105ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.124ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 610.0,
+          "p99_us": 1501.0,
+          "p99_9_us": 3046.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 10000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 176.067,
+          "rss_idle_bytes": 42739029.333,
+          "rss_peak_bytes": 308838400.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.118ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.121ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.158ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C2",
+      "load": "S1 1000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 718.0,
+          "p99_us": 1160.0,
+          "p99_9_us": 2645.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 897.333,
+          "rss_idle_bytes": 542081024.0,
+          "rss_peak_bytes": 854302720.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": 9108771.0,
+          "p99_us": 29064251.0,
+          "p99_9_us": 29834312.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 719.067,
+          "saturation_rps": null,
+          "error_rate": 0.281,
+          "cpu_us_per_request": 5398.665,
+          "rss_idle_bytes": 1735794688.0,
+          "rss_peak_bytes": 1945366528.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 761.0,
+          "p99_us": 951.0,
+          "p99_9_us": 1020.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 351.333,
+          "rss_idle_bytes": 42603861.333,
+          "rss_peak_bytes": 91230208.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        }
+      }
+    },
+    {
+      "cell": "cmp-C4",
+      "load": "S4 5000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 2499.0,
+          "p99_us": 70047.0,
+          "p99_9_us": 85407.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 661.067,
+          "rss_idle_bytes": 524058624.0,
+          "rss_peak_bytes": 1468571648.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-2: direct p99 1.067ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.043ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": 29326807.0,
+          "p99_us": 29981674.0,
+          "p99_9_us": 29981532.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 35.333,
+          "saturation_rps": null,
+          "error_rate": 0.993,
+          "cpu_us_per_request": 109415.094,
+          "rss_idle_bytes": 1735770112.0,
+          "rss_peak_bytes": 1894223872.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.024ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.026ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.045ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 805.0,
+          "p99_us": 1933.0,
+          "p99_9_us": 6655.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 416.8,
+          "rss_idle_bytes": 42654378.667,
+          "rss_peak_bytes": 220114944.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.034ms above the scripted delay + 1 ms (1ms)",
+            "rep-2: direct p99 1.07ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.069ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C5",
+      "load": "S2 1000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 1476.0,
+          "p99_us": 27246.0,
+          "p99_9_us": 38288.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 2335.333,
+          "rss_idle_bytes": 531668992.0,
+          "rss_peak_bytes": 1187733504.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-3: direct p99 1.024ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": 10206540.0,
+          "p99_us": 29178911.0,
+          "p99_9_us": 29948883.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 653.333,
+          "saturation_rps": null,
+          "error_rate": 0.347,
+          "cpu_us_per_request": 6049.546,
+          "rss_idle_bytes": 1733357568.0,
+          "rss_peak_bytes": 2163933184.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.068ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.001ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 928.0,
+          "p99_us": 1169.0,
+          "p99_9_us": 1340.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 622.667,
+          "rss_idle_bytes": 42702165.333,
+          "rss_peak_bytes": 92454912.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-2: direct p99 1.012ms above the scripted delay + 1 ms (1ms)",
+            "rep-3: direct p99 1.06ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C8",
+      "load": "S3 1000 RPS (LS)",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 12288.0,
+          "p99_us": 150528.0,
+          "p99_9_us": 184320.0,
+          "inter_event_p99_us": 66320.0,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 3585.333,
+          "rss_idle_bytes": 531451904.0,
+          "rss_peak_bytes": 1380585472.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-2: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-3: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": 21330432.0,
+          "p99_us": 28882944.0,
+          "p99_9_us": 29014016.0,
+          "inter_event_p99_us": 1515520.0,
+          "achieved_rps": 181.533,
+          "saturation_rps": null,
+          "error_rate": 0.818,
+          "cpu_us_per_request": 21120.059,
+          "rss_idle_bytes": 1732653056.0,
+          "rss_peak_bytes": 2082873344.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-2: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-3: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 512.0,
+          "p99_us": 512.0,
+          "p99_9_us": 512.0,
+          "inter_event_p99_us": -16.0,
+          "achieved_rps": 1000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 1425.333,
+          "rss_idle_bytes": 42790912.0,
+          "rss_peak_bytes": 207273984.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-2: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)",
+            "rep-3: direct p99 1.001471s above the scripted delay + 1 ms (1.001s)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C11",
+      "load": "S1 saturation ladder",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 557.0,
+          "p99_us": 2536.0,
+          "p99_9_us": 5050.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 3500.0,
+          "saturation_rps": 3500.0,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 717.143,
+          "rss_idle_bytes": 524087296.0,
+          "rss_peak_bytes": 1172668416.0,
+          "repetitions": 1,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.055ms above the scripted delay + 1 ms (1ms)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": 0.0,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1761263616.0,
+          "rss_peak_bytes": null,
+          "repetitions": 1,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 606.0,
+          "p99_us": 2726.0,
+          "p99_9_us": 8277.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 14000.0,
+          "saturation_rps": 14000.0,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 199.49,
+          "rss_idle_bytes": 42467328.0,
+          "rss_peak_bytes": 391360512.0,
+          "repetitions": 1,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.231ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C13",
+      "load": "M1 saturation ladder",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": 0.0,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 533553152.0,
+          "rss_peak_bytes": null,
+          "repetitions": 1,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": 0.0,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1776877568.0,
+          "rss_peak_bytes": null,
+          "repetitions": 1,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 799.0,
+          "p99_us": 4339.0,
+          "p99_9_us": 9225.0,
+          "inter_event_p99_us": 417.0,
+          "achieved_rps": 6000.0,
+          "saturation_rps": 6000.0,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 453.81,
+          "rss_idle_bytes": 42531498.667,
+          "rss_peak_bytes": 943828992.0,
+          "repetitions": 1,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.084ms above the scripted delay + 1 ms (1ms)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C16",
+      "load": " no load",
+      "targets": {
+        "bifrost": {
+          "metric": "latency_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": null,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 528478208.0,
+          "rss_peak_bytes": 528478208.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "litellm": {
+          "metric": "latency_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": null,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1742700544.0,
+          "rss_peak_bytes": 1742700544.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "latency_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": null,
+          "saturation_rps": null,
+          "error_rate": null,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 42507915.636,
+          "rss_peak_bytes": 42573824.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        }
+      }
+    },
+    {
+      "cell": "cmp-C17",
+      "load": "S1 5000 RPS (L1500)",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 6686720.0,
+          "p99_us": 10482688.0,
+          "p99_9_us": 10687488.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 494.667,
+          "rss_idle_bytes": 533794816.0,
+          "rss_peak_bytes": 3401388032.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-2: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-3: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)"
+          ]
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": 0.0,
+          "saturation_rps": null,
+          "error_rate": 1.0,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1736048640.0,
+          "rss_peak_bytes": 2046046208.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-2: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-3: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)"
+          ]
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 0.0,
+          "p99_us": 0.0,
+          "p99_9_us": 6144.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 5000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 230.4,
+          "rss_idle_bytes": 42745856.0,
+          "rss_peak_bytes": 1254289408.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-1: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-2: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)",
+            "rep-3: direct p99 1.502207s above the scripted delay + 1 ms (1.501s)"
+          ]
+        }
+      }
+    },
+    {
+      "cell": "cmp-C21.401",
+      "load": "S8 20000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "latency_us",
+          "p50_us": 1858559.0,
+          "p99_us": 2492415.0,
+          "p99_9_us": 2539519.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 20000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 198.633,
+          "rss_idle_bytes": 533790720.0,
+          "rss_peak_bytes": 2209931264.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "litellm": {
+          "metric": "latency_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": 0.0,
+          "saturation_rps": null,
+          "error_rate": 1.0,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1734717440.0,
+          "rss_peak_bytes": 2378702848.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "latency_us",
+          "p50_us": 299.0,
+          "p99_us": 747.0,
+          "p99_9_us": 877.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 20000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 61.0,
+          "rss_idle_bytes": 42699434.667,
+          "rss_peak_bytes": 49217536.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        }
+      }
+    },
+    {
+      "cell": "cmp-C21.404",
+      "load": "S8-404 20000 RPS",
+      "targets": {
+        "bifrost": {
+          "metric": "latency_us",
+          "p50_us": 17661951.0,
+          "p99_us": 27361279.0,
+          "p99_9_us": 27475967.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 20000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 199.533,
+          "rss_idle_bytes": 536535040.0,
+          "rss_peak_bytes": 3090612224.0,
+          "repetitions": 3,
+          "valid": false,
+          "skipped": null,
+          "reasons": [
+            "rep-3: 0.18 % of gateway requests left over 1 ms late"
+          ]
+        },
+        "litellm": {
+          "metric": "latency_us",
+          "p50_us": null,
+          "p99_us": null,
+          "p99_9_us": null,
+          "inter_event_p99_us": null,
+          "achieved_rps": 0.0,
+          "saturation_rps": null,
+          "error_rate": 1.0,
+          "cpu_us_per_request": null,
+          "rss_idle_bytes": 1737064448.0,
+          "rss_peak_bytes": 2552119296.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "latency_us",
+          "p50_us": 571.0,
+          "p99_us": 1272.0,
+          "p99_9_us": 1508.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 20000.0,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 39.267,
+          "rss_idle_bytes": 39744853.333,
+          "rss_peak_bytes": 62537728.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        }
+      }
+    },
+    {
+      "cell": "cmp-C32.c64",
+      "load": "S1 closed loop, 64 connections",
+      "targets": {
+        "bifrost": {
+          "metric": "overhead_us",
+          "p50_us": 7878.0,
+          "p99_us": 32147.0,
+          "p99_9_us": 41991.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 6568.2,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 606.051,
+          "rss_idle_bytes": 543002624.0,
+          "rss_peak_bytes": 1120378880.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "litellm": {
+          "metric": "overhead_us",
+          "p50_us": 132167.0,
+          "p99_us": 488445.0,
+          "p99_9_us": 568561.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 424.333,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 9017.648,
+          "rss_idle_bytes": 1735708672.0,
+          "rss_peak_bytes": 1873117184.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        },
+        "antirion": {
+          "metric": "overhead_us",
+          "p50_us": 2802.0,
+          "p99_us": 6152.0,
+          "p99_9_us": 10613.0,
+          "inter_event_p99_us": null,
+          "achieved_rps": 21512.267,
+          "saturation_rps": null,
+          "error_rate": 0.0,
+          "cpu_us_per_request": 184.546,
+          "rss_idle_bytes": 42561536.0,
+          "rss_peak_bytes": 403607552.0,
+          "repetitions": 3,
+          "valid": true,
+          "skipped": null,
+          "reasons": []
+        }
+      }
+    }
+  ]
+}
