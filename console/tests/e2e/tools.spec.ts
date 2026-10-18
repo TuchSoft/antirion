@@ -343,7 +343,7 @@ test('the Status page offers the test-mode clock and a reset of chosen state', a
   await expect(panel.getByRole('heading', { name: 'Clock' })).toBeVisible();
   await panel.getByRole('radio', { name: '1 minute' }).click();
   await panel.getByRole('button', { name: 'Advance' }).click();
-  await expect(page.getByText('Clock moved')).toBeVisible();
+  await expect(page.getByText('Clock moved', { exact: true })).toBeVisible();
   const after = ((await (await call(request, 'GET', '/test/clock')).json()) as { now: string }).now;
   expect(Date.parse(after) - Date.parse(before)).toBeGreaterThanOrEqual(60_000);
 
@@ -361,5 +361,5 @@ test('the Status page offers the test-mode clock and a reset of chosen state', a
   const confirm = page.getByRole('alertdialog', { name: 'Reset the selected state?' });
   await expect(confirm.getByText(/clears session affinity/)).toBeVisible();
   await confirm.getByRole('button', { name: 'Reset state' }).click();
-  await expect(page.getByText('State reset')).toBeVisible();
+  await expect(page.getByText('State reset', { exact: true })).toBeVisible();
 });
