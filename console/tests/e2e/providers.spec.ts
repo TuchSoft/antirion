@@ -17,7 +17,10 @@ async function call(request: APIRequestContext, method: string, path: string, bo
   return response;
 }
 
-/** An upstream that refuses the key `sk-refused` and reports its limits to every other one. */
+/**
+ * An upstream that refuses the key `sk-refused`, lists its models (what a key test reads) and
+ * reports its limits to every other one.
+ */
 function upstream(): Promise<Server> {
   const server = createServer((req, res) => {
     let body = '';
@@ -27,6 +30,13 @@ function upstream(): Promise<Server> {
         res.writeHead(401, { 'content-type': 'application/json' });
         res.end(
           '{"error":{"message":"invalid api key","type":"invalid_request_error","code":"invalid_api_key"}}',
+        );
+        return;
+      }
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          '{"object":"list","data":[{"id":"gpt-4o-mini","object":"model","created":1,"owned_by":"openai"}]}',
         );
         return;
       }
@@ -115,10 +125,18 @@ test('a provider opens with its tier, key ages and limits, and a refused key is 
   await expect(row).toContainText('max 30 days');
   await row.click();
   const drawer = page.getByRole('dialog', { name: provider });
-  await expect(drawer).toContainText('Tier 2');
-  await expect(drawer).toContainText('Replace keys every 30 days');
+  // The drawer edits the provider's settings, so the tier and rotation policy are its fields' values.
+  await expect(drawer.getByLabel('Account tier')).toHaveValue('Tier 2');
+  await expect(drawer.getByRole('combobox', { name: 'Warn when a key is older than' })).toContainText(
+    '30 days',
+  );
   const main = drawer.getByRole('listitem').filter({ hasText: 'main' });
+  await expect(main).toContainText('replace every 30 days');
   await expect(main).toContainText('120 of 500 left');
+  // A key's status comes from its tests: untested until one runs, Working once it passes.
+  await expect(main).toContainText('Not tested yet');
+  await main.getByRole('button', { name: 'Test key' }).click();
+  await expect(page.getByText('main answered')).toBeVisible();
   await expect(main).toContainText('Working');
   const spare = drawer.getByRole('listitem').filter({ hasText: 'spare' });
   await expect(spare).toContainText('Not working');
