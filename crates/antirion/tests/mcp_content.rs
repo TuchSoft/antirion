@@ -65,11 +65,12 @@ fn dechunk(mut s: &str) -> String {
 
 /// The REST API behind the `openapi` server: every request gets the same customer list.
 async fn api(listener: TcpListener) {
+    let mut connections = JoinSet::new();
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             return;
         };
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let mut buf = vec![0u8; 8192];
             let mut seen = 0;
             loop {
