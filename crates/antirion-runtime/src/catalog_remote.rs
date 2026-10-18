@@ -23,7 +23,8 @@ const MAX_BODY: usize = 64 << 20;
 /// What a fetch waits after a failure before trying again.
 const RETRY_AFTER: Duration = Duration::from_secs(15 * 60);
 
-/// The settings of `catalog.remote` when it is on.
+/// The settings of `catalog.remote` when it is on: on unless the document turns it off, except in
+/// test mode, where it is off unless the document turns it on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Remote {
     pub url: String,
@@ -31,13 +32,20 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// The settings of a document, when `catalog.remote.enabled` is true.
+    /// The settings of a document, when `catalog.remote.enabled` is true, or unset and `default_on`.
     #[must_use]
-    pub fn of(doc: &Value) -> Option<Remote> {
-        let r = doc.pointer("/catalog/remote")?;
-        if r.get("enabled").and_then(Value::as_bool) != Some(true) {
+    pub fn of(doc: &Value, default_on: bool) -> Option<Remote> {
+        let r = doc.pointer("/catalog/remote");
+        let enabled = r
+            .and_then(|r| r.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(default_on);
+        if !enabled {
             return None;
         }
+        let r = r
+            .cloned()
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
         Some(Remote {
             url: r
                 .get("url")
@@ -129,13 +137,14 @@ async fn fetch(rt: &Runtime, url: &str) -> Result<ModelsDev, String> {
     ModelsDev::from_api(&v, &today).map_err(|e| e.to_string())
 }
 
-/// Follows `catalog.remote` until shutdown.
-pub async fn run(rt: Arc<Runtime>) {
+/// Follows `catalog.remote` until shutdown; `default_on` is whether it runs when the document leaves
+/// it unset (on outside test mode).
+pub async fn run(rt: Arc<Runtime>, default_on: bool) {
     let mut last: Option<Last> = None;
     let mut installed = false;
     loop {
         let snap = rt.gens.load();
-        match Remote::of(&snap.config.doc) {
+        match Remote::of(&snap.config.doc, default_on) {
             None => {
                 last = None;
                 if installed {
@@ -192,14 +201,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_setting_is_off_unless_enabled() {
-        assert_eq!(Remote::of(&json!({})), None);
+    fn the_setting_is_on_unless_turned_off_and_off_by_default_in_test_mode() {
+        let defaults = Some(Remote {
+            url: modelsdev::SOURCE_URL.to_owned(),
+            refresh: Duration::from_secs(86_400),
+        });
+        assert_eq!(Remote::of(&json!({}), true), defaults);
+        assert_eq!(Remote::of(&json!({}), false), None);
         assert_eq!(
-            Remote::of(&json!({"catalog": {"remote": {"enabled": false}}})),
+            Remote::of(&json!({"catalog": {"remote": {"enabled": false}}}), true),
             None
         );
         assert_eq!(
-            Remote::of(&json!({"catalog": {"remote": {"enabled": true}}})),
+            Remote::of(&json!({"catalog": {"remote": {"enabled": true}}}), false),
             Some(Remote {
                 url: modelsdev::SOURCE_URL.to_owned(),
                 refresh: Duration::from_secs(86_400)
@@ -208,6 +222,7 @@ mod tests {
         let r = Remote::of(
             &json!({"catalog": {"remote": {"enabled": true, "url": "https://m/api.json",
                                                          "refresh": "6h"}}}),
+            true,
         )
         .unwrap();
         assert_eq!(

@@ -1003,7 +1003,7 @@ eligibility filters and the planner the attempt loop reads) and `decide.rs`.
   (`modelsdev::PROVIDERS`), with each model's name, prices (USD per million tokens), limits, modalities and
   release date. `cargo xtask catalog` refreshes the snapshot from <https://models.dev/api.json> with
   `curl` (`--from <file>` reads a downloaded copy, `--url` another address). `catalog.remote`
-  (`{enabled, url, refresh}`, off by default, `refresh` between 1h and 30d, default 24h) fetches the
+  (`{enabled, url, refresh}`, on by default and off by default in test mode, `refresh` between 1h and 30d, default 24h) fetches the
   document at run time through the egress policy (`antirion-runtime/src/catalog_remote.rs`), installs it
   in place of the snapshot (`modelsdev::install`) and rebuilds the serving snapshot; a failed fetch keeps
   the data in use and retries after 15 minutes, and turning it off goes back to the snapshot.

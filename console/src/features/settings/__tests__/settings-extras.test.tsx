@@ -281,20 +281,21 @@ describe('Model catalog', () => {
     useTraffic.setState({ catalog: emptySlot() });
   });
 
-  it('turns models.dev fetching on with its defaults and shows the layers in use', async () => {
+  it('fetches models.dev by default, and turns it off or changes how often', async () => {
     const patches = settingsKey('catalog', {});
     server.use(status());
     render(<CatalogSection />);
     const c = await waitFor(() => card('Catalog layers'));
     expect(await within(c).findByText(/15 entries · capabilities 2026-10-01/)).toBeInTheDocument();
-    expect(
-      within(c).getByText(/bundled with the gateway; this gateway does not report its date/),
-    ).toBeInTheDocument();
     expect(within(c).getByRole('textbox', { name: 'From' })).toHaveValue('https://models.dev/api.json');
-    await userEvent.click(within(c).getByRole('switch', { name: "Fetch models.dev's data regularly" }));
+    const fetching = within(c).getByRole('switch', { name: "Fetch models.dev's data regularly" });
+    expect(fetching).toBeChecked();
     await pickOption(within(c).getByRole('combobox', { name: 'Every' }), '6 hours');
     await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(patches).toEqual([{ remote: { enabled: true, refresh: '6h' } }]));
+    await waitFor(() => expect(patches).toEqual([{ remote: { refresh: '6h' } }]));
+    await userEvent.click(fetching);
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches.at(-1)).toEqual({ remote: { enabled: false } }));
   });
 
   it('shows the models.dev snapshot date and the last refresh when the gateway reports them', async () => {
@@ -356,7 +357,7 @@ describe('Model catalog', () => {
     expect(catalogSpec(catalogValues(undefined))).toEqual({
       mode: 'extend',
       version: null,
-      remote: { enabled: false, url: 'https://models.dev/api.json', refresh: '24h' },
+      remote: { enabled: true, url: 'https://models.dev/api.json', refresh: '24h' },
     });
   });
 });

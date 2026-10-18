@@ -629,8 +629,10 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     rt.tasks.spawn(antirion_runtime::push::run(Arc::clone(&rt)));
     rt.tasks.spawn(antirion_runtime::pools::run(Arc::clone(&rt)));
     rt.tasks.spawn(antirion_runtime::bandits::run(Arc::clone(&rt)));
-    rt.tasks
-        .spawn(antirion_runtime::catalog_remote::run(Arc::clone(&rt)));
+    rt.tasks.spawn(antirion_runtime::catalog_remote::run(
+        Arc::clone(&rt),
+        !opts.test_mode,
+    ));
     rt.tasks
         .spawn(Arc::clone(&rt.admission).watch_memory(rt.shutdown.clone()));
     rt.tasks.spawn(antirion_runtime::wasm::clock(Arc::clone(&rt)));

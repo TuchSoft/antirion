@@ -16717,11 +16717,11 @@
         },
         "remote": {
           "type": "object",
-          "description": "Fetches models.dev's model data (prices, limits, names) periodically, through the egress policy, in place of the snapshot bundled with the gateway. Off by default. A fetch that fails keeps the data in use; the bundled prices and `models` still come first wherever they define a model.",
+          "description": "Fetches models.dev's model data (prices, limits, names) periodically, through the egress policy, in place of the snapshot bundled with the gateway. On by default; off by default in test mode. A fetch that fails keeps the data in use; the bundled prices and `models` still come first wherever they define a model.",
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": false
+              "default": true
             },
             "url": {
               "type": "string",

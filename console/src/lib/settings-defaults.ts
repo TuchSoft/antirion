@@ -390,7 +390,7 @@ export const SETTINGS_DEFAULTS = {
     version: null,
     models: {},
     remote: {
-      enabled: false,
+      enabled: true,
       url: 'https://models.dev/api.json',
       refresh: '24h',
     },
