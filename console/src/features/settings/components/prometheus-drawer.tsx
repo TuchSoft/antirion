@@ -16,6 +16,14 @@ import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 
 import { detailErrors, mergePatch } from '../form-errors';
 import { useOrgSettings } from '../store';
+import {
+  checkSeries,
+  SERIES_PATHS,
+  SeriesFields,
+  seriesSpec,
+  type SeriesValues,
+  seriesValues,
+} from './metric-series';
 import { Hint } from './settings-form';
 
 type Obj = Record<string, unknown>;
@@ -59,31 +67,42 @@ export function PrometheusDrawer({ onClose }: { onClose: () => void }) {
   const metrics = obj(obj(spec).metrics);
   const [start] = useState(() => prometheusValues(metrics));
   const [form, setForm] = useState(start);
+  const [seriesStart] = useState(() => seriesValues(metrics));
+  const [series, setSeries] = useState(seriesStart);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const edited = useEdited(form);
+  const edited = useEdited({ form, series });
   const disabled = !canWrite;
   const statusHref = useSettingsHref('status');
   const set = <K extends keyof PrometheusValues>(k: K, v: PrometheusValues[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (errors[k]) setErrors(({ [k]: _, ...rest }) => rest);
   };
+  const setSeriesValue = <K extends keyof SeriesValues>(k: K, v: SeriesValues[K]) => {
+    setSeries((f) => ({ ...f, [k]: v }));
+    if (Object.keys(errors).length) setErrors((e): FieldErrors => (e.path ? { path: e.path } : {}));
+  };
 
   async function submit() {
-    const e: FieldErrors = {};
+    const e: FieldErrors = checkSeries(series);
     if (!/^\/[A-Za-z0-9._~\-/]*$/.test(form.path.trim())) e.path = 'Enter a path such as /metrics';
     setErrors(e);
     if (Object.keys(e).length) return;
     setBusy(true);
     setError(null);
     try {
-      await save({ metrics: mergePatch(prometheusSpec(start), prometheusSpec(form)) });
+      await save({
+        metrics: {
+          ...mergePatch(prometheusSpec(start), prometheusSpec(form)),
+          ...mergePatch(seriesSpec(seriesStart), seriesSpec(series)),
+        },
+      });
       notify('success', 'Prometheus endpoint saved');
       onClose();
     } catch (err) {
       setError(err);
-      setErrors(detailErrors(err, { 'observability.metrics.path': 'path' }));
+      setErrors(detailErrors(err, { 'observability.metrics.path': 'path', ...SERIES_PATHS }));
     } finally {
       setBusy(false);
     }
@@ -168,6 +187,12 @@ export function PrometheusDrawer({ onClose }: { onClose: () => void }) {
             onChange={(v) => set('tenantLabels', v as TenantLabel[])}
           />
         </Field>
+        <SeriesFields
+          values={series}
+          set={setSeriesValue}
+          errors={errors}
+          disabled={disabled || !form.enabled}
+        />
         <p className="text-caption text-muted">
           The scrape address and what the series carry also show on{' '}
           <a href={statusHref} className="text-accent hover:underline">

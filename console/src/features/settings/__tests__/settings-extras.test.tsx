@@ -8,6 +8,8 @@ import { server } from '@/mocks/node';
 import { pickOption, signInAs } from '@/test/utils';
 
 import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
+import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
+import { PrometheusDrawer } from '../components/prometheus-drawer';
 import { RecordFieldsCard } from '../components/record-fields';
 import { useOrgSettings } from '../store';
 
@@ -95,5 +97,38 @@ describe('Request log writing and export', () => {
         { request_logs: { sinks: { stdout: { enabled: true } }, export_max_rows: 500000 } },
       ]),
     );
+  });
+});
+
+describe('Prometheus series settings', () => {
+  it('reads and writes labels from metadata, buckets and caps', () => {
+    const v = seriesValues({
+      custom_labels: { tier: { from_metadata: 'customer_tier', allowed_values: ['gold', 'free'] } },
+      buckets: { antirion_request_duration_seconds: [0.5, 1, 5] },
+    });
+    expect(v.customLabels[0]).toMatchObject({ name: 'tier', other: '_other', families: [] });
+    expect(v.buckets[0]?.bounds).toBe('0.5, 1, 5');
+    expect(v.maxSeries).toBe('10000');
+    expect(seriesSpec(v)).toMatchObject({
+      custom_labels: { tier: { from_metadata: 'customer_tier', allowed_values: ['gold', 'free'] } },
+      buckets: { antirion_request_duration_seconds: [0.5, 1, 5] },
+    });
+    expect(checkSeries(v)).toEqual({});
+    const bad = checkSeries({ ...v, buckets: [{ family: 'requests', bounds: '5, 1' }], maxSeries: '10' });
+    expect(Object.keys(bad).sort()).toEqual(['buckets.0.bounds', 'buckets.0.family', 'maxSeries']);
+  });
+
+  it('saves only the series cap that changed, from the Prometheus drawer', async () => {
+    signInAs(['config:read', 'config:apply']);
+    useOrgSettings.setState({ observability: emptySlot() });
+    const patches = settingsKey('observability', { metrics: { tenant_labels: ['team'] } });
+    await useOrgSettings.getState().loadObservability();
+    render(<PrometheusDrawer onClose={() => undefined} />);
+    await userEvent.click(screen.getByText('Series, labels and buckets'));
+    const cap = screen.getByLabelText('Most series per metric');
+    await userEvent.clear(cap);
+    await userEvent.type(cap, '50000');
+    await userEvent.click(screen.getByRole('button', { name: 'Save endpoint' }));
+    await waitFor(() => expect(patches).toEqual([{ metrics: { max_series_per_family: 50000 } }]));
   });
 });
