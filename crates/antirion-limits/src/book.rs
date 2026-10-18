@@ -18,8 +18,9 @@ use crate::money::Nusd;
 use crate::period::PeriodBounds;
 use crate::store::StoreError;
 
-/// The lines the window keeps once the store holds them.
-pub const WINDOW: usize = 65_536;
+/// The lines the window keeps once the store holds them. A held line with its indexes costs over
+/// 1 KiB, so the window stays near 10 MiB; older lines are read from the store, a page at a time.
+pub const WINDOW: usize = 8_192;
 
 /// A line in the window. `seq` orders appends; a line read from the store is `stored` from the
 /// start, the node's own lines once the writer reported them durable.
