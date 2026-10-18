@@ -10,6 +10,7 @@ import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { settingsApi } from '../api';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
+import { CallPricesCard, MarkupsCard } from './pricing-tables';
 import { Choice, Hint, lock, SettingsForm } from './settings-form';
 
 type OnUnpriced = 'reject_if_budgeted' | 'zero';
@@ -270,7 +271,13 @@ export function BudgetsPricingSection() {
   }, [load, canPricing, canBudgets]);
   return (
     <>
-      {canPricing ? <PricingCard /> : null}
+      {canPricing ? (
+        <>
+          <PricingCard />
+          <MarkupsCard />
+          <CallPricesCard />
+        </>
+      ) : null}
       {canBudgets ? <BudgetsCard /> : null}
     </>
   );

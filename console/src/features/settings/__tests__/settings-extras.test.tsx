@@ -11,11 +11,26 @@ import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
 import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
 import { AlertTimingCard, RequestDetailsCard } from '../components/observability-extras';
 import { PrometheusDrawer } from '../components/prometheus-drawer';
+import { CallPricesCard, checkCallPrice, checkMarkup, MarkupsCard } from '../components/pricing-tables';
 import { RecordFieldsCard } from '../components/record-fields';
 import { SmtpCard } from '../components/smtp-card';
 import { useLinks, useOrgSettings } from '../store';
+import { useTraffic } from '../traffic-store';
 
 const meta = { etag: '"5"', generation: 5, created_at: null, updated_at: null, managed_by: 'api' };
+
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** A JSON merge patch (RFC 7386) applied to `a`, as the gateway applies a settings PATCH. */
+function mergeJson(a: Obj, patch: Obj): Obj {
+  const merged = Object.entries(patch).map(([k, v]): [string, unknown] => [
+    k,
+    isObj(v) ? mergeJson(isObj(a[k]) ? a[k] : {}, v) : v,
+  ]);
+  return Object.fromEntries<unknown>(
+    [...Object.entries(a).filter(([k]) => !(k in patch)), ...merged].filter(([, v]) => v !== null),
+  );
+}
 
 /** A settings key that answers `spec` and records each PATCH body's spec. */
 function settingsKey(key: string, spec: Record<string, unknown>) {
@@ -26,7 +41,7 @@ function settingsKey(key: string, spec: Record<string, unknown>) {
     http.patch(`*/admin/v1/settings/${key}`, async ({ request }) => {
       const body = (await request.json()) as { spec: Record<string, unknown> };
       patches.push(body.spec);
-      current = { ...current, ...body.spec };
+      current = mergeJson(current, body.spec);
       return HttpResponse.json({ spec: current, metadata: { ...meta, etag: '"6"' } });
     }),
   );
@@ -187,5 +202,54 @@ describe('Email server', () => {
     await pickOption(within(c).getByRole('combobox', { name: 'Give up on the server after' }), '30 seconds');
     await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(patches).toEqual([{ password: null, timeout: '30s' }]));
+  });
+});
+
+describe('Markups and tool prices', () => {
+  beforeEach(() => {
+    signInAs(['pricing:read', 'pricing:write']);
+    useTraffic.setState({ pricing: emptySlot() });
+  });
+
+  it('adds a team markup and removes a tool price', async () => {
+    const patches = settingsKey('pricing', {
+      multipliers: { keys: { 'ci-bot': '0' } },
+      tools: { 'search/*': { per_call: '0.002' } },
+    });
+    await useTraffic.getState().load(['pricing']);
+    render(
+      <>
+        <MarkupsCard />
+        <CallPricesCard />
+      </>,
+    );
+    const markups = card('Markups');
+    expect(within(markups).getByText('Free')).toBeInTheDocument();
+    await userEvent.click(within(markups).getByRole('button', { name: 'Add markup' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add markup' });
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'search');
+    const factor = within(dialog).getByLabelText('Multiply the cost by');
+    await userEvent.clear(factor);
+    await userEvent.type(factor, '1.25');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add markup' }));
+    await waitFor(() => expect(patches[0]).toEqual({ multipliers: { teams: { search: '1.25' } } }));
+
+    const prices = card('Tool and agent prices');
+    expect(within(prices).getByText('$0.002')).toBeInTheDocument();
+    await userEvent.click(within(prices).getByRole('button', { name: 'Actions for search/*' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove price' }));
+    await userEvent.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Remove price' }),
+    );
+    await waitFor(() => expect(patches[1]).toEqual({ tools: { 'search/*': null } }));
+  });
+
+  it('checks names and amounts', () => {
+    expect(Object.keys(checkMarkup({ level: 'teams', name: 'Bad Name', factor: 'x' }, [])).sort()).toEqual([
+      'factor',
+      'name',
+    ]);
+    expect(checkCallPrice({ kind: 'tools', name: 'search', perCall: '0.1' }, [])).toHaveProperty('name');
+    expect(checkCallPrice({ kind: 'agents', name: 'researcher', perCall: '0.1' }, [])).toEqual({});
   });
 });

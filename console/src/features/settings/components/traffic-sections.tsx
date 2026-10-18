@@ -17,7 +17,8 @@ export const TRAFFIC_SECTIONS: Section[] = [
     permission: ['pricing:read', 'policies:read'],
     label: 'Budgets & pricing',
     icon: 'wallet',
-    description: 'How unpriced requests are counted, and how budgets behave for every organization.',
+    description:
+      'How unpriced requests are counted, markups and tool prices, and how budgets behave for every organization.',
     aliases: ['pricing', 'budgets'],
     render: () => <BudgetsPricingSection />,
   },
