@@ -1,5 +1,9 @@
 # Comparison targets
 
+The published comparison with Bifrost (`../bifrost/`) and LiteLLM (`../litellm/`), and how to
+reproduce it on AWS, is in [docs/benchmarks.md](../../../docs/benchmarks.md). This page describes
+how the harness drives any external target.
+
 Other gateways run the `compare` suite through `--target external`: the harness sends the same
 corpus, at the same rates, through the same generator, to `--target-url host:port` (one per node),
 with `--target-key` as the key. The key goes in `--target-auth-header` (`authorization`, with the

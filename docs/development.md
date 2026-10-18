@@ -228,6 +228,10 @@ output under `target/bench`: `cd bench && cargo build --release --locked`. It ho
 - `cli/`: `antirion-bench` (`selftest`, `cell`, `run --suite`, `report`, `list`, `env`);
 - `matrix/` (scenarios and cells as data), `profiles/` (gateway profiles in the configuration's
   own form, with generated keys, models and MCP servers), `topologies/`, `targets/`.
+- `aws/`: the AWS orchestration of the reference runs and the comparison (`run.sh`, `teardown.sh`,
+  `build-bundle.sh`, `gen-cells.py`, the VM scripts in `vm/`); `targets/bifrost/` and
+  `targets/litellm/` are the comparison targets. [Benchmarks](benchmarks.md) describes what is
+  measured, the targets' configurations, and how to reproduce the comparison.
 
 Keys of a profile are `${env:AK_<name>}` references whose secrets `antirion-bench` derives from
 the corpus seed and passes in the gateway's environment. The criterion micro-benchmarks are
