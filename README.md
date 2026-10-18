@@ -94,25 +94,41 @@ benchmark on your own AWS account.
 
 ## Getting started
 
-You need Docker with Compose v2.24 or later, and an API key from OpenAI or Anthropic.
+You need Node.js 18 or later or Docker, and an API key from OpenAI or Anthropic.
 
 **1. Start the gateway.**
 
 ```bash
-git clone https://github.com/eliasbiondo/antirion.git && cd antirion
-cp .env.example .env
-# put a bootstrap token and an encryption key in .env:
-sed -i.bak "s|^ANTIRION_BOOTSTRAP_TOKEN=.*|ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)|; s|^ANTIRION_ENCRYPTION_KEY=.*|ANTIRION_ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env && rm .env.bak
-docker compose up -d    # the first run builds the image: 10 to 20 minutes
+npx -y antirion
+```
+
+or, with Docker:
+
+```bash
+docker run -p 8080:8080 -p 8081:8081 antirion/antirion
+```
+
+No config file is needed. The first start prints the console's address and an admin token, shown
+that once:
+
+```text
+  Console      http://localhost:8081/ui/
+  Admin token  ak-antirion-…
+               Shown on this first start only; it is kept in
+               /home/you/.antirion/bootstrap-token
+  Data plane   http://localhost:8080/v1
 ```
 
 The data plane (the `/v1` API your apps call) is on port 8080, the admin plane (the Admin API and
-the console) on 8081, both on 127.0.0.1. `docker compose ps` shows the gateway as `healthy` once it
-is ready.
+the console) on 8081. `npx` downloads the release binary for Linux or macOS once, checks its
+SHA-256 and keeps the gateway's data in `~/.antirion`; the container keeps it in
+`/var/lib/antirion` (add `-v antirion-data:/var/lib/antirion` to keep it across containers).
+`npx -y antirion --help` lists the ports, the data directory and the other settings.
 
-**2. Sign in.** Open <http://localhost:8081/ui/> and paste `ANTIRION_BOOTSTRAP_TOKEN` from `.env`
-into **Admin token**. From there you can invite your team, so everyone signs in with their own
-account.
+**2. Sign in.** Open <http://localhost:8081/ui/> and paste the admin token into **Admin token**.
+Lost it? It is in `~/.antirion/bootstrap-token`, or in the container:
+`docker cp <container>:/var/lib/antirion/data/bootstrap-token - | tar -xO`. From the console you
+can invite your team, so everyone signs in with their own account.
 
 **3. Add a provider.** **Providers → Add provider**, choose **OpenAI** or **Anthropic** and paste its
 API key. **Test** the connection: the gateway asks the provider for its models, and the provider is
@@ -140,8 +156,9 @@ SDKs point at `http://localhost:8080`.
 tokens, latency and cost; select it for the details, from the route taken to the cost ledger. The
 **Playground** sends requests from the console.
 
-Invitations, password resets and email alerts go to Mailpit at <http://localhost:8025>, so nothing
-leaves your machine until you configure a real SMTP server.
+For a gateway with email, run it with [Docker Compose](#docker-compose): invitations, password resets
+and email alerts go to Mailpit at <http://localhost:8025>, so nothing leaves your machine until you
+configure a real SMTP server.
 
 No API key yet? [docs/getting-started.md](docs/getting-started.md) shows a way to try Antirion
 without one, and covers other ports and host names, real email, the cluster, Kubernetes and
@@ -154,9 +171,22 @@ share PostgreSQL and Valkey. Pick the way you run things.
 
 ### Docker
 
-The image is distroless, runs as UID 65532 and keeps its data in `/var/lib/antirion`. Release
-images are published to `ghcr.io/eliasbiondo/antirion` for every `vX.Y.Z` tag; to build your own,
-run `docker build -f docker/Dockerfile -t antirion .` in the repository.
+The image is distroless, runs as UID 65532 and keeps its data in the volume `/var/lib/antirion`.
+Release images are published to Docker Hub as `antirion/antirion` and to
+`ghcr.io/eliasbiondo/antirion` for every `vX.Y.Z` tag; to build your own, run
+`docker build -f docker/Dockerfile -t antirion .` in the repository.
+
+Without a config file, the image runs a standalone node with the embedded store in the volume and
+generates a bootstrap token and an encryption key there; the first start prints the token in the
+log. The console's origin is `http://localhost:8081`: set `ANTIRION_PUBLIC_ORIGIN` when you open it
+at another address, and `ANTIRION_BOOTSTRAP_TOKEN` and `ANTIRION_ENCRYPTION_KEY` to bring your own.
+
+```bash
+docker run -d --name antirion -p 8080:8080 -p 8081:8081 -v antirion-data:/var/lib/antirion antirion/antirion
+docker logs antirion    # the console's address and, on the first start, the admin token
+```
+
+To run from a config file, mount it and pass `serve --config`:
 
 ```bash
 cat > antirion.yaml <<'YAML'
@@ -171,12 +201,11 @@ export ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24) ANTIRION_ENCRYPTION_KEY=
 docker run -d --name antirion --read-only -p 8080:8080 -p 8081:8081 \
   -e ANTIRION_BOOTSTRAP_TOKEN -e ANTIRION_ENCRYPTION_KEY \
   -v "$PWD/antirion.yaml:/etc/antirion/antirion.yaml:ro" -v antirion-data:/var/lib/antirion \
-  ghcr.io/eliasbiondo/antirion:v0.1.0
+  antirion/antirion serve --config /etc/antirion/antirion.yaml
 ```
 
 Keep both values: the token signs you in at <http://localhost:8081/ui/>, and the key seals the
-provider keys you store. Without the file, the image starts with its own default configuration and
-generates both into the volume.
+provider keys you store.
 
 ### Docker Compose
 
@@ -218,6 +247,13 @@ kubectl get secret antirion-keys -o jsonpath='{.data.bootstrap-token}' | base64 
 `autoscaling.enabled`, `serviceMonitor.enabled` and the rest are documented in
 `deploy/helm/antirion/values.yaml`.
 
+### Binaries
+
+Every release has the binary for Linux (glibc 2.36 or later) and macOS, on amd64 and arm64, at
+`https://github.com/eliasbiondo/antirion/releases`, as `antirion-<tag>-<os>-<arch>.tar.gz` with
+`antirion-<tag>-sha256sums.txt`. `npx -y antirion` downloads the one for your machine; to install it
+yourself, unpack it anywhere on your `PATH` and run `antirion`.
+
 ### From source
 
 ```bash
@@ -227,7 +263,8 @@ export ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24)
 ./target/release/antirion serve --config ci/standalone.yaml    # data on :18080, admin and console on :18081
 ```
 
-`ci/standalone.yaml` keeps its embedded store in `./dev-data`. The binary also validates a
+`ci/standalone.yaml` keeps its embedded store in `./dev-data`; `./target/release/antirion` with no
+arguments runs the same zero-config gateway as `npx -y antirion`. The binary also validates a
 configuration offline (`antirion validate -f <file>`), prints its schema (`antirion schema`) and
 checks a node's health (`antirion healthcheck`).
 
@@ -439,8 +476,9 @@ pipeline, the Admin API and the binary; [docs/development.md](docs/development.m
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md): Compose, the first request, ports and host names,
-  test mode, email, the Compose cluster, Kubernetes with Helm and running from source.
+- [Getting started](docs/getting-started.md): `npx` and `docker run`, Compose, the first request,
+  ports and host names, test mode, email, the Compose cluster, Kubernetes with Helm and running from
+  source.
 - [Development guide](docs/development.md): the crate map, a request's path through the data plane,
   where each concern lives and the conventions of the code.
 - [Console](console/README.md): the console's commands, layout and screens.
