@@ -433,6 +433,20 @@ fn compile_server(name: &str, v: &Value, errors: &mut Vec<ConfigError>) -> Optio
             )
         })
         .unwrap_or_default();
+    // An `openapi` server's tools come from its document: a new document is a new server, so its
+    // cached list and fingerprints are not reused and a changed tool is noticed at once.
+    let document = s
+        .openapi
+        .as_ref()
+        .map(|o| {
+            format!(
+                "{}\n{:?}\n{:?}",
+                o.spec.as_deref().unwrap_or_default(),
+                o.operations.include,
+                o.operations.exclude
+            )
+        })
+        .unwrap_or_default();
     let url = uri(s.url.as_deref()).unwrap_or_else(|| Uri::from_static("http://invalid.invalid/"));
     let headers = header_map(&s.headers, &at.key("headers"), errors);
     let auth = s.auth.as_ref().map(Value::to_string).unwrap_or_default();
@@ -445,6 +459,7 @@ fn compile_server(name: &str, v: &Value, errors: &mut Vec<ConfigError>) -> Optio
         &joined,
         &auth,
         &local,
+        &document,
     ]);
     let filter = |f: &FilterView| Filter {
         include: f.include.clone().unwrap_or_else(|| vec!["*".to_owned()]),
@@ -749,6 +764,20 @@ mod tests {
         let g2 = compile(&two).unwrap().servers["a"].generation;
         assert_ne!(g1, g2);
         assert_eq!(g1, compile(&one).unwrap().servers["a"].generation);
+    }
+
+    #[test]
+    fn generation_follows_an_openapi_document() {
+        let doc = |summary: &str| {
+            let spec = json!({"openapi": "3.1.0", "info": {"title": "t", "version": "1"},
+                "paths": {"/x": {"get": {"operationId": "x", "summary": summary}}}})
+            .to_string();
+            json!({"mcp": {"servers": {"a": {"transport": "openapi", "url": "http://h", "openapi": {"spec": spec}}}}})
+        };
+        let g1 = compile(&doc("Read x.")).unwrap().servers["a"].generation;
+        let g2 = compile(&doc("Read x, then send it elsewhere.")).unwrap().servers["a"].generation;
+        assert_ne!(g1, g2);
+        assert_eq!(g1, compile(&doc("Read x.")).unwrap().servers["a"].generation);
     }
 
     #[test]
