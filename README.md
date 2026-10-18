@@ -27,7 +27,7 @@ One Rust binary, with the admin console built in, between your apps and every mo
 > fails. [See the benchmark](#performance).
 
 <p align="center">
-  <img src="docs/images/hero-overview-light.png" alt="The Antirion console: the Overview of the last 24 hours, with spend, requests, latency, error and cache hit rates, request volume and latency charts, team spend against budgets, top models and provider headroom" width="100%">
+  <img src="docs/images/hero-overview-light.png" alt="The Antirion console: the Overview of the last 24 hours, with spend, requests, latency, error and cache hit rates, request volume and latency charts, team spend against budgets, top models, provider headroom and the most recent requests" width="100%">
 </p>
 
 ## Why Antirion
@@ -273,7 +273,7 @@ checks a node's health (`antirion healthcheck`).
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/overview.png" alt="Overview in the dark theme: spend, requests, latency, error rate and cache hit rate over the last 24 hours"><br>
+      <img src="docs/images/overview.png" alt="Overview: spend, requests, latency, error rate and cache hit rate over the last 24 hours, with request volume and latency charts"><br>
       <b>Overview.</b> Spend, volume, latency, errors and cache hits at a glance, against the
       previous period.
     </td>
@@ -309,12 +309,12 @@ checks a node's health (`antirion healthcheck`).
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/budgets.png" alt="Budgets: projected spend for the month and team budgets, one of them at 92%"><br>
+      <img src="docs/images/budgets.png" alt="Budgets: projected spend for the month and team budgets, one of them at 91%"><br>
       <b>Budgets.</b> Limits per organization, team, project and key, with projections and the
       ledger behind every number.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/safety.png" alt="Safety and PII, Personal data tab: the rule that redacts personal data, each kind it checks with its placeholder and matches in the last 24 hours, and the secrets it blocks"><br>
+      <img src="docs/images/safety.png" alt="Safety and PII, Personal data tab: the rule that redacts personal data, each kind it checks with its placeholder and matches in the last 24 hours, and the secrets rule"><br>
       <b>Safety &amp; PII.</b> Which kinds of personal data and secrets each rule checks, what
       replaces them, and what it caught.
     </td>
