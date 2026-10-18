@@ -145,10 +145,10 @@ impl Public<'_> {
         crate::client_addr::client_addr(self.rt, self.parts)
     }
 
-    /// The console's origin: `auth.admin.public_origin`, else the request's own.
+    /// The console's origin: `auth.admin.public_origin` (else the node's own), else the request's.
     fn origin(&self) -> String {
-        if let Some(o) = self.rt.gens.load().identity.settings.public_origin.clone() {
-            return o.trim_end_matches('/').to_owned();
+        if let Some(o) = self.rt.public_origin() {
+            return o;
         }
         let tls = self.parts.extensions.get::<Peer>().is_some_and(|p| p.tls);
         let host = self

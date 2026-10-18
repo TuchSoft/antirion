@@ -167,6 +167,7 @@ async fn tests_lists_and_status_of_providers() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

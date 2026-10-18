@@ -361,9 +361,8 @@ impl Runtime {
 
     /// The VAPID `sub`: the console's https origin, else the outgoing mail address.
     fn push_subject(&self) -> Option<String> {
-        let cfg = self.alerting();
-        if let Some(origin) = cfg.console_origin.as_ref().filter(|o| o.starts_with("https://")) {
-            return Some(origin.clone());
+        if let Some(origin) = self.public_origin().filter(|o| o.starts_with("https://")) {
+            return Some(origin);
         }
         let snap = self.gens.load();
         let mail = snap.identity.console.mail.as_ref()?;

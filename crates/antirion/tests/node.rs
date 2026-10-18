@@ -118,6 +118,7 @@ async fn a_node_serves_keys_models_and_a_passthrough() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

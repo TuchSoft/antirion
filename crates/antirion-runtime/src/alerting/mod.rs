@@ -365,11 +365,14 @@ impl Runtime {
         Arc::clone(&self.gens.load().alerting)
     }
 
-    /// A console link to an alert instance, when the console's origin is configured.
+    /// A console link to an alert instance, when the console's origin is known.
     #[must_use]
     pub(crate) fn console_link(&self, instance: &str) -> Option<String> {
-        let cfg = self.alerting();
-        let origin = cfg.console_origin.as_ref()?;
+        let origin = self
+            .alerting()
+            .console_origin
+            .clone()
+            .or_else(|| self.public_origin())?;
         Some(format!("{origin}{}/alerts/{instance}", self.statics.ui.path))
     }
 }

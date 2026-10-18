@@ -203,6 +203,7 @@ async fn node(
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: false,
+        no_config: None,
     })
     .await
     .unwrap();

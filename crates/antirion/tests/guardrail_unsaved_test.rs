@@ -78,6 +78,7 @@ async fn an_unsaved_spec_is_tried_with_the_validation_of_a_save_and_stored_nowhe
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

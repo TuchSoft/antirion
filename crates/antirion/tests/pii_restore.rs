@@ -451,6 +451,7 @@ async fn restored_values_reach_the_client_on_every_path_and_stay_masked_in_the_l
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

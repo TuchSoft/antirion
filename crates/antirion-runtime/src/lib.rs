@@ -212,6 +212,9 @@ pub struct Statics {
     pub max_connections_per_origin: usize,
     pub http: HttpTimeouts,
     pub ui: Console,
+    /// The console's origin when `auth.admin.public_origin` is not configured: what a node started
+    /// without a config document was told, or its default.
+    pub public_origin: Option<String>,
 }
 
 /// `server.http`: how long a client may take, on the data listener.
@@ -317,6 +320,20 @@ pub struct RuntimeParts {
 }
 
 impl Runtime {
+    /// The console's origin: `auth.admin.public_origin`, else the node's own (see
+    /// [`Statics::public_origin`]), without a trailing slash.
+    #[must_use]
+    pub fn public_origin(&self) -> Option<String> {
+        self.gens
+            .load()
+            .identity
+            .settings
+            .public_origin
+            .clone()
+            .or_else(|| self.statics.public_origin.clone())
+            .map(|o| o.trim_end_matches('/').to_owned())
+    }
+
     #[must_use]
     pub fn new(parts: RuntimeParts) -> Runtime {
         let clock: Arc<dyn Clock> = match &parts.test {

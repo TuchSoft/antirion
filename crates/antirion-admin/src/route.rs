@@ -300,8 +300,9 @@ async fn authenticated(
     );
     if session.is_some()
         && unsafe_method
-        && !session::origin_allowed(
+        && !session::write_origin_allowed(
             rt.gens.load().identity.settings.public_origin.as_deref(),
+            rt.statics.public_origin.as_deref(),
             &parts.headers,
         )
     {

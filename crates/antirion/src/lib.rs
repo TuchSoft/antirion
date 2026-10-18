@@ -1,4 +1,5 @@
-//! The `antirion` command: `serve`, `validate`, `schema`, `version`, `healthcheck` and `auth`.
+//! The `antirion` command: `serve` (also with no command), `validate`, `schema`, `version`,
+//! `healthcheck` and `auth`.
 
 #![forbid(unsafe_code)]
 
@@ -8,6 +9,7 @@ mod hardening;
 mod lifecycle;
 mod login;
 mod logstore;
+pub mod noconfig;
 pub mod startup;
 mod watch;
 
@@ -21,25 +23,25 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The command line.
 #[derive(Debug, Parser)]
-#[command(name = "antirion", version, about = "An AI gateway")]
+#[command(
+    name = "antirion",
+    version,
+    about = "An AI gateway",
+    long_about = "An AI gateway. With no command, `antirion` runs `antirion serve`: without --config, a \
+                  gateway on localhost with its data in ~/.antirion, ready to set up in the console.",
+    args_conflicts_with_subcommands = true
+)]
 pub struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
+    #[command(flatten)]
+    serve: ServeArgs,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Run a node.
-    Serve {
-        /// The config document (YAML or JSON).
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Enable test mode: the test clock, seed and reset endpoints and the test-only headers.
-        #[arg(long)]
-        test_mode: bool,
-        #[arg(long, value_enum, default_value = "text")]
-        log_format: LogFormat,
-    },
+    /// Run a node: from a config document, or without one, a standalone gateway set up in the console.
+    Serve(ServeArgs),
     /// Validate a config document offline; exit 0 when it is valid.
     Validate {
         #[arg(short = 'f', long = "file")]
@@ -54,15 +56,29 @@ enum Command {
     },
     /// Probe a node's readiness; exit 0 when it is ready.
     Healthcheck {
-        /// Base URL of the data port.
-        #[arg(long, default_value = "http://127.0.0.1:8080")]
-        url: String,
+        /// Base URL of the data port; default `http://127.0.0.1:<ANTIRION_DATA_PORT, else 8080>`.
+        #[arg(long)]
+        url: Option<String>,
     },
     /// Sign in to a gateway's Admin API from the command line, or out again.
     Auth {
         #[command(subcommand)]
         action: AuthCommand,
     },
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct ServeArgs {
+    /// The config document (YAML or JSON).
+    #[arg(long)]
+    config: Option<PathBuf>,
+    /// Enable test mode: the test clock, seed and reset endpoints and the test-only headers.
+    #[arg(long)]
+    test_mode: bool,
+    #[arg(long, value_enum, default_value = "text")]
+    log_format: LogFormat,
+    #[command(flatten)]
+    no_config: noconfig::NoConfigArgs,
 }
 
 #[derive(Debug, Subcommand)]
@@ -165,7 +181,8 @@ pub fn run(cli: Cli) -> ExitCode {
 /// (see `antirion_ext::api`).
 #[must_use]
 pub fn run_with(cli: Cli, extensions: antirion_ext::api::Registry) -> ExitCode {
-    let test_mode = matches!(cli.command, Command::Serve { test_mode: true, .. });
+    let command = cli.command.unwrap_or(Command::Serve(cli.serve));
+    let test_mode = matches!(&command, Command::Serve(ServeArgs { test_mode: true, .. }));
     let extensions = if test_mode {
         extensions.with(
             antirion_ext::builtins::TEST_SCRIPT,
@@ -175,12 +192,27 @@ pub fn run_with(cli: Cli, extensions: antirion_ext::api::Registry) -> ExitCode {
         extensions
     };
     antirion_ext::api::install(extensions);
-    match cli.command {
-        Command::Serve {
+    match command {
+        Command::Serve(ServeArgs {
             config,
             test_mode,
             log_format,
-        } => {
+            no_config,
+        }) => {
+            let no_config = match (&config, no_config.first_given()) {
+                (Some(_), Some(flag)) => {
+                    return fail(&anyhow::anyhow!(
+                        "{flag} applies only without --config; set it in the config document instead"
+                    ));
+                }
+                (Some(_), None) => None,
+                (None, _) => {
+                    match noconfig::NoConfig::resolve(&no_config, &|name| std::env::var(name).ok()) {
+                        Ok(n) => Some(n),
+                        Err(e) => return fail(&e),
+                    }
+                }
+            };
             init_logging(log_format);
             hardening::harden();
             let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -191,7 +223,11 @@ pub fn run_with(cli: Cli, extensions: antirion_ext::api::Registry) -> ExitCode {
                 Ok(r) => r,
                 Err(e) => return fail(&e.into()),
             };
-            match runtime.block_on(startup::serve(startup::ServeOptions { config, test_mode })) {
+            match runtime.block_on(startup::serve(startup::ServeOptions {
+                config,
+                test_mode,
+                no_config,
+            })) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     let status = fail(&e);
@@ -241,6 +277,13 @@ pub fn run_with(cli: Cli, extensions: antirion_ext::api::Registry) -> ExitCode {
             }
         }
         Command::Healthcheck { url } => {
+            let url = url.unwrap_or_else(|| {
+                let port = std::env::var("ANTIRION_DATA_PORT")
+                    .ok()
+                    .and_then(|p| p.trim().parse::<u16>().ok())
+                    .unwrap_or(8080);
+                format!("http://127.0.0.1:{port}")
+            });
             let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                 Ok(r) => r,
                 Err(e) => return fail(&e.into()),
@@ -283,8 +326,30 @@ mod tests {
     #[test]
     fn the_command_line_parses() {
         let cli = Cli::try_parse_from(["antirion", "serve", "--config", "gw.yaml", "--test-mode"]).unwrap();
-        assert!(matches!(cli.command, Command::Serve { test_mode: true, .. }));
+        assert!(matches!(
+            cli.command,
+            Some(Command::Serve(ServeArgs { test_mode: true, .. }))
+        ));
         assert!(Cli::try_parse_from(["antirion", "serve", "--unknown"]).is_err());
+    }
+
+    #[test]
+    fn no_command_is_serve_and_takes_its_flags() {
+        let cli = Cli::try_parse_from(["antirion"]).unwrap();
+        assert!(cli.command.is_none());
+        assert!(cli.serve.config.is_none());
+        let cli = Cli::try_parse_from(["antirion", "--admin-port", "9081", "--data-dir", "d"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.serve.no_config.admin_port, Some(9081));
+        let cli = Cli::try_parse_from(["antirion", "serve", "--host", "0.0.0.0"]).unwrap();
+        assert!(
+            matches!(&cli.command, Some(Command::Serve(a)) if a.no_config.host.as_deref() == Some("0.0.0.0"))
+        );
+        assert!(Cli::try_parse_from(["antirion", "--data-port", "1", "version"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["antirion", "version"]).unwrap().command,
+            Some(Command::Version { .. })
+        ));
     }
 
     #[test]

@@ -202,6 +202,7 @@ async fn a_node_whose_store_accepts_but_does_not_answer_waits_not_ready_then_app
     starting.spawn(start(ServeOptions {
         config: Some(file),
         test_mode: false,
+        no_config: None,
     }));
     let (data, admin): (SocketAddr, SocketAddr) = (
         format!("127.0.0.1:{data}").parse().unwrap(),
@@ -238,6 +239,7 @@ async fn a_store_that_stops_answering_after_the_node_opened_it_delays_readiness_
     starting.spawn(start(ServeOptions {
         config: Some(file),
         test_mode: false,
+        no_config: None,
     }));
     let (data, admin): (SocketAddr, SocketAddr) = (
         format!("127.0.0.1:{data}").parse().unwrap(),

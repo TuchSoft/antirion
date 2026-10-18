@@ -137,6 +137,7 @@ async fn audited_actions(dir: &ScratchDir) -> Vec<Value> {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

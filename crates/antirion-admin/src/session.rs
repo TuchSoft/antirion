@@ -256,6 +256,19 @@ pub(crate) fn origin_allowed(public_origin: Option<&str>, headers: &HeaderMap) -
     }
 }
 
+/// Whether a cookie-authenticated write may proceed: from the configured public origin only, or,
+/// without one, from the node's own origin or the origin the client addressed.
+pub(crate) fn write_origin_allowed(
+    configured: Option<&str>,
+    node: Option<&str>,
+    headers: &HeaderMap,
+) -> bool {
+    match configured {
+        Some(_) => origin_allowed(configured, headers),
+        None => origin_allowed(None, headers) || node.is_some_and(|n| origin_allowed(Some(n), headers)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +291,24 @@ mod tests {
             HeaderValue::from_static("https://evil.example"),
         );
         assert!(!origin_allowed(None, &h));
+    }
+
+    #[test]
+    fn a_configured_origin_is_the_only_one_the_node_origin_is_one_more() {
+        let mut h = HeaderMap::new();
+        h.insert(http::header::HOST, HeaderValue::from_static("127.0.0.1:8081"));
+        h.insert(
+            http::header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:8081"),
+        );
+        let node = Some("http://localhost:8081");
+        assert!(write_origin_allowed(None, node, &h));
+        assert!(!write_origin_allowed(Some("http://localhost:8081"), None, &h));
+        h.insert(
+            http::header::ORIGIN,
+            HeaderValue::from_static("http://localhost:8081"),
+        );
+        assert!(write_origin_allowed(None, node, &h));
+        assert!(!write_origin_allowed(None, None, &h));
     }
 }

@@ -127,6 +127,7 @@ async fn a_disabled_route_serves_nothing_until_it_is_enabled_again() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

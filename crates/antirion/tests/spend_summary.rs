@@ -119,6 +119,7 @@ async fn the_summary_takes_the_ledger_filters() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

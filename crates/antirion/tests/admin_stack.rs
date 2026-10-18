@@ -69,6 +69,7 @@ async fn deepest_operations(dir: &ScratchDir) {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

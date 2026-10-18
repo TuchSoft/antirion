@@ -30,12 +30,16 @@ use anyhow::{Context, anyhow, bail};
 use serde_json::{Map, Value};
 
 use crate::cluster::Opened;
+use crate::noconfig::{Banner, NoConfig, TokenSource};
 
 /// What `serve` was asked to do.
 #[derive(Debug)]
 pub struct ServeOptions {
     pub config: Option<PathBuf>,
     pub test_mode: bool,
+    /// Without `config`: the settings a node without a config document runs with, and the banner it
+    /// prints. `None` with no `config` is a node with every default (the store in `./antirion-data`).
+    pub no_config: Option<NoConfig>,
 }
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -110,16 +114,24 @@ async fn resolve_addr(listen: &str) -> anyhow::Result<SocketAddr> {
         .ok_or_else(|| anyhow!("the listen address {listen} resolves to nothing"))
 }
 
-/// The bootstrap credential: the configured one, or a generated token kept in the store directory.
-fn bootstrap_token(doc: &Value, store_dir: &Path) -> anyhow::Result<String> {
+/// The bootstrap credential: the configured one (or, without a config document, the one in
+/// `ANTIRION_BOOTSTRAP_TOKEN`), else a generated token kept in the store directory.
+fn bootstrap_token(
+    doc: &Value,
+    store_dir: &Path,
+    no_config: Option<&NoConfig>,
+) -> anyhow::Result<(String, TokenSource)> {
     if let Some(t) = resolved_string(doc, "/auth/admin/bootstrap_token")? {
-        return Ok(t);
+        return Ok((t, TokenSource::Configured));
+    }
+    if let Some(t) = no_config.and_then(|n| n.bootstrap_token.clone()) {
+        return Ok((t, TokenSource::Env));
     }
     let file = store_dir.join("bootstrap-token");
     if let Ok(existing) = std::fs::read_to_string(&file) {
         let token = existing.trim().to_owned();
         if !token.is_empty() {
-            return Ok(token);
+            return Ok((token, TokenSource::Kept(file)));
         }
     }
     let token = Credential::generate(Plane::Admin)
@@ -128,7 +140,7 @@ fn bootstrap_token(doc: &Value, store_dir: &Path) -> anyhow::Result<String> {
         .to_owned();
     write_private(&file, &token)?;
     tracing::warn!(path = %file.display(), "generated a bootstrap admin token; it is in this file");
-    Ok(token)
+    Ok((token, TokenSource::Generated(file)))
 }
 
 fn write_private(path: &Path, content: &str) -> anyhow::Result<()> {
@@ -154,7 +166,7 @@ fn write_private_bytes(path: &Path, content: &[u8]) -> anyhow::Result<()> {
     Ok(std::fs::write(path, content)?)
 }
 
-fn statics(doc: &Value, v: &StaticView) -> Statics {
+fn statics(doc: &Value, v: &StaticView, no_config: Option<&NoConfig>) -> Statics {
     let mut static_doc = Map::new();
     for key in STATIC_KEYS {
         if let Some(value) = doc.get(*key) {
@@ -211,6 +223,7 @@ fn statics(doc: &Value, v: &StaticView) -> Statics {
                 .to_owned(),
             data_plane_url: v.admin.ui.data_plane_url.clone(),
         },
+        public_origin: no_config.map(|n| n.public_origin.clone()),
     }
 }
 
@@ -232,10 +245,11 @@ pub(crate) async fn persisted_state(store: &Store, sealer: &Sealer) -> anyhow::R
 }
 
 /// The keys that encrypt stored secrets: `security.secrets.encryption_keys` of the startup file
-/// (the first encrypts), then the key generated in the data directory, which is created when no key
-/// is configured.
-fn sealer(doc: &Value, store_dir: &Path) -> anyhow::Result<Sealer> {
+/// (the first encrypts) or, without one, `ANTIRION_ENCRYPTION_KEY`, then the key generated in the
+/// data directory, which is created when no key is configured.
+fn sealer(doc: &Value, store_dir: &Path, no_config: Option<&NoConfig>) -> anyhow::Result<Sealer> {
     let mut keys = configured_keys(doc)?;
+    keys.extend(no_config.and_then(|n| n.encryption_key.clone()));
     let configured = keys.len();
     let file = store_dir.join("encryption.key");
     match std::fs::read(&file) {
@@ -321,6 +335,7 @@ pub struct Node {
     tls: antirion_server::ListenerTls,
     threads: Arc<antirion_server::DataThreads>,
     store: Arc<Store>,
+    banner: Option<Banner>,
 }
 
 impl Node {
@@ -332,6 +347,14 @@ impl Node {
     #[must_use]
     pub fn admin_addr(&self) -> Option<SocketAddr> {
         self.bound.admin_addr()
+    }
+
+    /// What a node without a config document prints once it listens: the console's URL, the admin
+    /// token on the start that generated it (else where it is kept), the data plane and the data
+    /// directory.
+    #[must_use]
+    pub fn banner(&self) -> Option<&str> {
+        self.banner.as_ref().map(|b| b.0.as_str())
     }
 
     /// Serves until the runtime's shutdown token is cancelled, then flushes what the node holds:
@@ -354,6 +377,12 @@ impl Node {
 /// Runs a node until a stop signal has drained it.
 pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
     let node = start(opts).await?;
+    if let Some(banner) = node.banner() {
+        use std::io::Write;
+        let mut stdout = std::io::stdout().lock();
+        let _ = writeln!(stdout).and_then(|()| stdout.write_all(banner.as_bytes()));
+        let _ = writeln!(stdout).and_then(|()| stdout.flush());
+    }
     let signals = crate::lifecycle::Signals::new()?;
     node.rt
         .tasks
@@ -366,9 +395,14 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
 pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     antirion_config::schema::self_check()
         .map_err(|e| anyhow!("the embedded config schema is broken: {e}"))?;
-    let doc = match &opts.config {
-        Some(path) => load_document(path)?,
-        None => serde_json::json!({"version": 1}),
+    let no_config = opts.config.is_none().then_some(opts.no_config.as_ref()).flatten();
+    let doc = match (&opts.config, no_config) {
+        (Some(path), _) => load_document(path)?,
+        (None, Some(n)) => {
+            n.prepare()?;
+            n.document()
+        }
+        (None, None) => serde_json::json!({"version": 1}),
     };
     let static_view: StaticView = view(&doc).unwrap_or_default();
     let cluster = static_view.cluster.mode.as_deref() == Some("cluster");
@@ -438,7 +472,7 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
         }
     } else {
         let store = Store::open_embedded(&store_dir).context("cannot open the embedded store")?;
-        let sealer = sealer(&doc, &store_dir)?;
+        let sealer = sealer(&doc, &store_dir, no_config)?;
         let node_id_bytes = store
             .get_or_init(
                 "node_id",
@@ -477,7 +511,8 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     } else {
         None
     };
-    let bootstrap = bootstrap_token(&doc, &store_dir)?;
+    let (bootstrap, token_source) = bootstrap_token(&doc, &store_dir, no_config)?;
+    let banner = no_config.map(|n| n.banner(VERSION, &bootstrap, &token_source));
     let secret_stores = Arc::new(antirion_runtime::secretstores::ExternalSecrets::new());
     antirion_runtime::secretstores::prefetch_at_startup(&secret_stores, &state.doc).await;
     let secrets: Arc<dyn SecretSource> = Arc::new(antirion_runtime::secretstores::Resolver::new(Arc::clone(
@@ -487,7 +522,7 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     let first = antirion_runtime::snapshot::build(state, secret_paths, secrets.as_ref(), &pepper)
         .map_err(|e| anyhow!(render_errors(&e)))?;
     let test = opts.test_mode.then(|| Arc::new(TestMode::new()));
-    let statics = statics(&doc, &static_view);
+    let statics = statics(&doc, &static_view, no_config);
     let rt = Arc::new(Runtime::new(RuntimeParts {
         first,
         test: test.clone(),
@@ -664,6 +699,7 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
         tls,
         threads,
         store,
+        banner,
     })
 }
 

@@ -44,6 +44,7 @@ async fn policy_of(name: &str, personal_tokens: Option<Value>) -> Value {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

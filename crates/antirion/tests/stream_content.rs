@@ -254,6 +254,7 @@ async fn streamed_responses_are_logged_as_the_client_received_them() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();

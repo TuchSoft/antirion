@@ -158,6 +158,7 @@ async fn failed_sign_ins_return_to_the_console() {
     let node = start(ServeOptions {
         config: Some(file),
         test_mode: true,
+        no_config: None,
     })
     .await
     .unwrap();
