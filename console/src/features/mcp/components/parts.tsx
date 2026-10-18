@@ -261,20 +261,31 @@ const CALLOUT_TONE = {
     'border-[color-mix(in_oklab,var(--ant-error)_40%,transparent)] bg-[color-mix(in_oklab,var(--ant-error)_8%,transparent)]',
 } as const;
 
-/** A short note in a drawer: what a state means and what to do about it. */
+/** A short note in a drawer: what a state means and what to do about it, with the action if any. */
 export function Callout({
   tone,
   title,
   children,
+  action,
 }: {
   tone: keyof typeof CALLOUT_TONE;
   title: ReactNode;
   children?: ReactNode;
+  action?: ReactNode;
 }) {
   return (
-    <div role="status" className={cn('rounded-control border px-3 py-2.5', CALLOUT_TONE[tone])}>
-      <p className="text-ui font-semibold text-fg">{title}</p>
-      {children ? <div className="mt-0.5 text-ui text-muted">{children}</div> : null}
+    <div
+      role="status"
+      className={cn(
+        'flex flex-wrap items-center gap-x-4 gap-y-2 rounded-control border px-3 py-2.5',
+        CALLOUT_TONE[tone],
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-ui font-semibold text-fg">{title}</p>
+        {children ? <div className="mt-0.5 text-ui text-muted">{children}</div> : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }

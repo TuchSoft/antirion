@@ -3,8 +3,10 @@
 import { useQueryParam } from '@/components/layout/url-sync';
 import { Badge } from '@/components/ui/badge';
 
+import { Button } from '@/components/ui/button';
 import { Input, Switch } from '@/components/ui/form';
 import { Gate, useCan } from '@/components/ui/gate';
+import { Icon } from '@/components/ui/icon';
 import { FilterBar, Panel } from '@/components/ui/layout';
 import { EmptyAction, EmptyState, NoMatch } from '@/components/ui/states';
 import { CountNote, Table, Td, Th, Tr } from '@/components/ui/table';
@@ -13,6 +15,7 @@ import { useUrlFilters } from '@/lib/url-filters';
 import { useShell } from '@/stores/shell';
 import { notify } from '@/stores/ui';
 
+import { gatewayReach } from '../access';
 import type { McpGatewayResource, McpSessionStats } from '../api';
 import { dataPlaneAddress } from '../fields';
 import { gatewayPaths } from '../form';
@@ -40,10 +43,20 @@ export const SESSION_MODE_LABEL: Record<McpSessionStats['session_mode'], string>
   stateless: 'Each request alone',
 };
 
-/** The Gateways tab: the endpoints clients connect to, and the servers each combines. */
-export function GatewaysTab({ onCreate }: { onCreate: () => void }) {
+/**
+ * The Gateways tab: the endpoints clients connect to, the servers each combines, and a warning on
+ * those no API key may use yet.
+ */
+export function GatewaysTab({
+  onCreate,
+  onOpenAccess,
+}: {
+  onCreate: () => void;
+  onOpenAccess: (name: string) => void;
+}) {
   const gateways = useMcp((s) => s.gateways.data) ?? NONE;
   const sessions = useMcp((s) => s.sessions.data);
+  const access = useMcp((s) => s.access.data);
   const setEnabled = useMcp((s) => s.setGatewayEnabled);
   const canEdit = useCan('patchMcpGateway');
   const base = useShell((s) => s.status?.data_plane_url ?? null);
@@ -58,7 +71,7 @@ export function GatewaysTab({ onCreate }: { onCreate: () => void }) {
     return (
       <EmptyState
         title="No MCP gateways yet"
-        description="A gateway is the address clients connect to."
+        description="A gateway is the address clients connect to. API keys can use its servers only once you grant them, to every key or to chosen organizations, teams, projects or keys."
         action={
           <Gate operation="createMcpGateway" mode="hide">
             <EmptyAction onClick={onCreate}>Add gateway</EmptyAction>
@@ -117,6 +130,22 @@ export function GatewaysTab({ onCreate }: { onCreate: () => void }) {
                       <div className="mono max-w-[360px] truncate text-caption text-muted">
                         {dataPlaneAddress(base, gatewayPaths(g.name)[0] ?? '')}
                       </div>
+                      {gatewayReach(access, g.spec.servers) === 'none' ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-warn">
+                          <Icon name="alert" size={12} />
+                          <span>No API key can use this gateway yet</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenAccess(g.name);
+                            }}
+                          >
+                            Choose who can use it
+                          </Button>
+                        </div>
+                      ) : null}
                     </Td>
                     <Td className="max-sm:hidden">
                       <span className="flex flex-wrap gap-1">

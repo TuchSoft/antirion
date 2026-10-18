@@ -23,6 +23,7 @@ import { http, HttpResponse } from 'msw';
 
 import { guardrailTestHandlers } from './guardrail-test';
 import { mock } from './http';
+import { mcpDemoHandlers, resetMcpDemo } from './mcp-demo';
 
 type S = components['schemas'];
 
@@ -119,6 +120,7 @@ let state = createState();
 /** Resets the mocks' in-memory state (between tests). */
 export function resetMockState(): void {
   state = createState();
+  resetMcpDemo();
 }
 
 function alertById(id: string): S['Alert'] {
@@ -674,11 +676,13 @@ export const contractHandlers: HttpHandler[] = [
 
 /**
  * Demo data for endpoints the gateway serves but an empty test gateway has no data for
- * (a shared route with rules), so `pnpm dev:mock` shows every screen populated.
+ * (a shared route with rules; MCP servers and gateways with who may use them), so
+ * `pnpm dev:mock` shows every screen populated.
  */
 export const demoHandlers: HttpHandler[] = [
   mock('get', '/routes', () => ({ items: [globalRoute()], next_cursor: null })),
   mock('get', '/routes/{name}', () => globalRoute()),
+  ...mcpDemoHandlers(),
 ];
 
 /**

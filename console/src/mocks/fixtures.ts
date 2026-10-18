@@ -644,3 +644,108 @@ export function providerModels(): S['ProviderModel'][] {
     model('gpt-4-turbo', 'GPT-4 Turbo', 128_000, ['10', '30', null, null], false),
   ];
 }
+
+const resourceMeta = (etag: string): S['ResourceMetadata'] => ({
+  etag: `"${etag}"`,
+  generation: 1,
+  created_at: ago(30 * 24 * HOUR),
+  updated_at: ago(2 * 24 * HOUR),
+  managed_by: 'api',
+});
+
+function toolStatus(tools: string[], at: string): S['McpServerStatus'] {
+  return {
+    era_capability: 'modern',
+    last_discovery_at: at,
+    last_error: null,
+    cached_tools: tools.length,
+    tools: tools.map((name, i) => ({
+      name,
+      fingerprint: `${i}${name}`.replace(/[^a-f0-9]/g, 'f').padEnd(64, '0'),
+      approved: true,
+      hidden: false,
+    })),
+    approved_at: at,
+    last_contact_at: at,
+    last_contact_error: null,
+  };
+}
+
+/**
+ * MCP with access as a new install has it: the `default` gateway's servers are granted to team
+ * support-ai, project helpdesk and key ci-bot, while nothing grants the billing server of
+ * `finance`, so no API key can use that gateway yet. There is no list for every API key, and
+ * creating one with only billing would narrow what support-ai, helpdesk and ci-bot grant.
+ */
+export function mcpDemo() {
+  const servers: S['McpServerResource'][] = [
+    {
+      name: 'billing',
+      spec: { transport: 'streamable_http', url: 'https://billing.example.com/mcp' },
+      metadata: resourceMeta('mcps1'),
+    },
+    {
+      name: 'docs',
+      spec: { transport: 'streamable_http', url: 'https://docs.example.com/mcp' },
+      metadata: resourceMeta('mcps2'),
+    },
+    {
+      name: 'issues',
+      spec: {
+        transport: 'streamable_http',
+        url: 'https://issues.example.com/mcp',
+        pin_tool_definitions: true,
+      },
+      metadata: resourceMeta('mcps3'),
+    },
+  ];
+  const statuses: Record<string, S['McpServerStatus']> = {
+    billing: toolStatus(['create_invoice', 'refund'], ago(HOUR)),
+    docs: toolStatus(['search_docs', 'read_page'], ago(HOUR / 2)),
+    issues: toolStatus(['create_issue', 'search_issues', 'comment'], ago(HOUR / 4)),
+  };
+  const gateways: S['McpGatewayResource'][] = [
+    { name: 'default', spec: { servers: ['issues', 'docs'] }, metadata: resourceMeta('mcpg1') },
+    { name: 'finance', spec: { servers: ['billing'] }, metadata: resourceMeta('mcpg2') },
+  ];
+  const sessions: S['McpSessionStats'][] = [
+    { gateway: 'default', session_mode: 'stateful', issued: 128, rejected: 3, revoked: 1, key_ids: ['1'] },
+    { gateway: 'finance', session_mode: 'stateful', issued: 0, rejected: 12, revoked: 0, key_ids: ['1'] },
+  ];
+  const policies: S['PoliciesSettings'] = { spec: {}, metadata: resourceMeta('pol1') };
+  const organizations: S['OrganizationResource'][] = [
+    { name: 'acme', spec: { display_name: 'Acme' }, metadata: resourceMeta('org1') },
+  ];
+  const teams: S['TeamResource'][] = TEAMS.map((name, i) => ({
+    name,
+    spec: {
+      organization: 'acme',
+      // Tool lists ride along with the server list; granting or removing servers keeps them.
+      ...(name === 'support-ai'
+        ? { policies: { mcp: { servers: ['issues', 'docs'], tools: { issues: ['search_*', 'comment'] } } } }
+        : {}),
+    },
+    metadata: resourceMeta(`team${i + 1}`),
+  }));
+  const projects: S['ProjectResource'][] = [
+    {
+      name: 'helpdesk',
+      spec: { team: 'support-ai', policies: { mcp: { servers: ['issues'] } } },
+      metadata: resourceMeta('prj1'),
+    },
+    { name: 'forecasting', spec: { team: 'data-science' }, metadata: resourceMeta('prj2') },
+  ];
+  const keys: S['KeyResource'][] = [
+    {
+      name: 'ci-bot',
+      spec: { project: 'helpdesk', policies: { mcp: { servers: ['issues'] } } },
+      metadata: { ...resourceMeta('key1'), organization: 'acme', team: 'support-ai' },
+    },
+    {
+      name: 'forecast-job',
+      spec: { project: 'forecasting' },
+      metadata: { ...resourceMeta('key2'), organization: 'acme', team: 'data-science' },
+    },
+  ];
+  return { servers, statuses, gateways, sessions, policies, organizations, teams, projects, keys };
+}

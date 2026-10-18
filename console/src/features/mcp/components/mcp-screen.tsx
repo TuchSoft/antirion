@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { useQueryParam } from '@/components/layout/url-sync';
+import { useQueryParam, useSetQueryParams } from '@/components/layout/url-sync';
 import { Button } from '@/components/ui/button';
 import { Forbidden, Gate, usePermission } from '@/components/ui/gate';
 import { PageHeader, SummaryStrip, Tabs } from '@/components/ui/layout';
@@ -16,6 +16,7 @@ import { usePageShortcut } from '@/lib/shortcuts';
 import { useUrlFilters } from '@/lib/url-filters';
 
 import { useMcp } from '../store';
+import { useLoadAccess } from './access';
 import { GATEWAY_CSV, GatewaysTab } from './gateways-tab';
 import { GatewayDrawer } from './gateway-drawer';
 import { ApproveToolsDialog, ServerDrawer } from './server-drawer';
@@ -39,17 +40,22 @@ export function McpScreen() {
   const rows = useServerRows();
   const [tabParam, setTabParam] = useQueryParam('tab');
   const [serverParam, setServerParam] = useQueryParam('server');
-  const [gatewayParam, setGatewayParam] = useQueryParam('gateway');
+  const [gatewayParam] = useQueryParam('gateway');
+  const setParams = useSetQueryParams();
   const [creating, setCreating] = useState<'server' | 'gateway' | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const filters = useUrlFilters(SERVER_FILTERS);
   const tab: Tab = TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'servers';
+  // A gateway's drawer, opened at its "Who can use it" section or not.
+  const openGateway = (name: string | null, access = false) =>
+    setParams({ gateway: name, section: name && access ? 'access' : null });
 
   useEffect(() => {
     if (!canRead) return;
     void load();
     void loadSessions();
   }, [canRead, load, loadSessions]);
+  useLoadAccess(canRead);
   usePolling(() => {
     void load({ quiet: true });
     void loadSessions({ quiet: true });
@@ -170,7 +176,10 @@ export function McpScreen() {
               <ServersTab onCreate={() => setCreating('server')} onApprove={setApproving} />
             ) : null}
             {servers.data && tab === 'gateways' ? (
-              <GatewaysTab onCreate={() => setCreating('gateway')} />
+              <GatewaysTab
+                onCreate={() => setCreating('gateway')}
+                onOpenAccess={(name) => openGateway(name, true)}
+              />
             ) : null}
             {tab === 'sessions' ? <SessionsTab /> : null}
           </div>
@@ -196,11 +205,12 @@ export function McpScreen() {
         creating={creating === 'gateway'}
         onClose={() => {
           setCreating(null);
-          setGatewayParam(null);
+          openGateway(null);
         }}
         onCreated={(name) => {
           setCreating(null);
-          setGatewayParam(name);
+          // A new gateway is closed to every key until granted: open it where that is chosen.
+          openGateway(name, true);
         }}
       />
     </>

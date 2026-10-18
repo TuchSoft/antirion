@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { useQueryParam } from '@/components/layout/url-sync';
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm';
@@ -26,6 +27,7 @@ import {
   gatewaySpec,
 } from '../form';
 import { useMcp } from '../store';
+import { NoAccessCallout, WhoCanUse } from './access';
 import { SESSION_MODE_LABEL } from './gateways-tab';
 import { Facts, FormGroup, ListInput, Section } from './parts';
 import { useEdited } from '@/lib/hooks';
@@ -111,13 +113,16 @@ function ServerOrder({
   );
 }
 
-function GatewayView({ gateway }: { gateway: McpGatewayResource }) {
+function GatewayView({ gateway, openAccess }: { gateway: McpGatewayResource; openAccess: boolean }) {
   const base = useShell((s) => s.status?.data_plane_url ?? null);
   const stats = useMcp((s) => s.sessions.data?.find((x) => x.gateway === gateway.name));
+  // Grows each time "Choose who can use it" is pressed, so the section scrolls into view again.
+  const [focus, setFocus] = useState(openAccess ? 1 : 0);
   const s = gateway.spec;
   const info = s.server_info;
   return (
     <div className="flex flex-col gap-6">
+      <NoAccessCallout servers={s.servers} onOpen={() => setFocus((n) => n + 1)} />
       <Section title="Address" aside="Clients connect here with an API key">
         <ul className="flex flex-col gap-1.5">
           {gatewayPaths(gateway.name).map((p) => {
@@ -149,6 +154,7 @@ function GatewayView({ gateway }: { gateway: McpGatewayResource }) {
           ))}
         </ol>
       </Section>
+      <WhoCanUse servers={s.servers} editable focus={focus} />
       <Section title="Settings">
         <Facts
           items={[
@@ -238,6 +244,7 @@ export function GatewayDrawer({
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [section] = useQueryParam('section');
   const edited = useEdited(values, creating || editing);
   const open = creating || gateway !== null;
   const form = creating || editing;
@@ -284,7 +291,7 @@ export function GatewayDrawer({
         title={creating ? 'Add MCP gateway' : (gateway?.name ?? 'MCP gateway')}
         subtitle={
           creating
-            ? 'The address clients connect to, combining one or more MCP servers.'
+            ? 'The address clients connect to, combining one or more MCP servers. API keys can use it only once its servers are granted to them; you choose who after adding it.'
             : gateway
               ? `${gateway.spec.servers.length === 1 ? '1 server' : `${gateway.spec.servers.length} servers`}${gateway.spec.enabled === false ? ' · off' : ''}`
               : undefined
@@ -507,7 +514,7 @@ export function GatewayDrawer({
             <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
           </form>
         ) : gateway ? (
-          <GatewayView gateway={gateway} />
+          <GatewayView gateway={gateway} openAccess={section === 'access'} />
         ) : null}
       </Drawer>
       <ConfirmDialog

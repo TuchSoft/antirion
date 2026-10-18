@@ -1,5 +1,8 @@
 import { api, listAll } from '@/lib/api/client';
+import type { KeyResource, OrganizationResource, ProjectResource, TeamResource } from '@/lib/api/types';
 import type { components } from '@/lib/api/schema';
+
+import { type Holder, type McpPolicy, serversPatch, type TargetLevel } from './access';
 
 type S = components['schemas'];
 export type McpServerResource = S['McpServerResource'];
@@ -10,6 +13,7 @@ export type McpGatewayResource = S['McpGatewayResource'];
 export type McpGatewaySpec = McpGatewayResource['spec'];
 export type McpSessionStats = S['McpSessionStats'];
 export type McpSettings = S['McpSettings'];
+export type PoliciesSettings = S['PoliciesSettings'];
 
 /**
  * MCP: the servers the gateway reaches (with their discovery status and tool approval), the
@@ -46,4 +50,72 @@ export const mcpApi = {
   sessions: (): Promise<McpSessionStats[]> =>
     listAll((cursor) => api.get('/runtime/mcp/sessions', { query: { limit: 200, cursor } })),
   settings: (): Promise<McpSettings> => api.get('/settings/mcp'),
+};
+
+/** A level resource below the gateway, as its list or a write returns it. */
+export type LevelResource = OrganizationResource | TeamResource | ProjectResource | KeyResource;
+
+interface Owned {
+  name: string;
+  spec: unknown;
+  metadata: { etag?: string };
+}
+
+export function holderOf(level: TargetLevel, r: Owned): Holder {
+  const spec = (r.spec ?? {}) as { policies?: { mcp?: McpPolicy } };
+  return { level, name: r.name, etag: r.metadata.etag, mcp: spec.policies?.mcp };
+}
+
+export function gatewayHolder(p: PoliciesSettings): Holder {
+  return { level: 'gateway', name: '', etag: p.metadata.etag, mcp: p.spec.mcp };
+}
+
+const page = { limit: 200 };
+
+/**
+ * Who may use MCP servers: the gateway level's `policies.mcp` and every organization's, team's,
+ * project's and key's, each with its ETag, and the writes of their server lists.
+ */
+export const accessApi = {
+  policies: (): Promise<PoliciesSettings> => api.get('/settings/policies'),
+  levels: (level: TargetLevel): Promise<LevelResource[]> => {
+    switch (level) {
+      case 'organization':
+        return listAll((cursor) => api.get('/organizations', { query: { ...page, cursor } }));
+      case 'team':
+        return listAll((cursor) => api.get('/teams', { query: { ...page, cursor } }));
+      case 'project':
+        return listAll((cursor) => api.get('/projects', { query: { ...page, cursor } }));
+      case 'key':
+        return listAll((cursor) => api.get('/keys', { query: { ...page, cursor } }));
+    }
+  },
+  /** Sets the gateway level's server list with a merge patch, against the ETag shown. */
+  patchPolicies: (
+    next: string[] | null,
+    etag: string | undefined,
+    reason?: string,
+  ): Promise<PoliciesSettings> =>
+    api.patch('/settings/policies', { body: { spec: serversPatch(next).policies }, ifMatch: etag, reason }),
+  /** Sets one level's `spec.policies.mcp.servers` with a merge patch, against its ETag. */
+  patchLevel: (
+    level: TargetLevel,
+    holder: Holder,
+    next: string[] | null,
+    reason?: string,
+  ): Promise<LevelResource> => {
+    const body = { spec: serversPatch(next) };
+    const path = { name: holder.name };
+    const ifMatch = holder.etag;
+    switch (level) {
+      case 'organization':
+        return api.patch('/organizations/{name}', { path, body, ifMatch, reason });
+      case 'team':
+        return api.patch('/teams/{name}', { path, body, ifMatch, reason });
+      case 'project':
+        return api.patch('/projects/{name}', { path, body, ifMatch, reason });
+      case 'key':
+        return api.patch('/keys/{name}', { path, body, ifMatch, reason });
+    }
+  },
 };

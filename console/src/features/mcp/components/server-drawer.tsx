@@ -37,6 +37,7 @@ import {
   waitingTools,
 } from '../form';
 import { useMcp } from '../store';
+import { WhoCanUse } from './access';
 import {
   Callout,
   Facts,
@@ -241,6 +242,7 @@ function ServerView({ server, onApprove }: { server: McpServerResource; onApprov
           {s.pin_tool_definitions ? ' Pinning is on: a changed tool is hidden until approved.' : ''}
         </p>
       </Section>
+      <WhoCanUse servers={[server.name]} editable={false} />
       <Section title="Settings">
         <Facts
           items={[
