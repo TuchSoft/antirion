@@ -10,6 +10,14 @@
 *.swp
 *.cdx.json
 /bench/target
+# The AWS run's state (ssh keys included), bundle and the targets' installed files
+/bench/aws/.state/
+/bench/aws/.build/
+/bench/aws/**/*.pem
+/bench/targets/*/venv/
+/bench/targets/bifrost/bifrost-http
+/bench/targets/bifrost/datasheet.json
+/bench/targets/bifrost/model-parameters.json
 /bench/results/*
 !/bench/results/README.md
 /.env

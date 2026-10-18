@@ -129,6 +129,14 @@
 - {cell: C33.s1, kind: open, scenario: S1, profile: P-std, protocol: h2c, level: {rps: 10000}, informational: true, compare: true}
 - {cell: C33.s3, kind: open, scenario: S3, profile: P-std, mock_profile: LS, protocol: h2c, level: {rps: 1000}, informational: true, compare: true}
 
+# The headline comparison (docs/benchmarks.md): simple chat at 5,000 RPS, open loop, P-min, the mock's
+# default latency (L0, so the gateway's own work is what the overhead shows), on the reference
+# topology, every target interleaved. C20 is the same load with 1.5 s upstream latency on burstable
+# t3 machines, the setup another gateway published. Its own windows (10 s warm-up, 30 s measurement,
+# 5 repetitions) keep a run of three targets near half an hour; it belongs to the compare suite only.
+- {cell: H1, kind: open, scenario: S1, profile: P-min, level: {rps: 5000}, warmup_s: 10, measure_s: 30, repetitions: 5,
+   informational: true, compare: true, suites: [compare]}
+
 # The nightly regression set; also part of the release suite, so a release is a baseline for it.
 - {cell: N1, kind: open, scenario: S1, profile: P-std, level: {rps: 5000}, informational: true, suites: [release, nightly]}
 - {cell: N2, kind: open, scenario: S3, profile: P-std, mock_profile: LS, level: {rps: 1000}, informational: true, suites: [release, nightly]}

@@ -19,3 +19,5 @@ console/playwright-report
 console/test-results
 console/*.tsbuildinfo
 bench/results
+bench/aws/.state
+bench/aws/.build
