@@ -63,7 +63,8 @@ jobs:
           ANTIRION_BUILD_COMMIT: ${{ github.sha }}
           CARGO_INCREMENTAL: "0"
         run: |
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
           export CARGO_BUILD_RUSTFLAGS="--remap-path-prefix=$PWD=/antirion --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup"
           export CFLAGS="-ffile-prefix-map=$PWD=/antirion" CXXFLAGS="-ffile-prefix-map=$PWD=/antirion"
           cargo auditable build --release --locked -p antirion
