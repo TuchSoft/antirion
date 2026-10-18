@@ -396,6 +396,10 @@ pub(crate) struct Record {
     pub(crate) images_requested: Option<(String, u64)>,
     /// The settled cost, once the request was settled.
     pub(crate) cost: Option<CostFact>,
+    /// What the calls the gateway made on the request's behalf cost (the semantic cache's embedding
+    /// lookups, routing classifiers and scorers), and the least certain of their cost statuses; the
+    /// record's cost includes it.
+    pub(crate) auxiliary: Option<(antirion_limits::money::Nusd, antirion_limits::cost::CostStatus)>,
     /// The response was replayed from the cache.
     pub(crate) cached: bool,
     pub(crate) cache: CacheFact,
@@ -657,6 +661,7 @@ impl Record {
             units: antirion_limits::usage::Units::default(),
             images_requested: None,
             cost: None,
+            auxiliary: None,
             cached: false,
             cache: CacheFact::default(),
             admission: None,

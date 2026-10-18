@@ -544,6 +544,15 @@ export function LogDrawer({
                         ? [{ label: 'Cached input tokens', value: formatTokens(r.usage.input_cache_read) }]
                         : []),
                       { label: 'Time to first token', value: formatLatency(ttftMs(r)) },
+                      ...(money(cost?.auxiliary)
+                        ? [
+                            {
+                              label: 'Gateway calls',
+                              value: `${formatMoney(money(cost?.auxiliary))} · cache lookups and routing, in the total`,
+                              mono: false,
+                            },
+                          ]
+                        : []),
                       {
                         label: 'Total cost',
                         value: (

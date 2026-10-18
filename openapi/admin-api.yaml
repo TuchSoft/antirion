@@ -20325,8 +20325,10 @@ components:
         cost:
           type: object
           description: '`{currency: "USD", total, input, cache_read, cache_write, output, reasoning, audio, image, video,
-            unit, status}`, and `saved` on a cache hit: `total` is the request''s billed cost (equal to `x-antirion-cost`
-            and to the sum of its charged ledger lines, …'
+            unit, status}`, `saved` on a cache hit, and `auxiliary` when the gateway made calls on the request''s behalf
+            (semantic cache embeddings, routing classifiers and scorers): `total` is the request''s billed cost
+            including `auxiliary` (equal to the sum of its charged ledger lines, shadow copies excepted, and to
+            `x-antirion-cost` plus `auxiliary`), …'
         timing:
           type: object
           description: '`{total_ms, overhead_ms, upstream_ms, wait_ms, external_ms, ttft_ms, upstream_ttft_ms, tpot_ms, ttfb_overhead_ms,

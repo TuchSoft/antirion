@@ -340,3 +340,101 @@ async fn embeddings_record_the_usage_and_cost_the_upstream_reported() {
 
     gw.stop().await;
 }
+
+/// The ledger lines of the request whose record is `log_id`, once `n` are written.
+async fn ledger(gw: &Gateway, log_id: &str, n: usize) -> Vec<Value> {
+    let mut last = Value::Null;
+    for _ in 0..100 {
+        let (status, body) = gw
+            .admin("GET", &format!("/admin/v1/reports/spend/requests/{log_id}"), "")
+            .await;
+        if status == 200 && body["items"].as_array().is_some_and(|l| l.len() >= n) {
+            return body["items"].as_array().unwrap().clone();
+        }
+        last = body;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("fewer than {n} ledger lines for {log_id}: {last}");
+}
+
+fn chat(model: &str, prompt: &str) -> Value {
+    json!({"model": model, "messages": [{"role": "user", "content": prompt}]})
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_costs_what_the_ledger_charged_for_it_gateway_calls_included() {
+    let cache = json!({"enabled": true, "ttl": "10m",
+        "semantic": {"enabled": true, "embedding_model": "emb", "threshold": 0.9}});
+    let gw = Gateway::start(
+        "accounting-auxiliary",
+        json!({"cache": {"semantic_store": {"type": "memory"}}, "models": {"gpt": {"policies": {"cache": cache}}}}),
+    )
+    .await;
+    let key = gw.key("k", json!({})).await;
+
+    // A miss: the query is embedded (two tokens at $1 per million), then the chat answers (three
+    // tokens in at $1, one out at $2 per million).
+    let (status, headers, sent) = gw
+        .send(&key, "/v1/chat/completions", &[], &chat("gpt", "Say hello"))
+        .await;
+    assert_eq!(status, 200, "{sent}");
+    let miss_id = request_id(&headers);
+    let miss = gw.record(&miss_id).await;
+    let lines = ledger(&gw, miss["id"].as_str().unwrap(), 2).await;
+    let purposes: Vec<&str> = lines.iter().map(|l| l["purpose"].as_str().unwrap()).collect();
+    assert!(purposes.contains(&"cache_embedding"), "{lines:?}");
+    let charged: i64 = lines.iter().map(|l| nusd(&l["billed_usd"])).sum();
+    assert_eq!(charged, 7_000, "{lines:?}");
+    assert_eq!(nusd(&miss["cost"]["total"]), charged, "{miss}");
+    assert_eq!(nusd(&miss["cost"]["auxiliary"]), 2_000, "{miss}");
+    assert_eq!(miss["cost"]["status"], "exact", "{miss}");
+    // The client's header keeps the cost of its own call.
+    assert_eq!(header(&headers, "x-antirion-cost"), Some("0.000005"));
+
+    // A semantic hit: nothing upstream but the lookup, which the record still costs.
+    let (status, headers, _) = gw
+        .send(
+            &key,
+            "/v1/chat/completions",
+            &[],
+            &chat("gpt", "Say hello please"),
+        )
+        .await;
+    assert_eq!(status, 200);
+    let hit_id = request_id(&headers);
+    let hit = gw.record(&hit_id).await;
+    assert_eq!(hit["cache"]["status"], "hit", "{hit}");
+    let lines = ledger(&gw, hit["id"].as_str().unwrap(), 2).await;
+    let charged: i64 = lines.iter().map(|l| nusd(&l["billed_usd"])).sum();
+    assert_eq!(charged, 2_000, "{lines:?}");
+    assert_eq!(nusd(&hit["cost"]["total"]), charged, "{hit}");
+
+    // A request without a lookup has no auxiliary cost.
+    let (_, headers, _) = gw
+        .send(&key, "/v1/chat/completions", &[], &chat("emb", "plain"))
+        .await;
+    let plain = gw.record(&request_id(&headers)).await;
+    assert!(plain["cost"].get("auxiliary").is_none(), "{plain}");
+
+    // The rollups behind Overview and Analytics sum to the ledger's total.
+    let (status, usage) = gw.admin("GET", "/admin/v1/analytics/usage", "").await;
+    assert_eq!(status, 200, "{usage}");
+    let analytics: i64 = usage["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| nusd(&b["cost_usd"]))
+        .sum();
+    let (status, summary) = gw.admin("GET", "/admin/v1/reports/spend/summary", "").await;
+    assert_eq!(status, 200, "{summary}");
+    let spent: i64 = summary["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| nusd(&r["cost"]["billed_usd"]))
+        .sum();
+    assert_eq!(analytics, spent, "{usage} {summary}");
+    assert_eq!(analytics, 7_000 + 2_000 + 5_000, "{usage}");
+
+    gw.stop().await;
+}

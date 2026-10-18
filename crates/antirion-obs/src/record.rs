@@ -184,6 +184,7 @@ pub fn schema() -> Value {
     if let Some(props) = cost.get_mut("properties").and_then(Value::as_object_mut) {
         props.insert("currency".into(), json!({"const": "USD"}));
         props.insert("saved".into(), money.clone());
+        props.insert("auxiliary".into(), money.clone());
         props.insert(
             "status".into(),
             json!({"enum": ["exact", "approximate", "estimated", "unpriced"]}),

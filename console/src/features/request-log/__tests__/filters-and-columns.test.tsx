@@ -404,3 +404,37 @@ describe('content past its retention', () => {
     expect(screen.queryByText(/Turn on content logging/)).not.toBeInTheDocument();
   });
 });
+
+describe('the calls the gateway made for a request', () => {
+  it('shows their cost beside the total that includes it', async () => {
+    useLogs.setState({ detail: emptySlot(), contentRetention: undefined });
+    server.use(
+      http.get('*/admin/v1/logs/:id', () =>
+        HttpResponse.json(
+          record({
+            status_code: 200,
+            code: null,
+            cost: { total: '0.021', auxiliary: '0.001', status: 'exact' },
+          }),
+        ),
+      ),
+    );
+    signInAs(['logs:read']);
+    render(<LogDrawer id="r1" onClose={() => undefined} onOpen={() => undefined} />);
+    expect(await screen.findByText('Gateway calls')).toBeInTheDocument();
+    expect(screen.getByText(/cache lookups and routing, in the total/)).toBeInTheDocument();
+  });
+
+  it('leaves the row out when the gateway made none', async () => {
+    useLogs.setState({ detail: emptySlot(), contentRetention: undefined });
+    server.use(
+      http.get('*/admin/v1/logs/:id', () =>
+        HttpResponse.json(record({ status_code: 200, code: null, cost: { total: '0.02', status: 'exact' } })),
+      ),
+    );
+    signInAs(['logs:read']);
+    render(<LogDrawer id="r1" onClose={() => undefined} onOpen={() => undefined} />);
+    expect(await screen.findByText('Total cost')).toBeInTheDocument();
+    expect(screen.queryByText('Gateway calls')).not.toBeInTheDocument();
+  });
+});

@@ -328,6 +328,8 @@ struct CostJson {
     unit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     saved: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auxiliary: Option<String>,
     status: &'static str,
 }
 
@@ -347,6 +349,7 @@ fn cost_json(c: &CostFact) -> CostJson {
         video: amount(k.video),
         unit: amount(k.unit),
         saved: c.saved.map(Nusd::to_usd_string),
+        auxiliary: c.auxiliary.map(Nusd::to_usd_string),
         status: c.status,
     }
 }

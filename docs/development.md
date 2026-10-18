@@ -1171,8 +1171,15 @@ from the ledger).
   `E_in` and the counted output (`usage_source: estimated`). Non-streaming responses settle in
   `infer::run` before the body is returned; committed streams settle in the relay before the
   terminator is forwarded (`relay::settle_now`), or when they end otherwise. The settled cost is the
-  record's cost, the metrics' cost and `x-antirion-cost` (a trailer, declared in `Trailer`, on
-  streams whose client sent `TE: trailers`). Budget threshold alerts go to the alert webhooks
+  metrics' cost and `x-antirion-cost` (a trailer, declared in `Trailer`, on streams whose client sent
+  `TE: trailers`). The record's cost adds the auxiliary calls the gateway made on the request's
+  behalf (`internal::ask`: semantic cache embeddings, routing classifiers and scorers): each is
+  priced when it answers (`account::auxiliary_line`), its cost and status go to the record's
+  `auxiliary`, and its line is charged off the request's path (`account::charge_line`). The record's
+  `cost.total` then includes `cost.auxiliary` and equals the sum of the request's ledger lines, so
+  the request log, its rollups (Overview, Analytics) and the ledger agree; the status is the least
+  certain of both. Shadow copies stay out: they end after the record is written and are reported as
+  `shadow` lines. Guardrail model calls are not charged. Budget threshold alerts go to the alert webhooks
   (`Runtime::send_alert`, `budgets.alerts.sink`).
 - **Ledger**: `Runtime::record_spend` (`antirion-runtime/src/ledger.rs`) appends lines to the
   node's `Book`, a bounded window of the most recent lines (`book::WINDOW`, idempotent by

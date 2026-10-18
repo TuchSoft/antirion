@@ -417,6 +417,7 @@ fn lines(p: &Pending, r: &Reservation, rec: &Record, end: &End, now: UtcMicros) 
             total: charged,
             components,
             saved: avoided,
+            auxiliary: None,
         },
         billed: charged,
     }

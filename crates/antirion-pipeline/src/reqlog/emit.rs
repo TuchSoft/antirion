@@ -190,7 +190,7 @@ pub(super) fn metrics(m: &Metrics, rec: &Record, head: &HeadFacts, timing: &Timi
         m.observe(Fam::TokenUsage, &[model, &a.provider, "output"], n.output as f64);
     }
     if let Some(a) = rec.serving_attempt().filter(|_| !rec.cached) {
-        match cost.total {
+        match cost.own() {
             Some(total) => m.add_for(
                 Fam::Cost,
                 &[model, &a.provider, &a.deployment],

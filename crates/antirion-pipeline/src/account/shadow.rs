@@ -156,6 +156,16 @@ fn line_of(snap: &Snapshot, f: &ShadowFacts, call: &ShadowCall<'_>, now: UtcMicr
     }
 }
 
+/// The ledger line of an auxiliary call, priced now: its cost is known before it is charged.
+pub(crate) fn auxiliary_line(
+    snap: &Snapshot,
+    f: &ShadowFacts,
+    call: &ShadowCall<'_>,
+    now: UtcMicros,
+) -> LedgerLine {
+    line_of(snap, f, call, now)
+}
+
 /// Settles one shadow call: the budget charges first, then the line that attributes them.
 /// Settles a copy and returns its cost.
 pub(crate) async fn settle_shadow(
@@ -164,13 +174,24 @@ pub(crate) async fn settle_shadow(
     f: &ShadowFacts,
     call: &ShadowCall<'_>,
 ) -> Option<antirion_limits::money::Nusd> {
-    let mut line = line_of(snap, f, call, rt.now());
+    let line = line_of(snap, f, call, rt.now());
+    charge_line(rt, snap, f, call.purpose, line).await
+}
+
+/// Charges a priced auxiliary line to its budgets and records it; returns its cost.
+pub(crate) async fn charge_line(
+    rt: &Arc<Runtime>,
+    snap: &Snapshot,
+    f: &ShadowFacts,
+    purpose: Purpose,
+    mut line: LedgerLine,
+) -> Option<antirion_limits::money::Nusd> {
     let cost = line.cost;
     let billed = line.billed.unwrap_or(Nusd::ZERO);
     if let Ok(mut holds) =
         antirion_limits::shadow::charges(&snap.limits, &f.facts.attrs(), f.admitted_at, &line.usage, billed)
     {
-        if call.purpose != Purpose::Shadow && !snap.limits.budgets.charge_auxiliary {
+        if purpose != Purpose::Shadow && !snap.limits.budgets.charge_auxiliary {
             holds.retain(|h| h.info.level == antirion_limits::level::Level::Gateway);
         }
         line.budgets = rt.accounts.charge_shadow(&holds).await;

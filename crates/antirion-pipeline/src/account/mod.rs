@@ -39,7 +39,7 @@ pub(crate) use self::inbody::{
     details as cost_details_json, number as cost_number, report as report_in_body,
 };
 pub(crate) use self::settle::{End, StreamEnd, settle};
-pub(crate) use self::shadow::{ShadowCall, ShadowFacts, settle_shadow};
+pub(crate) use self::shadow::{ShadowCall, ShadowFacts, auxiliary_line, charge_line, settle_shadow};
 use crate::ctx::{Body, Ctx};
 use crate::parse::Parsed;
 

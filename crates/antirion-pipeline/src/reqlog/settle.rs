@@ -51,6 +51,17 @@ pub(crate) struct CostFact {
     pub(crate) components: CostComponents,
     /// What a cache hit saved.
     pub(crate) saved: Option<Nusd>,
+    /// What the calls the gateway made on the request's behalf cost, included in `total`.
+    pub(crate) auxiliary: Option<Nusd>,
+}
+
+impl CostFact {
+    /// The cost of the request's own calls: `total` without the auxiliary calls, which the cost
+    /// metric attributes to the serving deployment.
+    pub(crate) fn own(&self) -> Option<Nusd> {
+        self.total
+            .map(|t| Nusd(t.0.saturating_sub(self.auxiliary.map_or(0, |a| a.0))))
+    }
 }
 
 fn trail(attempts: &[AttemptFact]) -> String {
@@ -293,14 +304,25 @@ pub(crate) fn tail_ended(rt: &Runtime, draft: &Draft) {
     }
 }
 
-/// The settled cost of a request; free when it was never settled (it reached no upstream).
+/// The settled cost of a request (free when it was never settled: it reached no upstream), with
+/// what the gateway's calls on its behalf cost added to the total, so the record's cost is the sum
+/// of the request's ledger lines.
 fn cost_of(rec: &Record) -> CostFact {
-    rec.cost.clone().unwrap_or(CostFact {
+    let mut cost = rec.cost.clone().unwrap_or(CostFact {
         status: "exact",
         total: Some(Nusd::ZERO),
         components: CostComponents::default(),
         saved: None,
-    })
+        auxiliary: None,
+    });
+    if let Some((aux, aux_status)) = rec.auxiliary {
+        cost.total = cost.total.map(|t| Nusd(t.0.saturating_add(aux.0)));
+        cost.auxiliary = Some(aux);
+        let own = antirion_limits::cost::CostStatus::parse(cost.status)
+            .unwrap_or(antirion_limits::cost::CostStatus::Exact);
+        cost.status = crate::internal::less_certain(own, aux_status).as_str();
+    }
+    cost
 }
 
 /// The time of each lifecycle stage that ran, upstream time and waits excluded, adjusted so the
@@ -369,7 +391,7 @@ fn settle(rt: &Runtime, rec: Record, head: HeadFacts, t_end: Instant) {
             }),
             text,
             latency_ms: timing.total_ms,
-            cost_usd: cost.total.map_or(0.0, |n| n.0 as f64 / 1e9),
+            cost_usd: cost.own().map_or(0.0, |n| n.0 as f64 / 1e9),
         };
         for pair in &rec.comparisons {
             pair.served(served.clone());

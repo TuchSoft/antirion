@@ -7,14 +7,16 @@
 
 use std::time::Duration;
 
+use antirion_limits::cost::CostStatus;
 use antirion_limits::ledger::Purpose;
+use antirion_limits::money::Nusd;
 use antirion_providers::{DeploymentRt, Native, UpstreamCall, UpstreamOp};
 use antirion_resilience::{KeyMode, KeyPick};
 use bytes::Bytes;
 use http::HeaderValue;
 use serde_json::{Value, json};
 
-use crate::account::{ShadowCall, settle_shadow};
+use crate::account::{ShadowCall, auxiliary_line, charge_line};
 use crate::ctx::Ctx;
 use crate::outcome::collect;
 use crate::route::pick_key;
@@ -315,35 +317,53 @@ pub(crate) async fn ask_for_guardrail(
     Err(last)
 }
 
-/// Settles the call's usage as an auxiliary line of the request, off the request's path.
+/// Settles the call's usage as an auxiliary line of the request: priced at once, its cost added to
+/// the request's record, then charged to the budgets off the request's path.
 fn settle(cx: &Ctx, d: &DeploymentRt, status: u16, v: Option<&Value>, asker: Asker) {
     let Some(facts) = cx.account.shadow_facts() else {
         return;
     };
     let usage = v.map(crate::apis::usage_of).filter(|u| !u.is_empty());
     let raw = v.and_then(|v| v.get("usage")).cloned();
-    let line = asker.line();
-    let (rt, snap, d) = (
-        std::sync::Arc::clone(&cx.rt),
-        std::sync::Arc::clone(&cx.snap),
-        cx.snap.providers.deployments.get(&d.name).cloned(),
-    );
-    let Some(d) = d else { return };
+    let Some(d) = cx.snap.providers.deployments.get(&d.name) else {
+        return;
+    };
+    let call = ShadowCall {
+        deployment: d,
+        line: asker.line(),
+        answered: (200..300).contains(&status),
+        usage,
+        raw,
+        e_in: 0,
+        purpose: asker.purpose,
+    };
+    let line = auxiliary_line(&cx.snap, &facts, &call, cx.rt.now());
+    let (cost, cost_status) = (line.billed.or(line.cost).unwrap_or(Nusd::ZERO), line.cost_status);
+    cx.log.update(|r| {
+        let (sum, worst) = r.auxiliary.unwrap_or((Nusd::ZERO, CostStatus::Exact));
+        r.auxiliary = Some((
+            Nusd(sum.0.saturating_add(cost.0)),
+            less_certain(worst, cost_status),
+        ));
+    });
+    let (rt, snap) = (std::sync::Arc::clone(&cx.rt), std::sync::Arc::clone(&cx.snap));
     let shutdown = rt.shutdown.clone();
     let tracked = std::sync::Arc::clone(&rt);
     tracked.tasks.spawn(async move {
-        let call = ShadowCall {
-            deployment: &d,
-            line,
-            answered: (200..300).contains(&status),
-            usage,
-            raw,
-            e_in: 0,
-            purpose: asker.purpose,
-        };
         tokio::select! {
             () = shutdown.cancelled() => {}
-            _ = settle_shadow(&rt, &snap, &facts, &call) => {}
+            _ = charge_line(&rt, &snap, &facts, asker.purpose, line) => {}
         }
     });
+}
+
+/// The less certain of two cost statuses.
+pub(crate) fn less_certain(a: CostStatus, b: CostStatus) -> CostStatus {
+    let rank = |s: CostStatus| match s {
+        CostStatus::Exact => 0,
+        CostStatus::Approximate => 1,
+        CostStatus::Estimated => 2,
+        CostStatus::Unpriced => 3,
+    };
+    if rank(b) > rank(a) { b } else { a }
 }
