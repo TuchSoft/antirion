@@ -342,6 +342,7 @@ mod tests {
     /// The store is out of use only when enough calls failed and they are a large enough share
     /// of the window's calls; failures older than the window are forgotten.
     #[test]
+    #[allow(clippy::disallowed_methods)] // a plain test thread, not a runtime worker
     fn failures_take_the_store_down_by_count_and_rate_within_the_window() {
         let h = Health::new(FailureDetection {
             window: Duration::from_millis(100),
