@@ -476,13 +476,14 @@ pub(crate) async fn raise_builtin(
     let i = match metrics::record_scope(&scope) {
         Some(matched) => {
             let now = rt.now().0;
-            let records = slo::records_between(rt, now - BUILTIN_IMPACT_US, now + 1).await;
-            metrics::impact(
-                records
-                    .iter()
-                    .map(AsRef::as_ref)
-                    .filter(|r| metrics::in_scope(r, &matched)),
-            )
+            let mut i = metrics::Impact::default();
+            slo::for_each_record(rt, now - BUILTIN_IMPACT_US, now + 1, |r| {
+                if metrics::in_scope(r, &matched) {
+                    i.add(r);
+                }
+            })
+            .await;
+            i
         }
         None => metrics::Impact::default(),
     };

@@ -6,7 +6,6 @@
 //! requests but not as failures.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use antirion_core::UtcMicros;
 use serde_json::{Value, json};
@@ -76,11 +75,17 @@ const SCAN: usize = 2_000;
 /// The most records one evaluation or report reads.
 const MAX_RECORDS: usize = 200_000;
 
-/// The request-log records started between `from` and `to` (half-open), oldest first, read from the
-/// store (at most `MAX_RECORDS`).
-pub async fn records_between(rt: &Runtime, from: i64, to: i64) -> Vec<Arc<Value>> {
+/// Calls `visit` with each request-log record started between `from` and `to` (half-open), oldest
+/// first, reading the store a page at a time, so only one page is held at once (at most
+/// `MAX_RECORDS` records); returns how many it visited.
+pub async fn for_each_record(
+    rt: &Runtime,
+    from: i64,
+    to: i64,
+    mut visit: impl FnMut(&Value) + Send,
+) -> usize {
     use antirion_store::logs::{LogFilter, LogOrder, SortKey};
-    let mut out = Vec::new();
+    let mut seen = 0;
     let mut after = None;
     loop {
         let filter = LogFilter {
@@ -103,16 +108,17 @@ pub async fn records_between(rt: &Runtime, from: i64, to: i64) -> Vec<Arc<Value>
         };
         let full = page.len() == SCAN;
         after = page.last().map(|l| l.pos.clone());
-        out.extend(
-            page.iter()
-                .filter_map(|l| serde_json::from_str::<Value>(&l.log.record).ok())
-                .map(Arc::new),
-        );
-        if !full || out.len() >= MAX_RECORDS {
+        for l in &page {
+            if let Ok(r) = serde_json::from_str::<Value>(&l.log.record) {
+                visit(&r);
+                seen += 1;
+            }
+        }
+        if !full || seen >= MAX_RECORDS {
             break;
         }
     }
-    out
+    seen
 }
 
 /// The availability report: one row per group and bucket (`interval_us`, or the whole range).
@@ -125,14 +131,15 @@ pub async fn availability(
     interval_us: Option<i64>,
 ) -> Vec<Value> {
     let mut rows: BTreeMap<(i64, Option<String>), Counts> = BTreeMap::new();
-    for r in records_between(rt, from, to).await {
-        let Some(t) = started_us(&r) else { continue };
+    for_each_record(rt, from, to, |r| {
+        let Some(t) = started_us(r) else { return };
         let bucket = interval_us.map_or(from, |i| from + (t - from).div_euclid(i.max(1)) * i.max(1));
         let group = (group_by != "gateway")
             .then(|| r.get(group_by).and_then(Value::as_str).map(str::to_owned))
             .flatten();
-        rows.entry((bucket, group)).or_default().add(&r);
-    }
+        rows.entry((bucket, group)).or_default().add(r);
+    })
+    .await;
     let uptime = rt.state.alerting.uptime_ratio(from, to);
     rows.into_iter()
         .map(|((start, group), c)| {
@@ -163,19 +170,33 @@ fn good(slo: &Slo, r: &Value) -> bool {
     }
 }
 
-/// The bad fraction of the records in `[now − span, now]`, `None` without records.
-fn bad_ratio(slo: &Slo, records: &[Arc<Value>], now: i64, span: i64) -> Option<f64> {
-    let (mut total, mut bad) = (0u64, 0u64);
-    for r in records {
+/// The records of `[now − span, now]` in an objective's scope, and how many of them were bad.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tally {
+    total: u64,
+    bad: u64,
+}
+
+impl Tally {
+    fn add(&mut self, slo: &Slo, r: &Value, now: i64, span: i64) {
         if started_us(r).is_some_and(|t| t >= now - span) && in_scope(r, &slo.scope) {
-            total += 1;
+            self.total += 1;
             if !good(slo, r) {
-                bad += 1;
+                self.bad += 1;
             }
         }
     }
-    #[allow(clippy::cast_precision_loss)]
-    (total > 0).then(|| bad as f64 / total as f64)
+
+    /// The bad fraction, `None` without records.
+    fn ratio(self) -> Option<f64> {
+        #[allow(clippy::cast_precision_loss)]
+        (self.total > 0).then(|| self.bad as f64 / self.total as f64)
+    }
+}
+
+/// The spans each objective is read over: its window, then the burn-rate spans.
+fn spans(slo: &Slo) -> [i64; 3] {
+    [slo.window_us, HOUR_US, 6 * HOUR_US]
 }
 
 /// `GET /runtime/slos`: each objective's attainment, remaining error budget and burn rates.
@@ -184,23 +205,33 @@ pub async fn status(rt: &Runtime) -> Vec<Value> {
     let now = rt.now().0;
     let cfg = rt.alerting();
     let longest = cfg.slos.iter().map(|s| s.window_us).max().unwrap_or(0);
-    let all = records_between(rt, now - longest, now + 1).await;
+    let mut tallies = vec![[Tally::default(); 3]; cfg.slos.len()];
+    if !cfg.slos.is_empty() {
+        for_each_record(rt, now - longest, now + 1, |r| {
+            for (slo, t) in cfg.slos.iter().zip(tallies.iter_mut()) {
+                for (span, t) in spans(slo).into_iter().zip(t.iter_mut()) {
+                    t.add(slo, r, now, span);
+                }
+            }
+        })
+        .await;
+    }
     let mut out: Vec<Value> = cfg
         .slos
         .iter()
-        .map(|slo| {
+        .zip(&tallies)
+        .map(|(slo, [window, hour, six])| {
             let allowed = 1.0 - slo.objective;
-            let bad = bad_ratio(slo, &all, now, slo.window_us);
-            let burn =
-                |span| bad_ratio(slo, &all, now, span).and_then(|b| (allowed > 0.0).then(|| b / allowed));
+            let bad = window.ratio();
+            let burn = |t: &Tally| t.ratio().and_then(|b| (allowed > 0.0).then(|| b / allowed));
             json!({
                 "name": slo.name,
                 "kind": slo.kind,
                 "objective": slo.objective,
                 "attained": bad.map(|b| 1.0 - b),
                 "error_budget_remaining": bad.and_then(|b| (allowed > 0.0).then(|| 1.0 - b / allowed)),
-                "burn_rate_1h": burn(HOUR_US),
-                "burn_rate_6h": burn(6 * HOUR_US),
+                "burn_rate_1h": burn(hour),
+                "burn_rate_6h": burn(six),
                 "window": slo.window,
             })
         })
@@ -290,23 +321,30 @@ async fn digest_text(rt: &Runtime, u: &crate::identity::UserRt, since: i64, now:
             ));
         }
     }
-    let records = records_between(rt, since, now + 1).await;
-    let spend: f64 = records
-        .iter()
-        .filter_map(|r| r.pointer("/cost/total").and_then(Value::as_str))
-        .filter_map(|s| s.parse::<f64>().ok())
-        .sum();
-    let safety = records
-        .iter()
-        .filter_map(|r| r.get("guardrails").and_then(Value::as_array))
-        .flatten()
-        .filter(|g| {
-            !matches!(
-                g.get("verdict").and_then(Value::as_str),
-                Some("pass" | "skipped") | None
-            )
-        })
-        .count();
+    let mut spend: f64 = std::iter::empty::<f64>().sum();
+    let mut safety = 0usize;
+    for_each_record(rt, since, now + 1, |r| {
+        if let Some(cost) = r
+            .pointer("/cost/total")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<f64>().ok())
+        {
+            spend += cost;
+        }
+        safety += r
+            .get("guardrails")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|g| {
+                !matches!(
+                    g.get("verdict").and_then(Value::as_str),
+                    Some("pass" | "skipped") | None
+                )
+            })
+            .count();
+    })
+    .await;
     let mut text = format!(
         "Alerts fired: {} ({})\n",
         instances.len(),
@@ -364,10 +402,16 @@ mod tests {
             window_us: DAY_US,
             scope: BTreeMap::new(),
         };
-        let fast = Arc::new(json!({"started_at": "2026-10-01T00:00:00Z", "timing": {"total_ms": 50.0}}));
-        let slow = Arc::new(json!({"started_at": "2026-10-01T00:00:00Z", "timing": {"total_ms": 500.0}}));
+        let fast = json!({"started_at": "2026-10-01T00:00:00Z", "timing": {"total_ms": 50.0}});
+        let slow = json!({"started_at": "2026-10-01T00:00:00Z", "timing": {"total_ms": 500.0}});
+        let old = json!({"started_at": "2026-09-30T00:00:00Z", "timing": {"total_ms": 500.0}});
         let now = UtcMicros::parse_rfc3339("2026-10-01T00:00:01Z").unwrap().0;
-        let r = bad_ratio(&slo, &[fast, slow], now, HOUR_US).unwrap();
+        let mut t = Tally::default();
+        for r in [&fast, &slow, &old] {
+            t.add(&slo, r, now, HOUR_US);
+        }
+        assert_eq!(Tally::default().ratio(), None);
+        let r = t.ratio().unwrap();
         assert!((r - 0.5).abs() < 1e-12);
     }
 }

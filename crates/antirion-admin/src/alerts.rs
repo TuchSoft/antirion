@@ -307,81 +307,143 @@ fn record_scope(scope: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     out
 }
 
+/// What one minute of the signal shows, gathered one record at a time.
+struct Minute {
+    requests: usize,
+    errors: usize,
+    input: u64,
+    output: u64,
+    cost: f64,
+    latency: Vec<f64>,
+    ttft: Vec<f64>,
+}
+
+impl Minute {
+    fn new() -> Minute {
+        Minute {
+            requests: 0,
+            errors: 0,
+            input: 0,
+            output: 0,
+            cost: std::iter::empty::<f64>().sum(),
+            latency: Vec::new(),
+            ttft: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, r: &Value) {
+        self.requests += 1;
+        if let Some(ms) = r.pointer("/timing/total_ms").and_then(Value::as_f64) {
+            self.latency.push(ms);
+        }
+        if let Some(ms) = r.pointer("/timing/ttft_ms").and_then(Value::as_f64) {
+            self.ttft.push(ms);
+        }
+        if let Some(cost) = r
+            .pointer("/cost/total")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<f64>().ok())
+        {
+            self.cost += cost;
+        }
+        if r.get("status_code")
+            .and_then(Value::as_u64)
+            .is_some_and(|s| s >= 500)
+        {
+            self.errors += 1;
+        }
+        self.input += r.pointer("/usage/input").and_then(Value::as_u64).unwrap_or(0);
+        self.output += r.pointer("/usage/output").and_then(Value::as_u64).unwrap_or(0);
+    }
+
+    fn json(mut self, start: i64) -> Value {
+        use alerting::metrics::percentile;
+        let pcts = |v: &mut Vec<f64>| {
+            json!({"p50": percentile(v, 50.0), "p90": percentile(v, 90.0),
+                   "p95": percentile(v, 95.0), "p99": percentile(v, 99.0)})
+        };
+        let cost = self.cost;
+        json!({
+            "start": UtcMicros(start).to_rfc3339(),
+            "group": {},
+            "requests": self.requests,
+            "errors": self.errors,
+            "input": self.input,
+            "output": self.output,
+            "cost_usd": format!("{cost:.9}").trim_end_matches('0').trim_end_matches('.').to_owned(),
+            "latency_ms": pcts(&mut self.latency),
+            "ttft_ms": pcts(&mut self.ttft),
+        })
+    }
+}
+
 /// One-minute buckets of the instance's scope between `from` and `to`, in the usage report's shape.
+/// Records are counted into their minute as they are read.
 async fn signal(call: &Call, scope: &BTreeMap<String, String>, from: i64, to: i64) -> Vec<Value> {
-    use alerting::metrics::{in_scope, percentile, started_us};
+    use alerting::metrics::{in_scope, started_us};
     let first = from - from.rem_euclid(MINUTE_US);
     let end = first + (to - from);
-    let records = alerting::slo::records_between(&call.rt, first, end).await;
-    let mut buckets: BTreeMap<i64, Vec<&Value>> = BTreeMap::new();
+    let mut buckets: BTreeMap<i64, Minute> = BTreeMap::new();
     let mut start = first;
     while start < end {
-        buckets.insert(start, Vec::new());
+        buckets.insert(start, Minute::new());
         start += MINUTE_US;
     }
-    for r in &records {
+    alerting::slo::for_each_record(&call.rt, first, end, |r| {
         if !in_scope(r, scope) {
-            continue;
+            return;
         }
         if let Some(t) = started_us(r)
             && let Some(b) = buckets.get_mut(&(t - t.rem_euclid(MINUTE_US)))
         {
-            b.push(r.as_ref());
+            b.add(r);
         }
-    }
-    buckets
-        .into_iter()
-        .map(|(start, rs)| {
-            let mut lat: Vec<f64> = rs
-                .iter()
-                .filter_map(|r| r.pointer("/timing/total_ms").and_then(Value::as_f64))
-                .collect();
-            let mut ttft: Vec<f64> = rs
-                .iter()
-                .filter_map(|r| r.pointer("/timing/ttft_ms").and_then(Value::as_f64))
-                .collect();
-            let cost: f64 = rs
-                .iter()
-                .filter_map(|r| r.pointer("/cost/total").and_then(Value::as_str))
-                .filter_map(|s| s.parse::<f64>().ok())
-                .sum();
-            let errors = rs
-                .iter()
-                .filter(|r| {
-                    r.get("status_code")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|s| s >= 500)
-                })
-                .count();
-            let tokens = |p: &str| -> u64 {
-                rs.iter()
-                    .filter_map(|r| r.pointer(p).and_then(Value::as_u64))
-                    .sum()
-            };
-            let pcts = |v: &mut Vec<f64>| {
-                json!({"p50": percentile(v, 50.0), "p90": percentile(v, 90.0),
-                       "p95": percentile(v, 95.0), "p99": percentile(v, 99.0)})
-            };
-            json!({
-                "start": UtcMicros(start).to_rfc3339(),
-                "group": {},
-                "requests": rs.len(),
-                "errors": errors,
-                "input": tokens("/usage/input"),
-                "output": tokens("/usage/output"),
-                "cost_usd": format!("{cost:.9}").trim_end_matches('0').trim_end_matches('.').to_owned(),
-                "latency_ms": pcts(&mut lat),
-                "ttft_ms": pcts(&mut ttft),
-            })
-        })
-        .collect()
+    })
+    .await;
+    buckets.into_iter().map(|(start, m)| m.json(start)).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::record_scope;
+    use serde_json::json;
+
+    use super::{Minute, record_scope};
+
+    #[test]
+    fn a_minute_counts_its_records_one_at_a_time() {
+        let records = [
+            json!({"status_code": 200, "timing": {"total_ms": 30.0, "ttft_ms": 10.0},
+                   "cost": {"total": "0.25"}, "usage": {"input": 3, "output": 4}}),
+            json!({"status_code": 502, "timing": {"total_ms": 10.0}, "cost": {"total": "0.5"}}),
+            json!({"status_code": 200, "timing": {"total_ms": 20.0}, "usage": {"input": 1}}),
+        ];
+        let mut m = Minute::new();
+        for r in &records {
+            m.add(r);
+        }
+        let v = m.json(0);
+        assert_eq!(v["requests"], 3);
+        assert_eq!(v["errors"], 1);
+        assert_eq!((v["input"].clone(), v["output"].clone()), (json!(4), json!(4)));
+        assert_eq!(v["cost_usd"], "0.75");
+        assert_eq!(v["latency_ms"]["p50"], 20.0);
+        assert_eq!(v["latency_ms"]["p99"], 30.0);
+        assert_eq!(v["ttft_ms"]["p50"], 10.0);
+        let empty = Minute::new().json(0);
+        let none: f64 = std::iter::empty::<f64>().sum();
+        let want = format!("{none:.9}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_owned();
+        assert_eq!(
+            empty["cost_usd"],
+            want.as_str(),
+            "an empty minute's cost reads as before"
+        );
+        assert_eq!(empty["latency_ms"]["p50"], serde_json::Value::Null);
+    }
 
     #[test]
     fn a_signal_reads_the_scope_records_carry() {

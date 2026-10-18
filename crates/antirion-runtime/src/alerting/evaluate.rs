@@ -16,7 +16,7 @@ use tokio::time::Instant;
 use super::config::{AlertingConfig, Rule, Trigger};
 use super::engine;
 use super::instance::{Impact, Stored};
-use super::metrics::{self, Inputs, Limits};
+use super::metrics::{self, Inputs, Limits, Tally};
 use crate::Runtime;
 
 const TICK: Duration = Duration::from_millis(250);
@@ -176,6 +176,48 @@ async fn budgets(rt: &Runtime, scope: &BTreeMap<String, String>, now: i64) -> Ve
     out
 }
 
+/// Whether a metric compares the window with the same hour a week earlier.
+fn uses_baseline(rule: &Rule) -> bool {
+    matches!(&rule.trigger, Trigger::Metric { metric, .. } if metric.ends_with("_baseline_ratio"))
+}
+
+/// Each rule's tally of its window and of its baseline hour, read in one pass over the records of
+/// the longest window and, when a rule compares with it, the baseline hour. Records are counted as
+/// they are read, so an evaluation never holds them.
+async fn tally(rt: &Runtime, rules: &[&Rule], now: i64) -> Vec<(Tally, Tally)> {
+    let new = |r: &Rule| match &r.trigger {
+        Trigger::Metric { metric, .. } => Tally::new(metric),
+        Trigger::Event { .. } => Tally::new(""),
+    };
+    let mut tallies: Vec<(Tally, Tally)> = rules.iter().map(|r| (new(r), new(r))).collect();
+    let Some(earliest) = rules.iter().map(|r| now - r.window_us).min() else {
+        return tallies;
+    };
+    let (b0, b1) = metrics::baseline_hour(now);
+    let mut count = |r: &Value| {
+        let Some(t) = metrics::started_us(r) else {
+            return;
+        };
+        for (rule, (window, baseline)) in rules.iter().zip(tallies.iter_mut()) {
+            if !metrics::in_scope(r, &rule.scope) {
+                continue;
+            }
+            if t >= now - rule.window_us && t <= now {
+                window.add(r);
+            }
+            if t >= b0 && t < b1 && uses_baseline(rule) {
+                baseline.add(r);
+            }
+        }
+    };
+    let baseline = rules.iter().any(|r| uses_baseline(r));
+    if baseline && b0 < earliest {
+        super::slo::for_each_record(rt, b0, b1.min(earliest), &mut count).await;
+    }
+    super::slo::for_each_record(rt, earliest, now + 1, &mut count).await;
+    tallies
+}
+
 /// One evaluation of every enabled metric rule at `now`, and the resolution of instances whose
 /// condition has cleared.
 pub(crate) async fn evaluate(
@@ -196,20 +238,10 @@ pub(crate) async fn evaluate(
         .iter()
         .filter(|r| r.enabled && matches!(r.trigger, Trigger::Metric { .. }))
         .collect();
-    let earliest = metric_rules
-        .iter()
-        .map(|r| now - r.window_us)
-        .chain(std::iter::once(metrics::baseline_hour(now).0))
-        .min()
-        .unwrap_or(now);
-    let records = if metric_rules.is_empty() {
-        Vec::new()
-    } else {
-        super::slo::records_between(rt, earliest, now + 1).await
-    };
+    let tallies = tally(rt, &metric_rules, now).await;
     let doc = rt.gens.load().config.doc.clone();
     let mut evaluated = std::collections::HashSet::new();
-    for rule in metric_rules {
+    for (rule, (window, baseline)) in metric_rules.into_iter().zip(&tallies) {
         let Trigger::Metric {
             metric,
             operator,
@@ -217,24 +249,6 @@ pub(crate) async fn evaluate(
         } = &rule.trigger
         else {
             continue;
-        };
-        let in_window = |r: &&Arc<Value>| {
-            metrics::started_us(r).is_some_and(|t| t >= now - rule.window_us && t <= now)
-                && metrics::in_scope(r, &rule.scope)
-        };
-        let window: Vec<&Value> = records.iter().filter(in_window).map(|r| r.as_ref()).collect();
-        let (b0, b1) = metrics::baseline_hour(now);
-        let baseline: Vec<&Value> = if metric.ends_with("_baseline_ratio") {
-            records
-                .iter()
-                .filter(|r| {
-                    metrics::started_us(r).is_some_and(|t| t >= b0 && t < b1)
-                        && metrics::in_scope(r, &rule.scope)
-                })
-                .map(|r| r.as_ref())
-                .collect()
-        } else {
-            Vec::new()
         };
         let budget_states = if metric == "budget_projection_ratio" {
             budgets(rt, &rule.scope, now).await
@@ -244,9 +258,9 @@ pub(crate) async fn evaluate(
         let value = metrics::compute(
             metric,
             &Inputs {
-                window: &window,
+                window,
                 window_us: rule.window_us,
-                baseline: &baseline,
+                baseline,
                 limits: limits(&doc, &rule.scope),
                 budgets: &budget_states,
             },
@@ -257,7 +271,7 @@ pub(crate) async fn evaluate(
         if holds {
             let since = *rt.state.alerting.pending.lock().entry(fp.clone()).or_insert(now);
             if now - since >= rule.for_us {
-                let i = metrics::impact(window.iter().copied());
+                let i = window.impact;
                 engine::raise(
                     rt,
                     rule,
