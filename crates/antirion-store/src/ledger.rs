@@ -61,6 +61,69 @@ fn may_charge(body: &str) -> bool {
     }
 }
 
+/// Where a page of the ledger starts: the admission time, request and line of the last line of
+/// the page before.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LedgerPos {
+    pub admitted_us: i64,
+    pub request_id: String,
+    pub line: u32,
+}
+
+impl LedgerPos {
+    #[must_use]
+    pub fn of(r: &LedgerRow) -> LedgerPos {
+        LedgerPos {
+            admitted_us: r.admitted_us,
+            request_id: r.request_id.clone(),
+            line: r.line,
+        }
+    }
+}
+
+/// One page of the stored lines admitted at or after `from` and before `to`, ordered by
+/// admission, request and line (each descending when `descending`), after `after`.
+#[derive(Clone, Debug)]
+pub struct LedgerPage {
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    pub descending: bool,
+    pub after: Option<LedgerPos>,
+    pub limit: usize,
+}
+
+impl LedgerPage {
+    /// The statement, with `$n` or `?n` placeholders: the range is 1 and 2, then the position (3
+    /// to 5) when there is one, then the limit. Requests are compared byte by byte on both stores.
+    pub(crate) fn sql(&self, pg: bool) -> String {
+        let (cmp, dir) = if self.descending {
+            ("<", "DESC")
+        } else {
+            (">", "ASC")
+        };
+        let mark = if pg { "$" } else { "?" };
+        let collate = if pg { " COLLATE \"C\"" } else { "" };
+        let after = if self.after.is_some() {
+            format!(
+                " AND (admitted_us, request_id{collate}, line) {cmp} ({mark}3, {mark}4{collate}, {mark}5)"
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "SELECT request_id, line, admitted_us, body FROM ledger_lines
+             WHERE admitted_us >= {mark}1 AND admitted_us < {mark}2{after}
+             ORDER BY admitted_us {dir}, request_id{collate} {dir}, line {dir} LIMIT {mark}{limit}",
+            limit = if self.after.is_some() { 6 } else { 3 }
+        )
+    }
+
+    /// The bounds of the range.
+    pub(crate) fn range(&self) -> (i64, i64) {
+        (self.from.unwrap_or(i64::MIN), self.to.unwrap_or(i64::MAX))
+    }
+}
+
 fn row_of(r: &rusqlite::Row<'_>) -> rusqlite::Result<LedgerRow> {
     Ok(LedgerRow {
         request_id: r.get(0)?,
@@ -123,6 +186,29 @@ impl Store {
             )?;
             let rows = stmt.query_map(params![from, to], row_of)?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })
+        .await
+    }
+
+    /// One page of stored lines, in the page's order.
+    pub async fn ledger_page(&self, page: LedgerPage) -> Result<Vec<LedgerRow>, StoreError> {
+        let s = match self {
+            Store::Sqlite(s) => s,
+            Store::Postgres(p) => return p.ledger_page(&page).await,
+        };
+        s.call(move |c| {
+            let (from, to) = page.range();
+            let limit = i64::try_from(page.limit).unwrap_or(i64::MAX);
+            let mut stmt = c.prepare(&page.sql(false))?;
+            let rows = match &page.after {
+                Some(a) => stmt.query_map(
+                    params![from, to, a.admitted_us, a.request_id, a.line, limit],
+                    row_of,
+                )?,
+                None => stmt.query_map(params![from, to, limit], row_of)?,
+            };
+            let rows = rows.collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
         })
         .await
     }
@@ -268,6 +354,57 @@ mod tests {
         assert_eq!(store.ledger_request("a").await.unwrap().len(), 2);
         store.clear_ledger().await.unwrap();
         assert!(store.ledger().await.unwrap().is_empty());
+        store.close();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn pages_follow_the_admission_order_both_ways() {
+        let dir = scratch("pages");
+        let store = Store::open_embedded(&dir).unwrap();
+        let mut rows = Vec::new();
+        for (i, at) in [30, 10, 20, 10, 30, 30, 5].into_iter().enumerate() {
+            for line in 0..2 {
+                rows.push(row(&format!("r{i}"), line, at, "{}"));
+            }
+        }
+        store.append_ledger(rows).await.unwrap();
+        let key = |r: &LedgerRow| (r.admitted_us, r.request_id.clone(), r.line);
+        let all: Vec<_> = store
+            .ledger_between(Some(10), Some(31))
+            .await
+            .unwrap()
+            .iter()
+            .map(key)
+            .collect();
+        for descending in [false, true] {
+            for limit in [1, 3, 100] {
+                let mut read = Vec::new();
+                let mut after = None;
+                loop {
+                    let page = store
+                        .ledger_page(LedgerPage {
+                            from: Some(10),
+                            to: Some(31),
+                            descending,
+                            after: after.clone(),
+                            limit,
+                        })
+                        .await
+                        .unwrap();
+                    after = page.last().map(LedgerPos::of);
+                    read.extend(page.iter().map(key));
+                    if page.len() < limit {
+                        break;
+                    }
+                }
+                let mut want = all.clone();
+                if descending {
+                    want.reverse();
+                }
+                assert_eq!(read, want, "descending {descending}, {limit} a page");
+            }
+        }
         store.close();
         let _ = std::fs::remove_dir_all(&dir);
     }

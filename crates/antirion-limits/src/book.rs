@@ -447,7 +447,7 @@ fn attr_values(l: &LedgerLine, attr: &str) -> Vec<Value> {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Row {
     requests: HashSet<String>,
     lines: u64,
@@ -457,14 +457,27 @@ struct Row {
     saved: i128,
 }
 
-/// One summary row per distinct value tuple of `group_by`, ordered by group; amounts are exact sums
-/// of the lines.
-#[must_use]
-pub fn summary(lines: &[Arc<LedgerLine>], group_by: &[String]) -> Vec<Value> {
-    let mut rows: BTreeMap<String, (Map<String, Value>, Row)> = BTreeMap::new();
-    for l in lines {
+/// A spend summary gathered one line at a time: one row per distinct value tuple of the grouping
+/// attributes, ordered by group; amounts are exact sums of the lines.
+#[derive(Debug)]
+pub struct Summary {
+    group_by: Vec<String>,
+    rows: BTreeMap<String, (Map<String, Value>, Row)>,
+}
+
+impl Summary {
+    #[must_use]
+    pub fn new(group_by: &[String]) -> Summary {
+        Summary {
+            group_by: group_by.to_vec(),
+            rows: BTreeMap::new(),
+        }
+    }
+
+    /// Adds one line to each of its groups.
+    pub fn add(&mut self, l: &LedgerLine) {
         let mut groups: Vec<Map<String, Value>> = vec![Map::new()];
-        for attr in group_by {
+        for attr in &self.group_by {
             let values = attr_values(l, attr);
             groups = groups
                 .into_iter()
@@ -479,7 +492,7 @@ pub fn summary(lines: &[Arc<LedgerLine>], group_by: &[String]) -> Vec<Value> {
         }
         for g in groups {
             let key = Value::Object(g.clone()).to_string();
-            let (_, row) = rows.entry(key).or_insert_with(|| (g, Row::default()));
+            let (_, row) = self.rows.entry(key).or_insert_with(|| (g, Row::default()));
             row.requests.insert(l.request_id.clone());
             row.lines += 1;
             for (name, n) in l.usage.fields() {
@@ -491,21 +504,38 @@ pub fn summary(lines: &[Arc<LedgerLine>], group_by: &[String]) -> Vec<Value> {
             row.saved = row.saved.saturating_add(l.avoided.map_or(0, |n| n.0));
         }
     }
-    rows.into_values()
-        .map(|(group, row)| {
-            json!({
-                "group": group,
-                "requests": row.requests.len(),
-                "lines": row.lines,
-                "tokens": row.tokens,
-                "cost": {
-                    "billed_usd": Nusd(row.billed).to_usd_string(),
-                    "cost_usd": Nusd(row.cost).to_usd_string(),
-                },
-                "cache_saved_usd": Nusd(row.saved).to_usd_string(),
+
+    /// The rows, by group.
+    #[must_use]
+    pub fn finish(self) -> Vec<Value> {
+        self.rows
+            .into_values()
+            .map(|(group, row)| {
+                json!({
+                    "group": group,
+                    "requests": row.requests.len(),
+                    "lines": row.lines,
+                    "tokens": row.tokens,
+                    "cost": {
+                        "billed_usd": Nusd(row.billed).to_usd_string(),
+                        "cost_usd": Nusd(row.cost).to_usd_string(),
+                    },
+                    "cache_saved_usd": Nusd(row.saved).to_usd_string(),
+                })
             })
-        })
-        .collect()
+            .collect()
+    }
+}
+
+/// One summary row per distinct value tuple of `group_by`, ordered by group; amounts are exact sums
+/// of the lines.
+#[must_use]
+pub fn summary(lines: &[Arc<LedgerLine>], group_by: &[String]) -> Vec<Value> {
+    let mut s = Summary::new(group_by);
+    for l in lines {
+        s.add(l);
+    }
+    s.finish()
 }
 
 #[cfg(test)]

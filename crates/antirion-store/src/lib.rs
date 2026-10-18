@@ -40,7 +40,7 @@ pub use cache_console::{RuleFirings, SemanticTally};
 pub use deliveries::{DeliveryQuery, DeliveryRow, QueueRow};
 pub use erasure::Tenant;
 pub use identity::IdentityRecord;
-pub use ledger::LedgerRow;
+pub use ledger::{LedgerPage, LedgerPos, LedgerRow};
 pub use objects::UpstreamObject;
 pub use pg::PgStore;
 pub use pressure::PressureRow;

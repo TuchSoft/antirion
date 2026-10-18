@@ -235,18 +235,19 @@ impl Export {
         self.progress(0.1).await;
         let audit = self.audit(&scope).await?;
         self.progress(0.3).await;
-        let ledger: Vec<Value> = self
-            .rt
-            .spend_lines(&LedgerFilter {
-                organization: Some(self.organization.clone()),
-                ..LedgerFilter::default()
+        let mut ledger: Vec<Value> = Vec::new();
+        let f = LedgerFilter {
+            organization: Some(self.organization.clone()),
+            ..LedgerFilter::default()
+        };
+        self.rt
+            .for_each_spend_line(&f, true, |l| {
+                if ledger.len() < MAX_ROWS {
+                    ledger.push(l.to_json());
+                }
+                ledger.len() < MAX_ROWS
             })
-            .await
-            .iter()
-            .rev()
-            .take(MAX_ROWS)
-            .map(|l| l.to_json())
-            .collect();
+            .await;
         self.progress(0.5).await;
         let logs = self.logs().await?;
         self.progress(0.9).await;

@@ -434,6 +434,27 @@ impl PgStore {
         .await
     }
 
+    pub(crate) async fn ledger_page(&self, page: &crate::LedgerPage) -> Result<Vec<LedgerRow>, StoreError> {
+        self.run(async {
+            let (from, to) = page.range();
+            let limit = i64::try_from(page.limit).unwrap_or(i64::MAX);
+            let sql = page.sql(true);
+            let mut lease = self.pool.get().await?;
+            let client = lease.client()?;
+            let rows = match &page.after {
+                Some(a) => {
+                    let line = i32::try_from(a.line).unwrap_or(i32::MAX);
+                    client
+                        .query(&sql, &[&from, &to, &a.admitted_us, &a.request_id, &line, &limit])
+                        .await?
+                }
+                None => client.query(&sql, &[&from, &to, &limit]).await?,
+            };
+            rows.iter().map(ledger_of).collect()
+        })
+        .await
+    }
+
     pub(crate) async fn ledger_request(&self, request_id: &str) -> Result<Vec<LedgerRow>, StoreError> {
         self.run(async {
             let mut lease = self.pool.get().await?;

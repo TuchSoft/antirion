@@ -10,7 +10,7 @@ use antirion_limits::book::{Book, LedgerFilter, LedgerHistory};
 use antirion_limits::counter::CounterId;
 use antirion_limits::ledger::LedgerLine;
 use antirion_limits::period::PeriodBounds;
-use antirion_store::{LedgerRow, Store, StoreError};
+use antirion_store::{LedgerPage, LedgerPos, LedgerRow, Store, StoreError};
 
 use crate::Runtime;
 use crate::spool::LedgerWriter;
@@ -74,6 +74,14 @@ impl LedgerHistory for StoreHistory {
             Ok(slots)
         })
     }
+}
+
+/// Stored lines read per store call when the ledger is walked.
+const PAGE: usize = 2_000;
+
+/// A line's place in the ledger: admission, request, line.
+fn order_key(l: &LedgerLine) -> (antirion_core::UtcMicros, &str, u32) {
+    (l.admitted_at, l.request_id.as_str(), l.line)
 }
 
 pub(crate) fn decode(rows: &[LedgerRow]) -> Vec<Arc<LedgerLine>> {
@@ -159,31 +167,104 @@ impl Runtime {
         self.state.operations.erased.hides(&l.organization, l.admitted_at)
     }
 
-    /// The lines a filter accepts, oldest admission first. A standalone node's window answers
-    /// alone when it covers the filter's range.
-    pub async fn spend_lines(&self, f: &LedgerFilter) -> Vec<Arc<LedgerLine>> {
+    /// Calls `visit` with each line a filter accepts, the window's and the store's as one ledger
+    /// (each `(request_id, line)` once, oldest admission first, or the reverse when `descending`),
+    /// until it returns false. The store is read a page at a time, so only the window and one page
+    /// are held at once. A standalone node's window answers alone when it covers the filter's
+    /// range.
+    pub async fn for_each_spend_line(
+        &self,
+        f: &LedgerFilter,
+        descending: bool,
+        visit: impl FnMut(&Arc<LedgerLine>) -> bool + Send,
+    ) {
         let book = self.accounts.book();
-        let window = book.select(f);
         let covered = self.cluster.is_none() && f.from.is_some_and(|from| book.covers(from));
-        if covered {
-            let mut lines = merged(window, Vec::new());
-            lines.retain(|l| !self.erased(l));
-            return lines;
-        }
-        let stored = match self
-            .store
-            .ledger_between(f.from.map(|t| t.0), f.to.map(|t| t.0))
-            .await
-        {
-            Ok(rows) => decode(&rows).into_iter().filter(|l| f.accepts(l)).collect(),
-            Err(e) => {
-                tracing::warn!(error = %e, "the stored ledger could not be read; reporting the node's recent lines");
-                Vec::new()
+        let store = (!covered).then_some(self.store.as_ref());
+        walk(
+            store,
+            book.select(f),
+            f,
+            descending,
+            PAGE,
+            |l| !self.erased(l),
+            visit,
+        )
+        .await;
+    }
+}
+
+/// Walks `window` (the window's lines `f` accepts) and, unless `store` is `None`, the stored lines
+/// `f` accepts, as one ledger in the order of [`merged`] (reversed when `descending`), keeping the
+/// lines `keep` accepts; reads the store `page` lines at a time and stops when `visit` returns
+/// false.
+async fn walk(
+    store: Option<&Store>,
+    mut window: Vec<Arc<LedgerLine>>,
+    f: &LedgerFilter,
+    descending: bool,
+    page: usize,
+    keep: impl Fn(&LedgerLine) -> bool + Send,
+    mut visit: impl FnMut(&Arc<LedgerLine>) -> bool + Send,
+) {
+    window.retain(|l| keep(l));
+    window.sort_by(|a, b| order_key(a).cmp(&order_key(b)));
+    if descending {
+        window.reverse();
+    }
+    // Whether `a` comes before `b` in the walk.
+    let before = |a: &LedgerLine, b: &LedgerLine| {
+        let ord = order_key(a).cmp(&order_key(b));
+        if descending { ord.is_gt() } else { ord.is_lt() }
+    };
+    let held: HashSet<(String, u32)> = match store {
+        Some(_) => window.iter().map(|l| (l.request_id.clone(), l.line)).collect(),
+        None => HashSet::new(),
+    };
+    let mut window = window.into_iter().peekable();
+    if let Some(store) = store {
+        let mut after = None;
+        loop {
+            let rows = match store
+                .ledger_page(LedgerPage {
+                    from: f.from.map(|t| t.0),
+                    to: f.to.map(|t| t.0),
+                    descending,
+                    after: after.take(),
+                    limit: page,
+                })
+                .await
+            {
+                Ok(rows) => rows,
+                Err(e) => {
+                    tracing::warn!(error = %e, "the stored ledger could not be read; reporting the node's recent lines");
+                    break;
+                }
+            };
+            let full = rows.len() == page;
+            after = rows.last().map(LedgerPos::of);
+            for l in decode(&rows) {
+                if !f.accepts(&l) || held.contains(&(l.request_id.clone(), l.line)) || !keep(&l) {
+                    continue;
+                }
+                while let Some(w) = window.next_if(|w| before(w, &l)) {
+                    if !visit(&w) {
+                        return;
+                    }
+                }
+                if !visit(&l) {
+                    return;
+                }
             }
-        };
-        let mut lines = merged(window, stored);
-        lines.retain(|l| !self.erased(l));
-        lines
+            if !full {
+                break;
+            }
+        }
+    }
+    for w in window {
+        if !visit(&w) {
+            return;
+        }
     }
 }
 
@@ -306,6 +387,99 @@ mod tests {
         let all_lines = merged(window, stored);
         let ids: Vec<&str> = all_lines.iter().map(|l| l.request_id.as_str()).collect();
         assert_eq!(ids, ["r0", "r1", "r2", "r3"]);
+        store.close();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the walk must give: the old materialised read, every line at once.
+    fn expected(
+        book: &Book,
+        stored: &[LedgerRow],
+        f: &LedgerFilter,
+        keep: impl Fn(&LedgerLine) -> bool,
+    ) -> Vec<(String, u32)> {
+        let stored = decode(stored).into_iter().filter(|l| f.accepts(l)).collect();
+        let mut lines = merged(book.select(f), stored);
+        lines.retain(|l| keep(l));
+        lines.iter().map(|l| (l.request_id.clone(), l.line)).collect()
+    }
+
+    #[tokio::test]
+    async fn the_ledger_is_walked_a_page_at_a_time_as_one_list() {
+        let dir = std::env::temp_dir().join(format!(
+            "antirion-ledger-walk-{:x}",
+            antirion_core::ResourceUid::random().0
+        ));
+        let store = Store::open_embedded(&dir.join("store")).unwrap();
+        let book = Book::new(UtcMicros(1_000), 100);
+        let mut rows = Vec::new();
+        for i in 0..40i64 {
+            for n in 0..(1 + i % 3) {
+                let mut l = line(&format!("r{:02}", (i * 7) % 40), 2_000 + i / 4, 1);
+                l.line = u32::try_from(n).unwrap();
+                l.team = if i % 5 == 0 { "other".into() } else { "t".into() };
+                let row = LedgerRow {
+                    request_id: l.request_id.clone(),
+                    line: l.line,
+                    admitted_us: l.admitted_at.0,
+                    body: l.to_json_string(),
+                    charges: Some(true),
+                };
+                // Some lines only in the store, some only in the window, some in both.
+                if i % 4 != 3 {
+                    rows.push(row.clone());
+                }
+                if i % 4 != 0 {
+                    book.append(vec![(l, ())], i % 4 == 2, |_, _| {});
+                }
+            }
+        }
+        store.append_ledger(rows).await.unwrap();
+        let filters = [
+            LedgerFilter::default(),
+            LedgerFilter {
+                team: Some("t".into()),
+                from: Some(UtcMicros(2_002)),
+                to: Some(UtcMicros(2_008)),
+                ..LedgerFilter::default()
+            },
+        ];
+        let keep = |l: &LedgerLine| l.request_id != "r14";
+        for f in &filters {
+            let stored = store
+                .ledger_between(f.from.map(|t| t.0), f.to.map(|t| t.0))
+                .await
+                .unwrap();
+            let want = expected(&book, &stored, f, keep);
+            for page in [1, 2, 3, 1_000] {
+                for descending in [false, true] {
+                    let mut got = Vec::new();
+                    walk(Some(&store), book.select(f), f, descending, page, keep, |l| {
+                        got.push((l.request_id.clone(), l.line));
+                        true
+                    })
+                    .await;
+                    if descending {
+                        got.reverse();
+                    }
+                    assert_eq!(got, want, "page {page}, descending {descending}");
+                }
+                let mut first = Vec::new();
+                walk(Some(&store), book.select(f), f, false, page, keep, |l| {
+                    first.push((l.request_id.clone(), l.line));
+                    first.len() < 5
+                })
+                .await;
+                assert_eq!(first, want[..5], "a walk stops when told");
+            }
+            let mut window_only = Vec::new();
+            walk(None, book.select(f), f, false, 2, keep, |l| {
+                window_only.push((l.request_id.clone(), l.line));
+                true
+            })
+            .await;
+            assert_eq!(window_only, expected(&book, &[], f, keep));
+        }
         store.close();
         let _ = std::fs::remove_dir_all(&dir);
     }
