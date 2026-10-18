@@ -123,7 +123,8 @@ test('a configuration version shows what rolling back changes, and the rollback 
   await expect(drawer).toContainText(team);
   await drawer.getByRole('button', { name: 'Roll back to this version' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Roll back' }).click();
-  await expect(page.getByText(`Rolled back to version ${before}`)).toBeVisible();
+  // The toast says it; the apply status line under the editor repeats it with the new version.
+  await expect(page.getByText(`Rolled back to version ${before}`, { exact: true })).toBeVisible();
   const gone = await request.fetch(`${ADMIN_URL}/admin/v1/teams/${team}`, {
     headers: { authorization: `Bearer ${TOKEN}` },
   });
