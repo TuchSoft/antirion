@@ -121,8 +121,8 @@ function CatalogCard({ status }: { status: Slot<CatalogStatus> }) {
   const dev = modelsDevWords(st?.models_dev, values.remote, timeZone);
   return (
     <Card
-      title="Model catalog"
-      description="Prices and capabilities the gateway knows for each Model: the ones it ships with, your entries, and models.dev's data below both."
+      title="Catalog layers"
+      description="The built-in catalog, your entries and models.dev's data below both, and how they combine."
     >
       <LoadError of={catalog} subject="Catalog settings" size="sm" />
       <LoadError of={status} subject="The catalog" size="sm" />

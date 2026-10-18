@@ -135,7 +135,12 @@ export function AuditSection() {
   const exportAll = useAudit((s) => s.exportAll);
   const [draft, setDraft] = useState<AuditQuery>(query);
   const [range, setRange] = useState<AuditRange>(query.from || query.to ? 'custom' : '');
-  const [custom, setCustom] = useState<CustomRange>({ fromDay: '', fromTime: '', toDay: '', toTime: '' });
+  const [custom, setCustom] = useState<CustomRange>({
+    fromDay: '',
+    fromTime: '00:00',
+    toDay: '',
+    toTime: '23:59',
+  });
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [open, setOpen] = useState<AuditEntry | null>(null);
@@ -249,7 +254,7 @@ export function AuditSection() {
               onChange={(e) => setDraft({ ...draft, action: e.target.value })}
             />
           </div>
-          <div className="w-36 shrink-0 max-sm:w-full">
+          <div className="w-32 shrink-0 max-sm:w-full">
             <Select
               aria-label="Result"
               value={draft.outcome ?? ''}
@@ -262,7 +267,7 @@ export function AuditSection() {
               ]}
             />
           </div>
-          <div className="w-40 shrink-0 max-sm:w-full">
+          <div className="w-32 shrink-0 max-sm:w-full">
             <Select
               aria-label="When"
               value={range}
@@ -283,7 +288,7 @@ export function AuditSection() {
               setDraft({});
               setRange('');
               setRangeError(null);
-              setCustom({ fromDay: '', fromTime: '', toDay: '', toTime: '' });
+              setCustom({ fromDay: '', fromTime: '00:00', toDay: '', toTime: '23:59' });
               setQuery(showReads ? {} : { kind: 'write' });
             }}
           >

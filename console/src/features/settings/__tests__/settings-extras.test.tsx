@@ -285,7 +285,7 @@ describe('Model catalog', () => {
     const patches = settingsKey('catalog', {});
     server.use(status());
     render(<CatalogSection />);
-    const c = await waitFor(() => card('Model catalog'));
+    const c = await waitFor(() => card('Catalog layers'));
     expect(await within(c).findByText(/15 entries · capabilities 2026-10-01/)).toBeInTheDocument();
     expect(
       within(c).getByText(/bundled with the gateway; this gateway does not report its date/),
@@ -310,7 +310,7 @@ describe('Model catalog', () => {
       }),
     );
     render(<CatalogSection />);
-    const c = await waitFor(() => card('Model catalog'));
+    const c = await waitFor(() => card('Catalog layers'));
     expect(await within(c).findByText(/Fetched data of Oct 17, 2026/)).toBeInTheDocument();
     expect(within(c).getByText(/Last fetched/)).toBeInTheDocument();
   });

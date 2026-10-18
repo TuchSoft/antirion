@@ -53,7 +53,8 @@ export const TRAFFIC_SECTIONS: Section[] = [
     permission: ['policies:read', 'models:read', 'config:read'],
     label: 'Routing & resilience',
     icon: 'route',
-    description: 'Unhealthy deployments, routing behaviour, headers and translation, and admission.',
+    description:
+      'Unhealthy deployments, retries and timeouts, routing behaviour, headers and translation, and admission.',
     aliases: ['routing', 'resilience'],
     render: () => <RoutingResilienceSection />,
   },
