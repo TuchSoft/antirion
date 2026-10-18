@@ -160,12 +160,27 @@ pub(crate) async fn export(call: &Call, name: &str) -> Result<Response, AdminErr
 
 /// One ZIP member's lines.
 fn ndjson<'a>(rows: impl Iterator<Item = &'a Value>) -> Vec<u8> {
-    let mut out = Vec::new();
+    let mut out = Lines::default();
     for r in rows {
-        out.extend_from_slice(r.to_string().as_bytes());
-        out.push(b'\n');
+        out.push(r);
     }
-    out
+    out.bytes
+}
+
+/// A ZIP member's lines written as the rows are read, so the export holds each row as one line
+/// of text rather than as a parsed document.
+#[derive(Debug, Default)]
+struct Lines {
+    bytes: Vec<u8>,
+    count: usize,
+}
+
+impl Lines {
+    fn push(&mut self, row: &Value) {
+        self.bytes.extend_from_slice(row.to_string().as_bytes());
+        self.bytes.push(b'\n');
+        self.count += 1;
+    }
 }
 
 impl Export {
@@ -174,6 +189,9 @@ impl Export {
         let now = self.rt.now();
         match result {
             Ok(file) => {
+                // The archive is stored as text; it need not be held twice while that is written.
+                let body = STANDARD.encode(&file);
+                drop(file);
                 let expires = now.saturating_add(FILE_LIFETIME);
                 let id = self.job["id"].as_str().unwrap_or_default().to_owned();
                 let stored = self
@@ -187,7 +205,7 @@ impl Export {
                         author: String::new(),
                         created_us: expires.0,
                         version: 0,
-                        body: STANDARD.encode(file),
+                        body,
                     })
                     .await;
                 if stored.is_err() {
@@ -235,17 +253,17 @@ impl Export {
         self.progress(0.1).await;
         let audit = self.audit(&scope).await?;
         self.progress(0.3).await;
-        let mut ledger: Vec<Value> = Vec::new();
+        let mut ledger = Lines::default();
         let f = LedgerFilter {
             organization: Some(self.organization.clone()),
             ..LedgerFilter::default()
         };
         self.rt
             .for_each_spend_line(&f, true, |l| {
-                if ledger.len() < MAX_ROWS {
-                    ledger.push(l.to_json());
+                if ledger.count < MAX_ROWS {
+                    ledger.push(&l.to_json());
                 }
-                ledger.len() < MAX_ROWS
+                ledger.count < MAX_ROWS
             })
             .await;
         self.progress(0.5).await;
@@ -256,7 +274,7 @@ impl Export {
             "exported_at": self.rt.now().to_rfc3339(),
             "config_generation": self.snap.generation,
             "content_included": self.content,
-            "counts": {"audit": audit.len(), "ledger": ledger.len(), "request_logs": logs.len()},
+            "counts": {"audit": audit.len(), "ledger": ledger.count, "request_logs": logs.count},
             "limit": MAX_ROWS,
         });
         let mut zip = ZipWriter::default();
@@ -267,10 +285,10 @@ impl Export {
             .map_err(too_large)?;
         zip.add("audit.ndjson", &ndjson(audit.iter()))
             .map_err(too_large)?;
-        zip.add("ledger.ndjson", &ndjson(ledger.iter()))
-            .map_err(too_large)?;
-        zip.add("request_logs.ndjson", &ndjson(logs.iter()))
-            .map_err(too_large)?;
+        zip.add("ledger.ndjson", &ledger.bytes).map_err(too_large)?;
+        drop(ledger);
+        zip.add("request_logs.ndjson", &logs.bytes).map_err(too_large)?;
+        drop(logs);
         zip.finish().map_err(too_large)
     }
 
@@ -370,7 +388,7 @@ impl Export {
 
     /// The organization's request-log records, newest first, content only when the caller may
     /// read it.
-    async fn logs(&self) -> Result<Vec<Value>, &'static str> {
+    async fn logs(&self) -> Result<Lines, &'static str> {
         let filter = LogFilter {
             any_of: vec![(
                 LogColumn::Organization,
@@ -384,7 +402,7 @@ impl Export {
             after: None,
             limit: BATCH,
         };
-        let mut out = Vec::new();
+        let mut out = Lines::default();
         loop {
             let batch = self
                 .rt
@@ -392,18 +410,20 @@ impl Export {
                 .await
                 .map_err(|_| "the request log could not be read")?;
             for l in &batch {
+                if out.count == MAX_ROWS {
+                    break;
+                }
                 let mut record = joined(&l.log);
                 if !self.content {
                     crate::logs::redact(&mut record);
                 }
-                out.push(record);
+                out.push(&record);
             }
-            if batch.len() < BATCH || out.len() >= MAX_ROWS {
+            if batch.len() < BATCH || out.count >= MAX_ROWS {
                 break;
             }
             order.after = batch.last().map(|l| l.pos.clone());
         }
-        out.truncate(MAX_ROWS);
         Ok(out)
     }
 }
