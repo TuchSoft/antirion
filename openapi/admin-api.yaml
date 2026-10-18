@@ -17271,7 +17271,10 @@ components:
         - next_cursor
     BudgetEvent:
       type: object
-      description: '`detail` by kind is listed'
+      description: '`detail` by kind is listed. `exhausted` is the first refusal of a period once nothing remained
+        (`detail.refused_requests` counts the period''s refusals); `request_over_remaining` is the first refusal of a
+        period of a request that reserved more than what remained while something did (`detail.requested`,
+        `detail.remaining`), which does not exhaust the budget'
       properties:
         id:
           type: string
@@ -17281,6 +17284,7 @@ components:
           enum:
             - threshold_crossed
             - exhausted
+            - request_over_remaining
             - forecast_exceeded
             - overage_granted
             - overage_requested

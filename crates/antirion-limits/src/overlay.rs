@@ -37,8 +37,21 @@ pub struct Touched {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tally {
     pub budget: Touched,
+    /// Every request the budget refused.
     pub refused: u64,
+    /// The refused requests that reserved more than the budget had left while something was left:
+    /// the budget was not exhausted, the request was too large for what remained.
+    pub oversized: u64,
+    /// What the last of those reserved and what remained, as the refusal stated them.
+    pub last_oversized: Option<Oversized>,
     pub downgraded: u64,
+}
+
+/// A request larger than what remained in its budget.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Oversized {
+    pub requested: String,
+    pub remaining: String,
 }
 
 #[derive(Debug, Default)]
@@ -108,27 +121,36 @@ impl Overlay {
         }
     }
 
-    fn count(&self, budget: Touched, refused: u64, downgraded: u64) {
+    fn count(&self, budget: Touched, refused: Option<Option<Oversized>>, downgraded: u64) {
         let mut pending = self.pending.lock();
         let t = pending
             .entry((budget.identity, budget.period.start.0))
             .or_insert_with(|| Tally {
                 budget,
                 refused: 0,
+                oversized: 0,
+                last_oversized: None,
                 downgraded: 0,
             });
-        t.refused = t.refused.saturating_add(refused);
+        if let Some(oversized) = refused {
+            t.refused = t.refused.saturating_add(1);
+            if let Some(o) = oversized {
+                t.oversized = t.oversized.saturating_add(1);
+                t.last_oversized = Some(o);
+            }
+        }
         t.downgraded = t.downgraded.saturating_add(downgraded);
     }
 
-    /// Counts a request the budget of `info` refused in `period`.
-    pub fn refused(&self, info: &HoldInfo, period: PeriodBounds) {
-        self.count(touched(info, period), 1, 0);
+    /// Counts a request the budget of `info` refused in `period`: one larger than what remained
+    /// when `oversized` says so, else one the exhausted budget refused.
+    pub fn refused(&self, info: &HoldInfo, period: PeriodBounds, oversized: Option<Oversized>) {
+        self.count(touched(info, period), Some(oversized), 0);
     }
 
     /// Counts a request the budget sent to its downgrade target.
     pub fn downgraded(&self, budget: Touched) {
-        self.count(budget, 0, 1);
+        self.count(budget, None, 1);
     }
 
     /// The counts gathered since the last call.
@@ -245,12 +267,17 @@ mod tests {
             start: UtcMicros(100),
             end: Some(UtcMicros(200)),
         };
-        o.refused(&h.info, p);
-        o.refused(&h.info, p);
+        o.refused(&h.info, p, None);
+        let big = Oversized {
+            requested: "3".to_owned(),
+            remaining: "1".to_owned(),
+        };
+        o.refused(&h.info, p, Some(big.clone()));
         o.downgraded(touched(&h.info, p));
         let t = o.take();
         assert_eq!(t.len(), 1);
-        assert_eq!((t[0].refused, t[0].downgraded), (2, 1));
+        assert_eq!((t[0].refused, t[0].oversized, t[0].downgraded), (2, 1, 1));
+        assert_eq!(t[0].last_oversized, Some(big));
         assert!(o.take().is_empty());
     }
 }

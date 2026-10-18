@@ -37,7 +37,9 @@ pub enum DecideError {
 impl Runtime {
     /// Writes the counts this node gathered since the last call and handles each budget's first
     /// refusal of a period: the `exhausted` event and `budget.exhausted`, and for an `approval`
-    /// budget the period's overage request.
+    /// budget the period's overage request, once a refusal found nothing left; the
+    /// `request_over_remaining` event and `budget.request_over_remaining` for a request that
+    /// reserved more than what remained.
     pub async fn flush_budget_tallies(&self) {
         let tallies = self.accounts.overlay().take();
         if tallies.is_empty() {
@@ -57,8 +59,53 @@ impl Runtime {
             tracing::warn!(error = %e, "budget request counts could not be recorded");
         }
         let snap = self.gens.load();
-        for t in tallies.iter().filter(|t| t.refused > 0) {
-            self.exhausted(&snap, t).await;
+        for t in &tallies {
+            if t.oversized > 0 {
+                self.request_over_remaining(&snap, t).await;
+            }
+            if t.refused > t.oversized {
+                self.exhausted(&snap, t).await;
+            }
+        }
+    }
+
+    /// The first refusal of a period of a request larger than what remained in a budget that still
+    /// had something left: the `request_over_remaining` event and `budget.request_over_remaining`,
+    /// never `exhausted`, which a budget with something left is not.
+    async fn request_over_remaining(&self, snap: &Snapshot, t: &Tally) {
+        let b = &t.budget;
+        if super::declaration(&snap.limits, b.level, &b.owner, &b.name).is_none() {
+            return;
+        }
+        let event = EventBudget {
+            level: b.level,
+            owner: &b.owner,
+            name: &b.name,
+            identity: Some(b.identity),
+        };
+        let resets_at = b.period.end.map(UtcMicros::to_rfc3339_seconds);
+        let (requested, remaining) = t.last_oversized.as_ref().map_or((None, None), |o| {
+            (Some(o.requested.as_str()), Some(o.remaining.as_str()))
+        });
+        let detail = json!({
+            "period_start": b.period.start.to_rfc3339_seconds(),
+            "resets_at": resets_at,
+            "requested": requested,
+            "remaining": remaining,
+        });
+        let once = once_key("request_over_remaining", b.identity, b.period.start);
+        if self
+            .record_budget_event("request_over_remaining", event, None, &detail, Some(once))
+            .await
+        {
+            let data = json!({
+                "budget": {"level": b.level.as_str(), "owner": b.owner, "name": b.name},
+                "period_start": b.period.start.to_rfc3339_seconds(),
+                "resets_at": resets_at,
+                "requested": requested,
+                "remaining": remaining,
+            });
+            self.send_alert(snap, None, "budget.request_over_remaining", data);
         }
     }
 

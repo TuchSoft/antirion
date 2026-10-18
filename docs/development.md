@@ -1100,7 +1100,9 @@ through `antirion-admin/src/budgets.rs` (counter items, `:adjust`, `:reset`, `:g
   and adjustments (`HoldInfo::declared` keeps the declared amount, which alert ratios use); the last
   settled spend seen per budget identity (settlements and reads write it), which downgrades read;
   and the refused and downgraded requests counted since the last collection. A refusal is matched
-  to its budget by the error's `limit` level and name.
+  to its budget by the error's `limit` level and name, and counted as oversized when the `limit`
+  reports something `remaining`: the request reserved more than the budget had left, which did not
+  exhaust it.
 - **Store** (`antirion-store/src/budgets.rs`, PostgreSQL migration 50): `budget_grants`,
   `overage_requests` (unique per budget identity and period start), `budget_events` (an optional
   `once_key`, unique, makes a period's `exhausted` and `forecast_exceeded` events once per cluster)
@@ -1109,8 +1111,11 @@ through `antirion-admin/src/budgets.rs` (counter items, `:adjust`, `:reset`, `:g
   generations, sealed, written by `Runtime::mutate` after each commit.
 - **The watch** (`budgets/watch.rs`): every 250 ms each node writes the events queued where the
   caller must not wait (threshold crossings from settlement, configuration changes from commits)
-  and its tallies, handling each budget's first refusal of a period (`exhausted`, `budget.exhausted`,
-  and for `approval` budgets the period's overage request and the owner's mail); every second it
+  and its tallies, handling each budget's first refusal of a period with nothing left (`exhausted`,
+  `budget.exhausted`, and for `approval` budgets the period's overage request and the owner's mail)
+  and its first refusal of a request larger than what was left (`request_over_remaining`,
+  `budget.request_over_remaining` with the `requested` and `remaining` amounts; the budget stays
+  usable, so it is neither `exhausted` nor a limit reached in the console); every second it
   reloads the running grants and the spend of budgets that downgrade. One node (the `budget_watch`
   lease in a cluster) evaluates forecasts every second (`forecast_exceeded`, the `budget_forecast`
   alert instance, which the metric evaluator leaves open) and expires overage requests. Admin reads
@@ -1737,6 +1742,7 @@ What the Cache screen reads and changes beyond the cache's own rules.
   time); the `grpc` protocol has the trace exporter's TLS-only limit.
 - Alert webhooks (`telemetry/alerts.rs` for their settings and signatures, `alerting/` for delivery,
   see Alerting): counted in `antirion_alert_deliveries_total`. Events: `budget.threshold_crossed`,
+  `budget.exhausted`, `budget.request_over_remaining`, `budget.forecast_exceeded`,
   `config.applied`, `config.rejected`, `deployment.state_changed` (the health registry's changes,
   published after each request's attempts and each manual action; a time-based change is published
   by the next request), `log_sink.dropping`, `alert.fired`, `alert.acknowledged`, `alert.resolved`,

@@ -438,3 +438,70 @@ async fn a_request_costs_what_the_ledger_charged_for_it_gateway_calls_included()
 
     gw.stop().await;
 }
+
+/// The budget events that report a refusal, oldest first (configuration changes and adjustments
+/// left out).
+async fn budget_events(gw: &Gateway) -> Vec<Value> {
+    let (status, body) = gw.admin("GET", "/admin/v1/runtime/budgets/events", "").await;
+    assert_eq!(status, 200, "{body}");
+    let mut items: Vec<Value> = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| !matches!(e["kind"].as_str(), Some("config_changed" | "adjusted")))
+        .cloned()
+        .collect();
+    items.reverse();
+    items
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_larger_than_what_remains_does_not_exhaust_the_budget() {
+    let gw = Gateway::start("accounting-oversized", json!({})).await;
+    let budget = json!({"daily": {"unit": "usd", "amount": "0.00005", "period": "daily"}});
+    let key = gw.key("k", json!({"policies": {"budgets": budget}})).await;
+
+    // Without max_tokens the request reserves far more than the $0.00005 the budget has: refused,
+    // with nothing spent.
+    let (status, _, sent) = gw
+        .send(&key, "/v1/chat/completions", &[], &chat("gpt", "Say hello"))
+        .await;
+    assert_eq!(status, 402, "{sent}");
+    let events = budget_events(&gw).await;
+    let kinds: Vec<&str> = events.iter().map(|e| e["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["request_over_remaining"], "{events:?}");
+    let event = &events[0];
+    assert_eq!(event["level"], "key", "{event}");
+    assert_eq!(event["name"], "daily", "{event}");
+    assert_eq!(event["detail"]["remaining"], "0.00005", "{event}");
+    assert!(event["detail"]["requested"].as_str().is_some(), "{event}");
+
+    // Once per period: a second such refusal adds no event.
+    let (status, _, _) = gw
+        .send(&key, "/v1/chat/completions", &[], &chat("gpt", "Say hello again"))
+        .await;
+    assert_eq!(status, 402);
+    assert_eq!(budget_events(&gw).await.len(), 1);
+
+    // Spent to its amount, the budget is exhausted: the next refusal says so.
+    let owner = event["owner"].as_str().unwrap();
+    let (status, body) = gw
+        .admin(
+            "POST",
+            &format!("/admin/v1/runtime/budgets/key/{owner}/daily:adjust"),
+            r#"{"amount": "0.00005", "reason": "spent elsewhere"}"#,
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let small = json!({"model": "gpt", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]});
+    let (status, _, sent) = gw.send(&key, "/v1/chat/completions", &[], &small).await;
+    assert_eq!(status, 402, "{sent}");
+    let kinds: Vec<String> = budget_events(&gw)
+        .await
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(kinds, ["request_over_remaining", "exhausted"]);
+
+    gw.stop().await;
+}

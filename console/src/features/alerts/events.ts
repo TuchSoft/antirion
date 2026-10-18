@@ -55,6 +55,11 @@ export const EVENT_SOURCES: EventSource[] = [
         'Budget used up',
         'A budget reached its amount; a hard budget now refuses requests.',
       ),
+      e(
+        'budget.request_over_remaining',
+        'Request larger than what was left',
+        'A budget refused a request that reserved more than it had left; smaller requests still pass.',
+      ),
       e('budget.overage_granted', 'Overage approved', 'Someone approved going over a budget.'),
     ],
   },

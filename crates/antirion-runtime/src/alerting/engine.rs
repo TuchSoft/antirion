@@ -274,8 +274,29 @@ fn event_summary(kind: &str, data: &Value) -> String {
             data.get("from").and_then(Value::as_str).unwrap_or("?"),
             data.get("to").and_then(Value::as_str).unwrap_or("?"),
         ),
+        "budget.exhausted" => format!(
+            "Budget {} used up its amount and refuses requests until its period ends",
+            budget_name(data)
+        ),
+        "budget.request_over_remaining" => format!(
+            "Budget {} refused a request reserving {} with {} left; it is not used up",
+            budget_name(data),
+            data.get("requested").and_then(Value::as_str).unwrap_or("more"),
+            data.get("remaining").and_then(Value::as_str).unwrap_or("less"),
+        ),
         _ => format!("Event {kind}"),
     }
+}
+
+/// `level/owner/name` of the budget an event names.
+fn budget_name(data: &Value) -> String {
+    let part = |k: &str| {
+        data.pointer(&format!("/budget/{k}"))
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_owned()
+    };
+    format!("{}/{}/{}", part("level"), part("owner"), part("name"))
 }
 
 /// Fires the event rules subscribed to `kind`.
@@ -518,6 +539,22 @@ mod tests {
                 &json!({"deployment": "d", "from": "closed", "to": "open"})
             ),
             "Deployment d went from closed to open"
+        );
+    }
+
+    #[test]
+    fn a_request_over_what_remained_does_not_read_as_a_used_up_budget() {
+        let budget = json!({"level": "key", "owner": "k", "name": "daily"});
+        assert_eq!(
+            event_summary("budget.exhausted", &json!({"budget": budget})),
+            "Budget key/k/daily used up its amount and refuses requests until its period ends"
+        );
+        assert_eq!(
+            event_summary(
+                "budget.request_over_remaining",
+                &json!({"budget": budget, "requested": "0.0003", "remaining": "0.00005"})
+            ),
+            "Budget key/k/daily refused a request reserving 0.0003 with 0.00005 left; it is not used up"
         );
     }
 }

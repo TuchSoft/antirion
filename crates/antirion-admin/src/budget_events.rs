@@ -1,6 +1,7 @@
 //! `GET /runtime/budgets/events`: the budget event feed, newest first, each event visible to who may
 //! read its budget's policies. An `exhausted` event reports the requests its budget has refused so
-//! far in that period.
+//! far in that period; a `request_over_remaining` event is a refusal of a request larger than what
+//! the budget had left, which did not exhaust it.
 
 use antirion_core::UtcMicros;
 use antirion_limits::level::Level;
@@ -18,6 +19,7 @@ const SCOPE: &str = "budget_events";
 const KINDS: &[&str] = &[
     "threshold_crossed",
     "exhausted",
+    "request_over_remaining",
     "forecast_exceeded",
     "overage_granted",
     "overage_requested",

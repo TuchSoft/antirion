@@ -35,7 +35,15 @@ import type { Enforcement } from '../form';
 import { useBudgetsData, useBudgetTree } from '../hooks';
 import type { Person } from '../people';
 import { useBudgets } from '../store';
-import { type BudgetRow, flatten, isCounted, partitionLabel, STATE_LABEL, topIssue } from '../types';
+import {
+  type BudgetRow,
+  flatten,
+  isCounted,
+  limitsReachedToday,
+  partitionLabel,
+  STATE_LABEL,
+  topIssue,
+} from '../types';
 import { ActivityTab, useWaivers } from './activity-tab';
 import { BudgetDrawer } from './budget-drawer';
 import { BudgetRows, matches, type StateFilter, useTreeFacts } from './budget-tree';
@@ -332,11 +340,7 @@ export function BudgetsScreen() {
   const day = now.getUTCDate();
   const days = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
   const month = now.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
-  const exhaustedToday = events.data
-    ? events.data.filter(
-        (e) => e.kind === 'exhausted' && new Date(e.time).toDateString() === now.toDateString(),
-      ).length
-    : null;
+  const exhaustedToday = events.data ? limitsReachedToday(events.data, now) : null;
   const downgraded = all.reduce((a, r) => a + (r.counter.downgraded_requests ?? 0), 0);
   const waiting = (overage.data?.length ?? 0) + waivers.length;
   const canReadLedger = useCan('listLedgerLines');

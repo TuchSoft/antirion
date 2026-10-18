@@ -281,7 +281,8 @@ impl Accounts {
         (self.engine.admit(plan).await, budgets)
     }
 
-    /// Counts the request a budget refused against that budget.
+    /// Counts the request a budget refused against that budget: as one larger than what remained
+    /// when the refusal reports something remaining, else as a refusal of the exhausted budget.
     pub(crate) fn note_refusal(&self, e: &GatewayError, budgets: &[PlannedHold]) {
         if e.code != antirion_error::Code::BudgetExceeded {
             return;
@@ -293,10 +294,16 @@ impl Accounts {
         let refusing = budgets.iter().find(|h| {
             Some(h.info.level.as_str()) == field("level") && Some(h.info.name.as_str()) == field("name")
         });
+        let remaining = field("remaining").unwrap_or("0");
+        let something_left = remaining.chars().any(|c| c.is_ascii_digit() && c != '0');
+        let oversized = something_left.then(|| crate::overlay::Oversized {
+            requested: field("requested").unwrap_or_default().to_owned(),
+            remaining: remaining.to_owned(),
+        });
         if let Some(h) = refusing
             && let Some(period) = h.hold.rule.budget_period(self.clock.now())
         {
-            self.overlay.refused(&h.info, period);
+            self.overlay.refused(&h.info, period, oversized);
         }
     }
 

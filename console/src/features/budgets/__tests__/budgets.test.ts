@@ -23,6 +23,7 @@ import {
   buildTree,
   flatten,
   isCounted,
+  limitsReachedToday,
   parsePartition,
   partitionLabel,
   project,
@@ -496,5 +497,19 @@ describe('budgets at the gateway, on a Model and on a route', () => {
       { path: 'models/gpt-4o', body: { spec: { policies: { budgets: patch } } }, ifMatch: null },
       { path: 'routes/global', body: { spec: { policies: { budgets: patch } } }, ifMatch: null },
     ]);
+  });
+});
+
+describe('limits reached today', () => {
+  it('counts budgets that ran out, not requests larger than what was left', () => {
+    const now = new Date('2026-10-18T12:00:00Z');
+    const at = (kind: string, time = '2026-10-18T09:00:00Z') => ({ kind, time });
+    expect(
+      limitsReachedToday(
+        [at('request_over_remaining'), at('exhausted'), at('exhausted', '2026-10-16T09:00:00Z'), at('reset')],
+        now,
+      ),
+    ).toBe(1);
+    expect(limitsReachedToday([at('request_over_remaining')], now)).toBe(0);
   });
 });

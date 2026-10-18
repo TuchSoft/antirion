@@ -4306,7 +4306,7 @@ export interface components {
         BudgetEvent: {
             id?: string;
             time: components["schemas"]["Timestamp"];
-            kind: "threshold_crossed" | "exhausted" | "forecast_exceeded" | "overage_granted" | "overage_requested" | "reset" | "adjusted" | "config_changed";
+            kind: "threshold_crossed" | "exhausted" | "request_over_remaining" | "forecast_exceeded" | "overage_granted" | "overage_requested" | "reset" | "adjusted" | "config_changed";
             level: string;
             owner: string;
             name: string;

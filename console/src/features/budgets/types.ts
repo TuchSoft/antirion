@@ -151,6 +151,7 @@ export const LEVEL_LABEL: Record<string, string> = {
 export const EVENT_LABEL: Record<string, string> = {
   threshold_crossed: 'Reached an alert threshold',
   exhausted: 'Reached its limit',
+  request_over_remaining: 'Refused a request larger than what was left',
   forecast_exceeded: 'Projected to go over',
   overage_granted: 'Allowed to go over',
   overage_requested: 'Asked to go over',
@@ -158,6 +159,16 @@ export const EVENT_LABEL: Record<string, string> = {
   adjusted: 'Amount spent adjusted',
   config_changed: 'Budget changed',
 };
+
+/**
+ * The limits reached today: `exhausted` events only. A refused request that was larger than what a
+ * budget had left (`request_over_remaining`) leaves the budget usable and is not counted.
+ */
+export function limitsReachedToday(events: { kind: string; time: string }[], now: Date): number {
+  return events.filter(
+    (e) => e.kind === 'exhausted' && new Date(e.time).toDateString() === now.toDateString(),
+  ).length;
+}
 
 /** What happens when the budget is reached, in a few words. */
 export function enforcementLabel(counter: BudgetCounter): string {

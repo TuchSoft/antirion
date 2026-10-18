@@ -159,7 +159,9 @@ export function ActivityTab() {
                 tone={
                   e.kind === 'exhausted'
                     ? 'error'
-                    : e.kind === 'threshold_crossed' || e.kind === 'forecast_exceeded'
+                    : e.kind === 'threshold_crossed' ||
+                        e.kind === 'forecast_exceeded' ||
+                        e.kind === 'request_over_remaining'
                       ? 'warn'
                       : 'info'
                 }
