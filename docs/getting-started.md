@@ -15,7 +15,7 @@ npx -y antirion
 or with Docker:
 
 ```bash
-docker run -p 8080:8080 -p 8081:8081 antirion/antirion
+docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion
 ```
 
 Neither needs a config file. The gateway starts standalone with the embedded store, generates a
@@ -60,7 +60,7 @@ generated token and key. The image keeps its data in the volume `/var/lib/antiri
 (`-v antirion-data:/var/lib/antirion`) to keep the gateway across containers. When you publish the
 container's ports elsewhere, say so: `docker run -p 9080:8080 -p 9081:8081 -e
 ANTIRION_PUBLIC_ORIGIN=http://localhost:9081 -e ANTIRION_DATA_PLANE_URL=http://localhost:9080
-antirion/antirion`.
+eliasbiondo/antirion`.
 
 ## Docker Compose
 

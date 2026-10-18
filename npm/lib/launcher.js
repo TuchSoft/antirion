@@ -19,7 +19,7 @@ const PACKAGE_DIR = path.join(__dirname, '..');
 // The release binaries are built on Debian 12.
 const MIN_GLIBC = [2, 36];
 const SUPPORTED = 'Linux (glibc 2.36 or later) and macOS, on x64 or arm64';
-const DOCKER = 'docker run -p 8080:8080 -p 8081:8081 antirion/antirion';
+const DOCKER = 'docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion';
 
 class LaunchError extends Error {}
 

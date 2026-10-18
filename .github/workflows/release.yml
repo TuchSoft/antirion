@@ -356,7 +356,7 @@ jobs:
           DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           cat > notes.md <<NOTES
-          Run it: \`npx -y antirion\`, or \`docker run -p 8080:8080 -p 8081:8081 antirion/antirion:${GITHUB_REF_NAME#v}\`.
+          Run it: \`npx -y antirion\`, or \`docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion:${GITHUB_REF_NAME#v}\`.
 
           Image: \`$IMAGE@$DIGEST\`
 

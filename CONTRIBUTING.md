@@ -149,7 +149,7 @@ the npm package `antirion`, whose version it sets from the tag.
 
 | Secret               | For                                                                  |
 | -------------------- | -------------------------------------------------------------------- |
-| `DOCKERHUB_USERNAME` | the Docker Hub account that can push to `antirion/antirion`          |
+| `DOCKERHUB_USERNAME` | the Docker Hub account that can push to `eliasbiondo/antirion`          |
 | `DOCKERHUB_TOKEN`    | a Docker Hub access token of that account, with read and write scope |
 | `NPM_TOKEN`          | an npm automation (or granular, publish) token for the package       |
 

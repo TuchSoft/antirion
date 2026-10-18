@@ -1,5 +1,5 @@
 # After a release is published: copies its image from ghcr.io to Docker Hub as
-# antirion/antirion:<version> (and :latest when it is the latest release), and publishes the npm
+# eliasbiondo/antirion:<version> (and :latest when it is the latest release), and publishes the npm
 # package `antirion` at the release's version, with npm provenance. Each part runs only when its
 # secrets are set (DOCKERHUB_USERNAME and DOCKERHUB_TOKEN; NPM_TOKEN) and is skipped with a notice
 # otherwise.
@@ -67,7 +67,7 @@ jobs:
     env:
       HAS_SECRETS: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
       SOURCE: ghcr.io/${{ github.repository }}:${{ needs.release.outputs.tag }}
-      TARGET: docker.io/antirion/antirion
+      TARGET: docker.io/eliasbiondo/antirion
       VERSION: ${{ needs.release.outputs.version }}
       LATEST: ${{ needs.release.outputs.latest }}
     steps:

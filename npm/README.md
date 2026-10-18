@@ -36,7 +36,7 @@ It runs on Linux with glibc 2.36 or later (Debian 12, Ubuntu 24.04 and newer) an
 and arm64, with Node.js 18 or later. Elsewhere, run the container image:
 
 ```bash
-docker run -p 8080:8080 -p 8081:8081 antirion/antirion
+docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion
 ```
 
 ## Options

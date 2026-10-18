@@ -105,7 +105,7 @@ npx -y antirion
 or, with Docker:
 
 ```bash
-docker run -p 8080:8080 -p 8081:8081 antirion/antirion
+docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion
 ```
 
 No config file is needed. The first start prints the console's address and an admin token, shown
@@ -172,7 +172,7 @@ share PostgreSQL and Valkey. Pick the way you run things.
 ### Docker
 
 The image is distroless, runs as UID 65532 and keeps its data in the volume `/var/lib/antirion`.
-Release images are published to Docker Hub as `antirion/antirion` and to
+Release images are published to Docker Hub as `eliasbiondo/antirion` and to
 `ghcr.io/eliasbiondo/antirion` for every `vX.Y.Z` tag; to build your own, run
 `docker build -f docker/Dockerfile -t antirion .` in the repository.
 
@@ -182,7 +182,7 @@ log. The console's origin is `http://localhost:8081`: set `ANTIRION_PUBLIC_ORIGI
 at another address, and `ANTIRION_BOOTSTRAP_TOKEN` and `ANTIRION_ENCRYPTION_KEY` to bring your own.
 
 ```bash
-docker run -d --name antirion -p 8080:8080 -p 8081:8081 -v antirion-data:/var/lib/antirion antirion/antirion
+docker run -d --name antirion -p 8080:8080 -p 8081:8081 -v antirion-data:/var/lib/antirion eliasbiondo/antirion
 docker logs antirion    # the console's address and, on the first start, the admin token
 ```
 
@@ -201,7 +201,7 @@ export ANTIRION_BOOTSTRAP_TOKEN=$(openssl rand -hex 24) ANTIRION_ENCRYPTION_KEY=
 docker run -d --name antirion --read-only -p 8080:8080 -p 8081:8081 \
   -e ANTIRION_BOOTSTRAP_TOKEN -e ANTIRION_ENCRYPTION_KEY \
   -v "$PWD/antirion.yaml:/etc/antirion/antirion.yaml:ro" -v antirion-data:/var/lib/antirion \
-  antirion/antirion serve --config /etc/antirion/antirion.yaml
+  eliasbiondo/antirion serve --config /etc/antirion/antirion.yaml
 ```
 
 Keep both values: the token signs you in at <http://localhost:8081/ui/>, and the key seals the
