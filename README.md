@@ -64,16 +64,23 @@ request logging, no cache. Every figure is the median of the repetitions.
 
 **Simple chat at 5,000 requests per second, gateway on one c7i.xlarge (4 vCPUs)**
 
-| Gateway             | Overhead p50 | Overhead p99 | Errors | CPU per request | Peak memory | Idle memory |
-| ------------------- | -----------: | -----------: | -----: | --------------: | ----------: | ----------: |
-| **Antirion**        |  **0.53 ms** |  **0.95 ms** | **0%** |      **247 µs** | **215 MiB** |  **41 MiB** |
-| Bifrost 2.2.4       |      19.7 ms |      95.2 ms |     0% |          717 µs |   1,389 MiB |     498 MiB |
-| LiteLLM 1.103.1     |            — |            — |   100% |               — |   1,851 MiB |   1,653 MiB |
+|                 | **Antirion**  | Bifrost 2.2.4 | LiteLLM 1.103.1 |
+| --------------- | ------------: | ------------: | --------------: |
+| Overhead p50    | **0.53 ms**   |       19.7 ms |               — |
+| Overhead p99    | **0.95 ms**   |       95.2 ms |               — |
+| Errors          | **0%**        |            0% |            100% |
+| CPU per request | **247 µs**    |        717 µs |               — |
+| Peak memory     | **215 MiB**   |     1,389 MiB |       1,851 MiB |
+| Idle memory     | **41 MiB**    |       498 MiB |       1,653 MiB |
 
 <p align="center">
-  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.95 ms, Bifrost 19.7 and 95.2 ms" width="32%">
-  <img src="docs/images/bench-resources.svg" alt="CPU per request and memory at 5,000 RPS for Antirion, Bifrost and LiteLLM" width="32%">
-  <img src="docs/images/bench-throughput.svg" alt="Throughput over 64 connections: Antirion 21,512 requests per second, Bifrost 6,568, LiteLLM 424" width="32%">
+  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.95 ms, Bifrost 19.7 and 95.2 ms" width="760">
+</p>
+<p align="center">
+  <img src="docs/images/bench-resources.svg" alt="CPU per request and memory at 5,000 RPS for Antirion, Bifrost and LiteLLM" width="760">
+</p>
+<p align="center">
+  <img src="docs/images/bench-throughput.svg" alt="Throughput over 64 connections: Antirion 21,512 requests per second, Bifrost 6,568, LiteLLM 424" width="760">
 </p>
 
 **More scenarios, same machine**
