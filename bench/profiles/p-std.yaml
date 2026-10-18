@@ -16,6 +16,10 @@ keys:
     restricted: {models: [bench-chat]}
     limited: {policies: {limits: {none: {unit: requests, limit: 0, per: 1m}}}}
 document:
+  # The S8 cells measure how fast a gateway refuses a bad key. One generator address sends 20,000
+  # of them a second, which the failed-authentication throttle would answer with 429 after 50.
+  auth:
+    failed_auth_throttle: {max_failures: 1000000000, window: 1s}
   projects:
     bench:
       team: bench
