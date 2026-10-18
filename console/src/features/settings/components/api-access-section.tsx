@@ -24,6 +24,7 @@ import { type PriorityMode, sharesErrors, sharesFrom, sharesText, sharesTo } fro
 import { detailErrors, DURATION_RE, NAME_RE, same, splitList } from '../form-errors';
 import { useOrgSettings } from '../store';
 import { JwtIssuersCard } from './jwt-issuers';
+import { KeyChecksCard } from './key-checks-card';
 import { KeyProtectionCard } from './key-protection';
 import { Card, SaveBar } from './parts';
 import { PriorityShares } from './priority-shares';
@@ -242,7 +243,10 @@ function IpSets() {
   return (
     <div className="flex flex-col gap-2 border-t border-line pt-4">
       <div className="flex items-center justify-between gap-2">
-        <h4 className="text-ui font-semibold text-fg">Named IP sets</h4>
+        <div>
+          <h4 className="text-ui font-semibold text-fg">Named IP sets</h4>
+          <p className="text-caption text-muted">Shared by every organization.</p>
+        </div>
         <Button
           size="sm"
           icon="plus"
@@ -1013,6 +1017,7 @@ export function ApiAccessSettings() {
       <LimitsCard />
       <KeyLifetimesCard />
       <KeyProtectionCard />
+      <KeyChecksCard />
       <JwtIssuersCard />
       <SimulationCard />
     </>
