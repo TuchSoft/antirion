@@ -17,7 +17,8 @@ import { settingsApi, type UserResource } from '../api';
 import { deepMerge, durationOptions, rangeError } from '../choices';
 import { detailErrors, DURATION_RE, mergePatch, same } from '../form-errors';
 import { useOrgSettings } from '../store';
-import { Card, SaveBar } from './parts';
+import { Card, Facts, SaveBar } from './parts';
+import { Advanced } from './settings-form';
 import { TestSignInOutcome } from './test-sign-in-outcome';
 
 type Factor = 'totp' | 'webauthn';
@@ -42,6 +43,15 @@ interface PolicyValues {
   throttleFailures: string;
   throttleWindow: string;
   inviteTtl: string;
+  maxLength: string;
+  recoveryCodes: string;
+  rpId: string;
+  rpName: string;
+  resetTtl: string;
+  showVersion: boolean;
+  ticker: boolean;
+  /** Empty: no cap. */
+  maxUsers: string;
 }
 
 /** The members added to the sign-in policy, written only when they change. */
@@ -54,7 +64,15 @@ function extrasSpec(v: PolicyValues): Record<string, unknown> {
           window: v.lockWindow,
           duration: v.lockDuration,
         },
+        password_policy: { max_length: Number(v.maxLength) },
+        mfa: {
+          recovery_codes: Number(v.recoveryCodes),
+          webauthn: { ...(v.rpId.trim() ? { rp_id: v.rpId.trim() } : {}), rp_name: v.rpName.trim() },
+        },
+        reset_token_ttl: v.resetTtl,
       },
+      login_page: { show_version: v.showVersion, ticker: { enabled: v.ticker } },
+      max_active_users: v.maxUsers.trim() ? Number(v.maxUsers) : null,
       login_throttle: { max_failures: Number(v.throttleFailures), window: v.throttleWindow },
       invitations: { ttl: v.inviteTtl },
       session: { trusted_device: { idle_timeout: v.trustedIdle } },
@@ -67,6 +85,7 @@ const LOCK_DURATIONS = ['5m', '15m', '30m', '1h', '24h'];
 const THROTTLE_WINDOWS = ['30s', '1m', '5m', '15m'];
 const INVITE_TTLS = ['1d', '3d', '7d', '14d', '30d'];
 const TRUSTED_IDLE = ['1d', '3d', '7d', '14d', '30d'];
+const RESET_TTLS = ['5m', '15m', '30m', '1h', '4h', '24h'];
 
 const MAX_AGES = [
   { value: 'none', label: 'Never' },
@@ -105,12 +124,30 @@ const PATHS: Record<string, keyof PolicyValues> = {
   'auth.admin.login_throttle.max_failures': 'throttleFailures',
   'auth.admin.login_throttle.window': 'throttleWindow',
   'auth.admin.invitations.ttl': 'inviteTtl',
+  'auth.admin.local.password_policy.max_length': 'maxLength',
+  'auth.admin.local.mfa.recovery_codes': 'recoveryCodes',
+  'auth.admin.local.mfa.webauthn.rp_id': 'rpId',
+  'auth.admin.local.mfa.webauthn.rp_name': 'rpName',
+  'auth.admin.local.reset_token_ttl': 'resetTtl',
+  'auth.admin.max_active_users': 'maxUsers',
 };
 
 function check(v: PolicyValues): FieldErrors {
   const e: FieldErrors = {};
   const min = Number(v.minLength);
   if (!/^\d+$/.test(v.minLength) || min < 8 || min > 128) e.minLength = 'Enter a length from 8 to 128';
+  const longest = rangeError(v.maxLength, 8, 1024);
+  if (longest) e.maxLength = longest;
+  else if (!e.minLength && Number(v.maxLength) < min) e.maxLength = 'Make it at least the minimum length';
+  const codes = rangeError(v.recoveryCodes, 5, 20);
+  if (codes) e.recoveryCodes = codes;
+  if (v.rpId.trim() && !/^[a-z0-9.-]+$/i.test(v.rpId.trim()))
+    e.rpId = 'Enter a domain such as console.example.com';
+  if (!v.rpName.trim()) e.rpName = 'Enter the name people see when they use a security key';
+  if (v.maxUsers.trim()) {
+    const cap = rangeError(v.maxUsers, 1);
+    if (cap) e.maxUsers = cap;
+  }
   const history = Number(v.history);
   if (!/^\d+$/.test(v.history) || history > 24) e.history = 'Enter a number from 0 to 24';
   if (v.factors.length === 0) e.factors = 'Keep at least one verification method';
@@ -182,7 +219,31 @@ function Coverage({ users }: { users: UserResource[] | null }) {
   );
 }
 
-function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValues; hasSso: boolean }) {
+/**
+ * Whether a secret is set, never its value: the API sends a reference (`${env:NAME}`,
+ * `${file:/path}`) as it is, and a literal as `[REDACTED]`.
+ */
+export function bootstrapWords(value: unknown): string {
+  if (typeof value !== 'string' || value === '') return 'Not set';
+  const env = /^\$\{env:([^}]+)\}$/.exec(value);
+  if (env) return `Set, from the environment variable ${env[1]}`;
+  if (value.startsWith('${file:')) return 'Set, read from a file';
+  if (/^\$\{\w+:/.test(value)) return 'Set, read from a secret store';
+  return 'Set in the configuration';
+}
+
+function PolicyForm({
+  org,
+  initial,
+  hasSso,
+  bootstrap,
+}: {
+  org: string;
+  initial: PolicyValues;
+  hasSso: boolean;
+  /** `auth.admin.bootstrap_token` as the API reports it. */
+  bootstrap: unknown;
+}) {
   const saveAuth = useOrgSettings((s) => s.saveAuth);
   const saveOrg = useOrgSettings((s) => s.saveOrganization);
   const canEdit = useCan('patchAuthSettings');
@@ -321,6 +382,20 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
             {errors.factors}
           </p>
         ) : null}
+        <Field
+          label="Recovery codes per person"
+          error={errors.recoveryCodes}
+          hint="One-time codes for when the second step is lost, 5 to 20."
+          className="mt-2 w-56 max-sm:w-full"
+        >
+          <NumberInput
+            value={values.recoveryCodes}
+            min={5}
+            max={20}
+            disabled={disabled}
+            onChange={(v) => set('recoveryCodes', v)}
+          />
+        </Field>
       </fieldset>
 
       <fieldset className="flex flex-col gap-3">
@@ -333,6 +408,15 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
               max={128}
               disabled={disabled}
               onChange={(v) => set('minLength', v)}
+            />
+          </Field>
+          <Field label="Maximum length" error={errors.maxLength} hint="8 to 1,024 characters.">
+            <NumberInput
+              value={values.maxLength}
+              min={8}
+              max={1024}
+              disabled={disabled}
+              onChange={(v) => set('maxLength', v)}
             />
           </Field>
           <Field label="Can't reuse the last" error={errors.history} hint="Passwords; 0 allows reuse.">
@@ -502,21 +586,96 @@ function PolicyForm({ org, initial, hasSso }: { org: string; initial: PolicyValu
       </fieldset>
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-ui font-semibold text-fg">Invitations</legend>
-        <Field
-          label="Invitation links last"
-          error={errors.inviteTtl}
-          hint="A link not used by then must be sent again."
-          className="w-56 max-sm:w-full"
-        >
-          <Select
-            value={values.inviteTtl}
-            disabled={disabled}
-            onChange={(v) => set('inviteTtl', v)}
-            options={durationOptions(INVITE_TTLS, values.inviteTtl)}
-          />
-        </Field>
+        <legend className="mb-1 text-ui font-semibold text-fg">Invitations and seats</legend>
+        <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+          <Field
+            label="Invitation links last"
+            error={errors.inviteTtl}
+            hint="A link not used by then must be sent again."
+          >
+            <Select
+              value={values.inviteTtl}
+              disabled={disabled}
+              onChange={(v) => set('inviteTtl', v)}
+              options={durationOptions(INVITE_TTLS, values.inviteTtl)}
+            />
+          </Field>
+          <Field
+            label="Most active people"
+            optional
+            error={errors.maxUsers}
+            hint="Invitations and new accounts are refused past it. Empty: no cap."
+          >
+            <NumberInput
+              value={values.maxUsers}
+              min={1}
+              disabled={disabled}
+              placeholder="No cap"
+              onChange={(v) => set('maxUsers', v)}
+            />
+          </Field>
+        </div>
       </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1 text-ui font-semibold text-fg">Sign-in page</legend>
+        <Checkbox
+          checked={values.showVersion}
+          disabled={disabled}
+          onChange={(v) => set('showVersion', v)}
+          label="Show the gateway's version"
+        />
+        <Checkbox
+          checked={values.ticker}
+          disabled={disabled}
+          onChange={(v) => set('ticker', v)}
+          label="Show the last day's traffic"
+          description="Requests, errors and latency of the last 24 hours, to anyone who opens the page."
+        />
+      </fieldset>
+
+      <Advanced>
+        <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+          <Field
+            label="Security key domain"
+            optional
+            error={errors.rpId}
+            hint="Keys registered for one domain don't work on another. Empty: the console's host."
+          >
+            <Input
+              mono
+              value={values.rpId}
+              disabled={disabled}
+              placeholder="console.example.com"
+              onChange={(e) => set('rpId', e.target.value)}
+            />
+          </Field>
+          <Field label="Name shown with security keys" error={errors.rpName}>
+            <Input
+              value={values.rpName}
+              disabled={disabled}
+              onChange={(e) => set('rpName', e.target.value)}
+            />
+          </Field>
+          <Field label="Password reset links last" error={errors.resetTtl}>
+            <Select
+              value={values.resetTtl}
+              disabled={disabled}
+              onChange={(v) => set('resetTtl', v)}
+              options={durationOptions(RESET_TTLS, values.resetTtl)}
+            />
+          </Field>
+        </div>
+        <Facts
+          items={[
+            {
+              label: 'Bootstrap token',
+              value: bootstrapWords(bootstrap),
+              hint: 'An admin token for the first sign-in. Change it in the configuration file.',
+            },
+          ]}
+        />
+      </Advanced>
       <SaveBar dirty={dirty} busy={busy} canEdit={canEdit} onDiscard={() => setValues(initial)} />
     </form>
   );
@@ -557,19 +716,20 @@ export function SignInSection() {
     if (!admin || organization.data?.name !== org) return null;
     const local = admin.local;
     const policy = local?.password_policy;
+    const A = SETTINGS_DEFAULTS.auth.admin;
     return {
-      local: local?.enabled ?? false,
+      local: local?.enabled ?? A.local.enabled,
       orgLocal: organization.data.spec.local_login ?? true,
-      factors: local?.mfa?.factors ?? ['totp', 'webauthn'],
+      factors: local?.mfa?.factors ?? [...A.local.mfa.factors],
       minLength: String(policy?.min_length ?? SETTINGS_DEFAULTS.auth.admin.local.password_policy.min_length),
       history: String(policy?.history ?? SETTINGS_DEFAULTS.auth.admin.local.password_policy.history),
-      maxAge: policy?.max_age ?? 'none',
-      denyCommon: policy?.deny_common ?? true,
+      maxAge: policy?.max_age ?? A.local.password_policy.max_age,
+      denyCommon: policy?.deny_common ?? A.local.password_policy.deny_common,
       domains: local?.sso_required_domains ?? [],
-      trusted: admin.session?.trusted_device?.enabled ?? false,
-      trustedMaxAge: admin.session?.trusted_device?.max_age ?? '30d',
-      idle: admin.session?.idle_timeout ?? '1h',
-      absolute: admin.session?.absolute_timeout ?? '12h',
+      trusted: admin.session?.trusted_device?.enabled ?? A.session.trusted_device.enabled,
+      trustedMaxAge: admin.session?.trusted_device?.max_age ?? A.session.trusted_device.max_age,
+      idle: admin.session?.idle_timeout ?? A.session.idle_timeout,
+      absolute: admin.session?.absolute_timeout ?? A.session.absolute_timeout,
       trustedIdle:
         admin.session?.trusted_device?.idle_timeout ??
         SETTINGS_DEFAULTS.auth.admin.session.trusted_device.idle_timeout,
@@ -583,6 +743,14 @@ export function SignInSection() {
       ),
       throttleWindow: admin.login_throttle?.window ?? SETTINGS_DEFAULTS.auth.admin.login_throttle.window,
       inviteTtl: admin.invitations?.ttl ?? SETTINGS_DEFAULTS.auth.admin.invitations.ttl,
+      maxLength: String(policy?.max_length ?? A.local.password_policy.max_length),
+      recoveryCodes: String(local?.mfa?.recovery_codes ?? A.local.mfa.recovery_codes),
+      rpId: local?.mfa?.webauthn?.rp_id ?? '',
+      rpName: local?.mfa?.webauthn?.rp_name ?? A.local.mfa.webauthn.rp_name,
+      resetTtl: local?.reset_token_ttl ?? A.local.reset_token_ttl,
+      showVersion: admin.login_page?.show_version ?? A.login_page.show_version,
+      ticker: admin.login_page?.ticker?.enabled ?? A.login_page.ticker.enabled,
+      maxUsers: admin.max_active_users ? String(admin.max_active_users) : '',
     };
   }, [admin, organization.data, org]);
   return (
@@ -602,6 +770,7 @@ export function SignInSection() {
               org={org}
               initial={initial}
               hasSso={hasSso}
+              bootstrap={admin?.bootstrap_token}
             />
           ) : null}
         </div>

@@ -10,7 +10,7 @@ import { pickOption, signInAs } from '@/test/utils';
 import { SignInExtras } from '../components/sign-in-extras';
 import { navigation } from '@/test/setup';
 
-import { SignInSection } from '../components/sign-in-section';
+import { bootstrapWords, SignInSection } from '../components/sign-in-section';
 import { useOrgSettings } from '../store';
 
 const meta = {
@@ -71,6 +71,53 @@ describe('Sign-in policy', () => {
     expect(admin.invitations).toEqual({ ttl: '14d' });
     expect(admin.login_throttle).toBeUndefined();
     expect(admin.session?.trusted_device).toEqual({ enabled: false, max_age: '30d' });
+  });
+});
+
+describe('Sign-in policy extras', () => {
+  it('writes the seat cap, the sign-in page and the advanced fields only once changed', async () => {
+    const patches = authServer({
+      admin: { local: { enabled: true }, bootstrap_token: '${env:ANTIRION_BOOTSTRAP_TOKEN}' },
+    });
+    render(<SignInSection />);
+    expect(await screen.findByLabelText('Maximum length')).toHaveValue('128');
+    expect(screen.getByLabelText('Recovery codes per person')).toHaveValue('10');
+    await userEvent.type(screen.getByLabelText(/Most active people/), '50');
+    await userEvent.click(screen.getByRole('checkbox', { name: "Show the gateway's version" }));
+    await userEvent.click(screen.getByText('Advanced'));
+    expect(
+      screen.getByText('Set, from the environment variable ANTIRION_BOOTSTRAP_TOKEN'),
+    ).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Security key domain/), 'console.example.com');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    const admin = (patches[0]?.spec.admin ?? {}) as Record<string, Record<string, unknown>>;
+    expect(admin.max_active_users).toBe(50);
+    expect(admin.login_page).toEqual({ show_version: true });
+    expect(admin.local?.mfa).toEqual({
+      factors: ['totp', 'webauthn'],
+      webauthn: { rp_id: 'console.example.com' },
+    });
+    expect(admin.local?.password_policy).not.toHaveProperty('max_length');
+    expect(admin.local).not.toHaveProperty('reset_token_ttl');
+  });
+
+  it('refuses a maximum length under the minimum', async () => {
+    const patches = authServer({ admin: { local: { enabled: true } } });
+    render(<SignInSection />);
+    const longest = await screen.findByLabelText('Maximum length');
+    await userEvent.clear(longest);
+    await userEvent.type(longest, '10');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Make it at least the minimum length')).toBeInTheDocument();
+    expect(patches).toHaveLength(0);
+  });
+
+  it('says whether the bootstrap token is set, never its value', () => {
+    expect(bootstrapWords(undefined)).toBe('Not set');
+    expect(bootstrapWords('[REDACTED]')).toBe('Set in the configuration');
+    expect(bootstrapWords('${file:/run/secrets/boot}')).toBe('Set, read from a file');
+    expect(bootstrapWords('${vault:kv/antirion#boot}')).toBe('Set, read from a secret store');
   });
 });
 

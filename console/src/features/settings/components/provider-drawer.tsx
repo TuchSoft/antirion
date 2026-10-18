@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button, IconButton } from '@/components/ui/button';
-import { Switch } from '@/components/ui/choice';
+import { Checkbox, Switch } from '@/components/ui/choice';
 import { Combobox, Field, Input, MultiSelect, RadioGroup, Select, Textarea } from '@/components/ui/form';
 import { useCan } from '@/components/ui/gate';
 import { CopyButton } from '@/components/ui/misc';
@@ -15,6 +15,7 @@ import type { FieldErrors } from '@/lib/validation';
 import { useEdited } from '@/lib/hooks';
 import { notify } from '@/stores/ui';
 
+import { durationOptions } from '../choices';
 import { detailErrors, mergePatch } from '../form-errors';
 import {
   type Binding,
@@ -31,6 +32,7 @@ import {
 } from '../sso';
 import { useDirectory, useOrgSettings } from '../store';
 import { SamlPanel } from './saml-panel';
+import { Advanced } from './settings-form';
 
 const MATCH_LABEL: Record<Protocol, { match: string; value: string; placeholder: [string, string] }> = {
   oidc: { match: 'Claim', value: 'Value', placeholder: ['groups', 'platform-admins'] },
@@ -229,6 +231,7 @@ function serverPaths(protocol: Protocol, name: string): Record<string, string> {
     [`${base}.idp`]: 'metadataUrl',
     [`${base}.sp_entity_id`]: 'spEntityId',
     [`${base}.email_attribute`]: 'emailAttribute',
+    [`${base}.clock_skew`]: 'clockSkew',
     [base]: 'name',
   };
   for (let i = 0; i < 50; i++) {
@@ -722,6 +725,34 @@ export function ProviderDrawer({
             disabled={disabled}
           />
         )}
+        {p === 'oidc' ? (
+          <Advanced>
+            <Checkbox
+              label="Allow discovery without verified HTTPS"
+              description="Only for a test provider: anyone on the path could then sign people in. Test mode allows it anyway."
+              checked={form.insecureDiscovery}
+              disabled={disabled}
+              onChange={(v) => set('insecureDiscovery', v)}
+            />
+          </Advanced>
+        ) : null}
+        {p === 'saml' ? (
+          <Advanced>
+            <Field
+              label="Allowed clock difference"
+              error={errors.clockSkew}
+              hint="Between the gateway and the identity provider, when checking an answer's validity times."
+              className="w-56 max-sm:w-full"
+            >
+              <Select
+                value={form.clockSkew}
+                disabled={disabled}
+                onChange={(v) => set('clockSkew', v)}
+                options={durationOptions(['0s', '30s', '60s', '2m', '5m'], form.clockSkew)}
+              />
+            </Field>
+          </Advanced>
+        ) : null}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Drawer>

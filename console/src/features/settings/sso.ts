@@ -106,7 +106,15 @@ export interface ProviderForm {
   nameId: 'email' | 'persistent' | 'transient' | 'unspecified';
   emailAttribute: string;
   idpInitiated: boolean;
+  /** SAML: how far apart the two clocks may be. */
+  clockSkew: string;
+  /** OIDC: fetch discovery and keys without verified HTTPS. */
+  insecureDiscovery: boolean;
 }
+
+/** A SAML provider's allowed clock difference when unset. */
+// A per-entry default, which the generated defaults leave out: they hold fixed paths only.
+export const SAML_CLOCK_SKEW = '60s';
 
 export const DEFAULT_SCOPES = ['openid', 'email', 'profile', 'groups'];
 
@@ -171,6 +179,8 @@ export function providerForm(
     nameId: saml?.name_id_format ?? 'email',
     emailAttribute: saml?.email_attribute ?? '',
     idpInitiated: saml?.allow_idp_initiated ?? false,
+    clockSkew: saml?.clock_skew ?? SAML_CLOCK_SKEW,
+    insecureDiscovery: oidc?.allow_insecure_discovery ?? false,
   };
 }
 
@@ -214,6 +224,8 @@ export function providerSpec(f: ProviderForm): Record<string, unknown> {
         scope: m.scope,
       })),
       default_role_bindings: bindings,
+      // Written only while on, so a provider that never had it keeps none.
+      allow_insecure_discovery: f.insecureDiscovery ? true : null,
     };
   }
   if (f.protocol === 'oauth') {
@@ -249,6 +261,7 @@ export function providerSpec(f: ProviderForm): Record<string, unknown> {
     name_id_format: f.nameId,
     email_attribute: orNull(f.emailAttribute.trim(), !f.emailAttribute.trim()),
     allow_idp_initiated: f.idpInitiated,
+    clock_skew: f.clockSkew === SAML_CLOCK_SKEW ? null : f.clockSkew,
     allowed_email_domains: domains,
     role_mappings: f.mappings.map((m) => ({
       attribute: m.match.trim(),

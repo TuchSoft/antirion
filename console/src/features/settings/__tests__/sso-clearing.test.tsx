@@ -149,3 +149,19 @@ describe('provider drawer', () => {
     });
   });
 });
+
+describe('advanced provider fields', () => {
+  it('writes a SAML clock difference and OIDC insecure discovery only when set', () => {
+    const saml = providerForm('saml', 'okta', {
+      idp: { metadata_url: 'https://idp.example.com/m' },
+      clock_skew: '2m',
+    });
+    expect(saml.clockSkew).toBe('2m');
+    expect(providerSpec(saml).clock_skew).toBe('2m');
+    expect(providerSpec({ ...saml, clockSkew: '60s' }).clock_skew).toBeNull();
+    const oidc = providerForm('oidc', 'okta', { issuer: 'https://i', client_id: 'c' });
+    expect(oidc.insecureDiscovery).toBe(false);
+    expect(providerSpec(oidc).allow_insecure_discovery).toBeNull();
+    expect(providerSpec({ ...oidc, insecureDiscovery: true }).allow_insecure_discovery).toBe(true);
+  });
+});
