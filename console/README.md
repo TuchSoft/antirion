@@ -439,5 +439,7 @@ over each other (a channel from a rule) through `editors.ts`.
   copies and Vault connected, the notification matrix, the email server and its test, a webhook paused, resumed,
   tested and its delivery log, and an audit log destination added, tested and removed, and an MCP server added with
   pinning behind a new gateway whose changed tool is approved, an agent and a plugin added, switched and deleted, a
-  request's ledger lines in its drawer and the Budgets ledger, its end user's records erased, and the test-mode clock
-  and reset.
+  request's ledger lines in its drawer and the Budgets ledger, its end user's records erased, the test-mode clock
+  and reset, a provider added once its connection test passes, a provider's row test turning its key status to
+  Working, a Model added from its provider's model list with the list prices filled in, and a deployment turned off
+  and on again from its Model.
