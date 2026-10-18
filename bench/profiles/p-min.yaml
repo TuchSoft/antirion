@@ -12,6 +12,11 @@ keys:
   pool: 1
   used: 1
 document:
+  # The rejection cells (S8) measure how fast a gateway refuses a bad key. One generator address
+  # sends 20,000 of them a second, which the failed-authentication throttle would answer with 429
+  # after 50. Profiles that extend P-min inherit this.
+  auth:
+    failed_auth_throttle: {max_failures: 1000000000, window: 1s}
   providers:
     bench-openai:
       type: openai
