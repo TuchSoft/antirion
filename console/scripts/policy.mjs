@@ -1,7 +1,7 @@
 // The repository's text policy (ci/policy.txt) applied to the console, the way `cargo xtask policy`
 // applies it to the rest of the repository: no open-work markers.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const repo = resolve(import.meta.dirname, '..', '..');
@@ -24,7 +24,8 @@ const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclud
 const problems = [];
 for (const file of files) {
   const path = resolve(repo, file);
-  if (!existsSync(path)) continue;
+  // Listed but not a file: deleted from the working tree, or a link to a directory (a shared node_modules).
+  if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue;
   readFileSync(path, 'utf8')
     .split('\n')
     .forEach((line, i) => {
