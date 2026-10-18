@@ -1386,8 +1386,9 @@ sequences against `MemoryCounters`.
 - **Secrets in memory**: `antirion_core::Secret` (own pages, locked where allowed, zeroed on drop,
   `[REDACTED]`); `antirion/src/hardening.rs` turns core dumps off at startup.
 - **Helm chart**: `deploy/helm/antirion`, checked in CI with `helm lint` and `helm template`.
-- **Fuzzing**: `fuzz/` is its own workspace (cargo-fuzz, nightly): `ci/fuzz.sh <seconds>` runs every
-  target from its seeds. Parsers private to the pipeline are reached through
+- **Fuzzing**: `fuzz/` is its own workspace (cargo-fuzz, nightly): `ci/fuzz.sh <seconds> [target...]` runs
+  the named targets (every target by default) from their seeds; the nightly runs each target in its own
+  job for 30 minutes. Parsers private to the pipeline are reached through
   `antirion_pipeline::fuzzing`, compiled only with `--cfg fuzzing`. Keep the target directory out of
   the repository: `cargo +nightly fuzz run -s none --target-dir <dir> <target>`.
 

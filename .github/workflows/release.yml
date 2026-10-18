@@ -22,15 +22,18 @@ jobs:
     permissions:
       actions: read
     steps:
-      - name: The last nightly fuzz run passed
+      - name: Every fuzz job of the last nightly run passed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&status=completed&per_page=1" \
-            --jq '.workflow_runs[0].id' | xargs -I{} gh api "repos/$GITHUB_REPOSITORY/actions/runs/{}/jobs" \
-            --jq '.jobs[] | select(.name == "fuzz") | .conclusion')
-          echo "last nightly fuzz job: ${conclusion:-none}"
-          test "$conclusion" = "success"
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?branch=main&status=completed&per_page=1" \
+            --jq '.workflow_runs[0].id')
+          jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+            --jq '.jobs[] | select(.name | startswith("fuzz (")) | "\(.name) \(.conclusion)"')
+          echo "nightly run $run:"
+          echo "${jobs:-no fuzz jobs}"
+          test -n "$jobs"
+          ! grep -v ' success$' <<< "$jobs"
 
   # The console's static export, built once and embedded in every binary.
   console:

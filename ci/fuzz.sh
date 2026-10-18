@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# Runs every fuzz target of fuzz/ for the given number of seconds (default 60), from its seeds and the
-# corpus kept between runs; a crash fails the script and leaves its input in fuzz/artifacts/.
+# Runs the named fuzz targets of fuzz/ (every target when none is named) for the given number of
+# seconds each (default 60), from their seeds and the corpus kept between runs; a crash fails the
+# script and leaves its input in fuzz/artifacts/.
+#   ci/fuzz.sh [seconds] [target...]
 # Needs a nightly toolchain and cargo-fuzz.
 set -euo pipefail
 seconds="${1:-60}"
+shift || true
 cd "$(dirname "$0")/../fuzz"
-for target in $(cargo +nightly fuzz list); do
+targets=("$@")
+if [ ${#targets[@]} -eq 0 ]; then
+  read -r -a targets <<< "$(cargo +nightly fuzz list | tr '\n' ' ')"
+fi
+for target in "${targets[@]}"; do
   mkdir -p "corpus/$target"
   seeds=()
   if [ -d "seeds/$target" ]; then seeds=("seeds/$target"); fi
