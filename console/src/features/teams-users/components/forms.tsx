@@ -35,7 +35,14 @@ import {
   toTeamSpec,
 } from '../form';
 import { TenantSections } from './tenant-fields';
-import { ROLE_DESCRIPTIONS, roleLabel } from '../types';
+import {
+  ROLE_DESCRIPTIONS,
+  SCOPE_KIND_LABEL,
+  roleLabel,
+  scopeKindFor,
+  scopeKinds,
+  type ScopeKind,
+} from '../types';
 import { useEdited } from '@/lib/hooks';
 
 const email = z
@@ -607,6 +614,69 @@ const bindingSchema = z.object({
   target: z.string(),
 });
 
+/** The names a binding at `kind` can target: organizations, teams or projects; none for the gateway. */
+function useScopeTargets(kind: ScopeKind): string[] {
+  const teams = useTeams((s) => s.items);
+  const projects = useProjects((s) => s.items);
+  const orgs = useOrganizations((s) => s.items);
+  if (kind === 'organization') return orgs.map((o) => o.name);
+  if (kind === 'team') return teams.map((t) => t.name);
+  if (kind === 'project') return projects.map((p) => p.name);
+  return [];
+}
+
+/** The first name a binding at `kind` can target, to preselect it. */
+function useFirstTarget(): (kind: ScopeKind) => string {
+  const teams = useTeams((s) => s.items);
+  const projects = useProjects((s) => s.items);
+  const orgs = useOrganizations((s) => s.items);
+  return (kind) =>
+    (kind === 'organization'
+      ? orgs[0]?.name
+      : kind === 'team'
+        ? teams[0]?.name
+        : kind === 'project'
+          ? projects[0]?.name
+          : '') ?? '';
+}
+
+/** Where a role applies: the levels the role can be bound at, and the one to bind at. */
+function ScopeFields({
+  bindable,
+  kind,
+  target,
+  onChange,
+}: {
+  bindable: readonly string[] | undefined;
+  kind: ScopeKind;
+  target: string;
+  onChange: (kind: ScopeKind, target: string) => void;
+}) {
+  const targets = useScopeTargets(kind);
+  const first = useFirstTarget();
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="Scope">
+        <Select
+          value={kind}
+          onChange={(v) => onChange(v as ScopeKind, first(v as ScopeKind))}
+          options={scopeKinds(bindable).map((k) => ({ value: k, label: SCOPE_KIND_LABEL[k] }))}
+        />
+      </Field>
+      {kind === 'gateway' ? null : (
+        <Field label={SCOPE_KIND_LABEL[kind]}>
+          <Select
+            value={target}
+            onChange={(v) => onChange(kind, v)}
+            placeholder="Select one"
+            options={targets.map((t) => ({ value: t, label: t }))}
+          />
+        </Field>
+      )}
+    </div>
+  );
+}
+
 /** Adds a role binding for a user, or for one of their admin tokens, at a scope. */
 export function BindingDialog({
   user,
@@ -620,30 +690,22 @@ export function BindingDialog({
 }) {
   const roles = useDirectory((s) => s.roles.data) ?? [];
   const teams = useTeams((s) => s.items);
-  const projects = useProjects((s) => s.items);
-  const orgs = useOrganizations((s) => s.items);
   const addBinding = useDirectory((s) => s.addBinding);
+  const first = useFirstTarget();
   const [values, setValues] = useState({
     role: '',
-    kind: 'team' as 'gateway' | 'organization' | 'team' | 'project',
+    kind: 'team' as ScopeKind,
     target: teams[0]?.name ?? '',
   });
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const edited = useEdited(values);
   const role = roles.find((r) => r.name === values.role);
-  const kinds = (role?.bindable_at ?? ['gateway', 'organization', 'team', 'project']).map((k) => ({
-    value: k,
-    label: k,
-  }));
-  const targets =
-    values.kind === 'organization'
-      ? orgs.map((o) => o.name)
-      : values.kind === 'team'
-        ? teams.map((t) => t.name)
-        : values.kind === 'project'
-          ? projects.map((p) => p.name)
-          : [];
+  /** A new role keeps the scope while it can be bound there, else moves to a level it allows. */
+  function pickRole(name: string) {
+    const kind = scopeKindFor(roles.find((r) => r.name === name)?.bindable_at, values.kind);
+    setValues({ role: name, kind, target: kind === values.kind ? values.target : first(kind) });
+  }
 
   async function submit() {
     const result = validate(bindingSchema, values);
@@ -692,30 +754,17 @@ export function BindingDialog({
         >
           <Select
             value={values.role}
-            onChange={(v) => setValues({ ...values, role: v })}
+            onChange={pickRole}
             placeholder="Select a role"
             options={roles.map((r) => ({ value: r.name, label: roleLabel(r.name) }))}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Scope">
-            <Select
-              value={values.kind}
-              onChange={(v) => setValues({ ...values, kind: v as typeof values.kind, target: '' })}
-              options={kinds}
-            />
-          </Field>
-          {values.kind === 'gateway' ? null : (
-            <Field label={values.kind}>
-              <Select
-                value={values.target}
-                onChange={(v) => setValues({ ...values, target: v })}
-                placeholder="Select one"
-                options={targets.map((t) => ({ value: t, label: t }))}
-              />
-            </Field>
-          )}
-        </div>
+        <ScopeFields
+          bindable={role?.bindable_at}
+          kind={values.kind}
+          target={values.target}
+          onChange={(kind, target) => setValues({ ...values, kind, target })}
+        />
         <p className="text-caption text-muted">
           {token
             ? `The token gets this role on top of what it does as ${user}. Revoking the token ends it.`
@@ -729,25 +778,37 @@ export function BindingDialog({
 const inviteSchema = z.object({
   email,
   displayName: z.string().trim().max(200),
-  team: z.string(),
   role: z.string(),
+  kind: z.enum(['gateway', 'organization', 'team', 'project']),
+  target: z.string(),
 });
 
-/** Invites a person by email with a team and role; the gateway emails the link. */
+/** Invites a person by email with a role at a scope; the gateway emails the link. */
 export function InviteDialog({ onClose, onLink }: { onClose: () => void; onLink: (link: string) => void }) {
   const teams = useTeams((s) => s.items);
   const roles = useDirectory((s) => s.roles.data) ?? [];
   const invite = useDirectory((s) => s.invite);
+  const first = useFirstTarget();
   const [values, setValues] = useState({
     email: '',
     displayName: '',
-    team: teams[0]?.name ?? '',
     role: 'developer',
+    kind: 'team' as ScopeKind,
+    target: teams[0]?.name ?? '',
   });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const edited = useEdited(values);
+  const role = roles.find((r) => r.name === values.role);
+  // The roles load after the dialog opens: the default role's level applies once they have.
+  const kind = scopeKindFor(role?.bindable_at, values.kind);
+  const target = kind === values.kind ? values.target : first(kind);
+  /** A new role keeps the scope while it can be bound there, else moves to a level it allows. */
+  function pickRole(name: string) {
+    const next = scopeKindFor(roles.find((r) => r.name === name)?.bindable_at, kind);
+    setValues({ ...values, role: name, kind: next, target: next === kind ? target : first(next) });
+  }
   async function submit() {
     const result = validate(inviteSchema, values);
     if (!result.ok) {
@@ -758,18 +819,13 @@ export function InviteDialog({ onClose, onLink }: { onClose: () => void; onLink:
     setBusy(true);
     setError(null);
     try {
+      const scope = kind === 'gateway' ? 'gateway' : target ? `${kind}/${target}` : null;
       const link = await invite({
         email: values.email.trim(),
         ...(values.displayName ? { display_name: values.displayName } : {}),
         role_bindings:
-          values.team && values.role
-            ? [
-                {
-                  principal: { type: 'user', id: values.email.trim() },
-                  role: values.role,
-                  scope: `team/${values.team}`,
-                },
-              ]
+          values.role && scope
+            ? [{ principal: { type: 'user', id: values.email.trim() }, role: values.role, scope }]
             : [],
       });
       notify('success', 'Invitation sent', values.email);
@@ -820,22 +876,19 @@ export function InviteDialog({ onClose, onLink }: { onClose: () => void; onLink:
             onChange={(e) => setValues({ ...values, displayName: e.target.value })}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Team">
-            <Combobox
-              value={values.team}
-              onChange={(v) => setValues({ ...values, team: v })}
-              options={teams.map((t) => ({ value: t.name, label: t.name }))}
-            />
-          </Field>
-          <Field label="Role">
-            <Select
-              value={values.role}
-              onChange={(v) => setValues({ ...values, role: v })}
-              options={roles.map((r) => ({ value: r.name, label: roleLabel(r.name) }))}
-            />
-          </Field>
-        </div>
+        <Field label="Role" hint={role ? ROLE_DESCRIPTIONS[role.name] : undefined}>
+          <Select
+            value={values.role}
+            onChange={pickRole}
+            options={roles.map((r) => ({ value: r.name, label: roleLabel(r.name) }))}
+          />
+        </Field>
+        <ScopeFields
+          bindable={role?.bindable_at}
+          kind={kind}
+          target={target}
+          onChange={(k, t) => setValues({ ...values, kind: k, target: t })}
+        />
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Dialog>

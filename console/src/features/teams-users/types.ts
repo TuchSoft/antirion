@@ -39,6 +39,36 @@ export function roleLabel(role: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/** The levels a role can be bound at. */
+export type ScopeKind = 'gateway' | 'organization' | 'team' | 'project';
+
+export const SCOPE_KIND_LABEL: Record<ScopeKind, string> = {
+  gateway: 'Whole gateway',
+  organization: 'Organization',
+  team: 'Team',
+  project: 'Project',
+};
+
+const SCOPE_KINDS: readonly ScopeKind[] = ['gateway', 'organization', 'team', 'project'];
+
+/** The levels `bindable` allows, in the order the scope picker lists them; every level without a role. */
+export function scopeKinds(bindable: readonly string[] | undefined): ScopeKind[] {
+  if (!bindable) return [...SCOPE_KINDS];
+  return SCOPE_KINDS.filter((k) => bindable.includes(k));
+}
+
+/**
+ * The level to bind at once the role is `bindable`: the current one while the role allows it, else
+ * the first the role allows, a team before a project, an organization or the whole gateway.
+ */
+export function scopeKindFor(bindable: readonly string[] | undefined, current: ScopeKind): ScopeKind {
+  const allowed = scopeKinds(bindable);
+  if (allowed.includes(current)) return current;
+  return (
+    (['team', 'project', 'organization', 'gateway'] as const).find((k) => allowed.includes(k)) ?? current
+  );
+}
+
 /** "team/support-ai" → "Team support-ai", "gateway" → "Whole gateway". */
 export function scopeLabel(scope: string): string {
   if (scope === 'gateway') return 'Whole gateway';
