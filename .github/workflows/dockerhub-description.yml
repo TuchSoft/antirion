@@ -1,0 +1,38 @@
+# Keeps the Docker Hub page of eliasbiondo/antirion in step with docker/README.md: its overview and
+# short description. Runs when that file changes on main, or by hand; skipped with a notice when the
+# Docker Hub secrets are not set (the token needs read, write and delete scope).
+name: dockerhub-description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/README.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  description:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      HAS_SECRETS: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - name: Docker Hub credentials
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice title=Docker Hub skipped::DOCKERHUB_USERNAME or DOCKERHUB_TOKEN is not set, so the description was not updated."
+      - if: env.HAS_SECRETS == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - if: env.HAS_SECRETS == 'true'
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: eliasbiondo/antirion
+          short-description: The fastest open-source AI gateway. One Rust binary with the console built in.
+          readme-filepath: docker/README.md
