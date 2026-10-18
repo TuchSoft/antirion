@@ -233,6 +233,16 @@ impl Book {
         w.trim(self.window);
     }
 
+    /// Whether the window holds line `line` of `request_id`.
+    #[must_use]
+    pub fn holds(&self, request_id: &str, line: u32) -> bool {
+        self.inner
+            .read()
+            .by_request
+            .get(request_id)
+            .is_some_and(|ls| ls.iter().any(|(n, _)| *n == line))
+    }
+
     /// The window's lines of one request, by line number.
     #[must_use]
     pub fn request(&self, request_id: &str) -> Vec<Arc<LedgerLine>> {
@@ -656,6 +666,16 @@ mod tests {
         assert_eq!(book.len(), 1);
         assert_eq!(book.request("r").len(), 1);
         assert_eq!(book.append(lines(3), true, |_, _| {}).len(), 2);
+    }
+
+    #[test]
+    fn holds_names_the_lines_in_the_window() {
+        let book = Book::new(UtcMicros::EPOCH, 2);
+        let lines = (0..3).map(|i| (line("r", i, "k", 1, 1, None), ())).collect();
+        book.append(lines, true, |_, _| {});
+        assert!(!book.holds("r", 0), "evicted");
+        assert!(book.holds("r", 1) && book.holds("r", 2));
+        assert!(!book.holds("r", 3) && !book.holds("other", 1));
     }
 
     #[test]

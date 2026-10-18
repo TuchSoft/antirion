@@ -499,6 +499,65 @@ impl PgStore {
         self.execute("DELETE FROM ledger_charges", &[]).await.map(|_| ())
     }
 
+    /// The keys of the ledger lines stored after `after_us` and at most at `until_us` (store time,
+    /// microseconds), oldest first, and the store time of the newest one returned: what a node
+    /// reads to learn which lines it lacks before it reads their bodies.
+    pub async fn ledger_keys_since(
+        &self,
+        after_us: i64,
+        until_us: Option<i64>,
+        limit: i64,
+    ) -> Result<(Vec<(String, u32)>, i64), StoreError> {
+        self.run(async {
+            let mut lease = self.pool.get().await?;
+            let rows = lease
+                .client()?
+                .query(
+                    "SELECT request_id, line, floor(extract(epoch FROM inserted_at) * 1000000)::int8
+                     FROM ledger_lines
+                     WHERE inserted_at > to_timestamp($1::int8::float8 / 1000000.0)
+                       AND ($2::int8 IS NULL OR inserted_at <= to_timestamp($2::int8::float8 / 1000000.0))
+                     ORDER BY inserted_at LIMIT $3",
+                    &[&after_us, &until_us, &limit],
+                )
+                .await?;
+            let mut newest = after_us;
+            let mut out = Vec::with_capacity(rows.len());
+            for r in &rows {
+                out.push((r.try_get(0)?, u32::try_from(r.try_get::<_, i32>(1)?).unwrap_or(0)));
+                newest = newest.max(r.try_get::<_, i64>(2)?);
+            }
+            Ok((out, newest))
+        })
+        .await
+    }
+
+    /// The ledger lines of `keys` (request id, line) that are stored, in no particular order.
+    pub async fn ledger_lines(&self, keys: &[(String, u32)]) -> Result<Vec<LedgerRow>, StoreError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: Vec<&str> = keys.iter().map(|(id, _)| id.as_str()).collect();
+        let lines: Vec<i32> = keys
+            .iter()
+            .map(|(_, n)| i32::try_from(*n).unwrap_or(i32::MAX))
+            .collect();
+        self.run(async {
+            let mut lease = self.pool.get().await?;
+            let rows = lease
+                .client()?
+                .query(
+                    "SELECT l.request_id, l.line, l.admitted_us, l.body
+                     FROM unnest($1::text[], $2::int4[]) AS k(id, line)
+                     JOIN ledger_lines l ON l.request_id = k.id AND l.line = k.line",
+                    &[&ids, &lines],
+                )
+                .await?;
+            rows.iter().map(ledger_of).collect()
+        })
+        .await
+    }
+
     /// Ledger lines stored after `after_us` (store time, microseconds), oldest first, and the
     /// store time of the newest one returned.
     pub async fn ledger_since(&self, after_us: i64, limit: i64) -> Result<(Vec<LedgerRow>, i64), StoreError> {

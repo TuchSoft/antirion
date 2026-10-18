@@ -542,7 +542,10 @@ which migrates under an advisory lock (`store/src/pg/schema.rs`; a binary older 
   `GET /cluster` shows the leases.
 - **Shared reads** (`replicate.rs`): request-log records go to the store and other nodes' records
   come back into each node's in-memory log; every node reads every ledger line into its `Book`;
-  cache epochs are raised in the store and read back. Reads overlap the last 5 s and dedupe by id.
+  cache epochs are raised in the store and read back. Ledger lines are listed by key every 250 ms
+  and only the bodies of the lines the `Book` lacks are read (a node's own lines and the ones it
+  read already never cross the network again); every 2 s the keys of the last 5 s are listed
+  again, for rows that committed after a newer one was read.
 - **Ledger** (`runtime/src/spool.rs`): settlement queues lines, flushed every
   `store.ledger.flush_interval`; while the store is down they go to `store.spool.path` (records with a
   length and CRC, synced per batch) up to `store.spool.max_size`. A full spool refuses budgeted

@@ -103,6 +103,33 @@ async fn leases_ledger_lines_and_notifications() {
     let (rows, newest) = b.ledger_since(0, 100).await.unwrap();
     assert_eq!(rows.len(), 3);
     assert!(b.ledger_since(newest, 100).await.unwrap().0.is_empty());
+    let (keys, last) = b.ledger_keys_since(0, None, 100).await.unwrap();
+    let mut ids: Vec<&str> = keys.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!((ids, last), (vec!["r1", "r2", "r3"], newest));
+    assert!(b.ledger_keys_since(newest, None, 100).await.unwrap().0.is_empty());
+    let (first, _) = b.ledger_keys_since(0, None, 1).await.unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(
+        b.ledger_keys_since(0, Some(0), 100).await.unwrap().0.is_empty(),
+        "none at or before 0"
+    );
+    let wanted = vec![
+        ("r3".to_owned(), 0),
+        ("r1".to_owned(), 0),
+        ("r9".to_owned(), 0),
+        ("r1".to_owned(), 1),
+    ];
+    let mut got: Vec<String> = b
+        .ledger_lines(&wanted)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.request_id)
+        .collect();
+    got.sort_unstable();
+    assert_eq!(got, ["r1", "r3"], "only the stored lines among the keys");
+    assert!(b.ledger_lines(&[]).await.unwrap().is_empty());
     let mut listener = b.listen().await.unwrap();
     let (c1, h1) = config(1);
     a.commit_config(c1, h1, None).await.unwrap();
