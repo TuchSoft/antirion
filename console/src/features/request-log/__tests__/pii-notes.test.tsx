@@ -85,6 +85,21 @@ describe('personal data in the request drawer', () => {
     expect(screen.getByRole('note')).toHaveTextContent('The stored answer still has [PHONE_1]');
   });
 
+  it('does not say the values came back on the Messages tab when the answer still has placeholders', async () => {
+    signInAs(['logs:read', 'logs:read_content', 'policies:read']);
+    rules();
+    const r = record('Calling [PHONE_1] now.');
+    // Records name kinds as the rule labels them.
+    const [input] = r.guardrails as { spans: { entity: string }[] }[];
+    const [first] = input?.spans ?? [];
+    if (first) first.entity = 'PHONE';
+    render(<MessagesTab record={r} />);
+    expect(await screen.findByText('Placeholders were not put back')).toBeInTheDocument();
+    expect(screen.getAllByRole('note')[0]).toHaveTextContent(
+      'pii_main replaced 2 values (phone number, cpf) with numbered placeholders such as [PHONE_1]; the provider saw those.',
+    );
+  });
+
   it('says values were replaced, without restore, for a rule that does not put them back', async () => {
     signInAs(['logs:read', 'logs:read_content', 'policies:read']);
     rules({ type: 'pii', action: 'redact' });

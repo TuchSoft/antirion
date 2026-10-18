@@ -266,9 +266,11 @@ function SentNote({ pii }: { pii: PiiHandling }) {
       {others > 0 ? ` and ${others} more` : ''} replaced {counted ?? 'values'} with{' '}
       {shown.tokenized === true ? 'numbered placeholders' : 'placeholders'} such as{' '}
       <Code>{examplePlaceholder(shown)}</Code>
-      {shown.tokenized === true
-        ? '; the provider saw those, and the answer got the real values back.'
-        : '; the provider saw those instead.'}
+      {shown.tokenized !== true
+        ? '; the provider saw those instead.'
+        : pii.leftInAnswer.length > 0
+          ? '; the provider saw those.'
+          : '; the provider saw those, and the answer got the real values back.'}
     </Note>
   );
 }

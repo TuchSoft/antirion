@@ -58,7 +58,8 @@ export function piiHandling(
     const spans = Array.isArray(g.spans) ? (g.spans as { entity?: unknown }[]) : [];
     const counts: Record<string, number> = {};
     for (const s of spans) {
-      const e = text(s.entity);
+      // Records name kinds as the rule labels them (`PHONE`); reports, in lower case.
+      const e = text(s.entity)?.toLowerCase();
       if (e) counts[e] = (counts[e] ?? 0) + 1;
     }
     const spec = specs[rule] ?? null;
