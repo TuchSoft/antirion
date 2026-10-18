@@ -19,6 +19,57 @@ export type PoliciesSettings = components['schemas']['PoliciesSettings'];
 export type SummaryRow = components['schemas']['GuardrailSummaryRow'];
 export type Interval = components['parameters']['Interval'];
 export type ReviewState = 'reviewed' | 'false_positive' | 'escalated';
+export type TestStage = 'input' | 'output';
+
+/**
+ * A rule's test: its verdict and category, the matches (code-point offsets, the kind found and
+ * what it became), the text after the rule (what goes on), and, for a rule that puts values back
+ * in the answer, what restore gives back when the answer repeats the placeholders.
+ */
+export interface RuleTestResult {
+  verdict: string;
+  category: string | null;
+  spans: GuardrailTestResult['spans'];
+  redacted: string | Record<string, unknown> | null;
+  restored: string | Record<string, unknown> | null;
+}
+
+function testResult(raw: GuardrailTestResult): RuleTestResult {
+  return {
+    verdict: raw.verdict,
+    category: raw.category ?? null,
+    spans: raw.spans,
+    redacted: raw.redacted ?? null,
+    restored: raw.restored ?? null,
+  };
+}
+
+/**
+ * Settings that need not be saved, run on sample text as a stage would run them, with nothing
+ * sent to a provider or logged. `name` is the saved rule being edited, whose stored secrets a
+ * `[REDACTED]` stands for.
+ */
+async function testSpec(
+  spec: GuardrailSpec,
+  stage: TestStage,
+  text: string,
+  name?: string,
+): Promise<RuleTestResult> {
+  return testResult(
+    await api.post('/guardrails:test', {
+      body: { ...(name ? { name } : {}), spec, input: { stage, text } },
+    }),
+  );
+}
+
+/** Whether a gateway answered that it has no test for unsaved settings (it predates it). */
+export function noSpecTest(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.operation === 'POST /guardrails:test' &&
+    (error.status === 404 || error.status === 405)
+  );
+}
 
 /** The query parameter a gateway refused as unknown ("unknown query parameter "from""), if any. */
 function refusedParam(error: unknown): string | null {
@@ -74,13 +125,16 @@ async function byCategory(from: string, to: string, interval: Interval): Promise
   );
 }
 
-/** Matches per entity type over the last 24 hours, for the personal data grid. */
+/**
+ * Matches per entity over the last 24 hours, for the personal data grid: personal data, secrets
+ * and pattern rules (the custom entities of Settings › Data & privacy).
+ */
 async function byEntity(now: number = Date.now()): Promise<Record<string, number>> {
   const page = await api.get('/reports/guardrails/summary', {
     query: {
       from: new Date(now - 86_400_000).toISOString(),
       to: new Date(now).toISOString(),
-      category: ['pii', 'secret'],
+      category: ['pii', 'secret', 'deny_pattern'],
       group_by: ['entity'],
       limit: 100,
     },
@@ -118,8 +172,10 @@ export const safetyApi = {
   replace: (name: string, spec: GuardrailSpec, etag: string | undefined) =>
     api.put('/guardrails/{name}', { path: { name }, body: { spec }, ifMatch: etag }),
   remove: (name: string) => api.delete('/guardrails/{name}', { path: { name } }),
-  test: (name: string, stage: 'input' | 'output', text: string): Promise<GuardrailTestResult> =>
-    api.post('/guardrails/{name}:test', { path: { name }, body: { stage, text } }),
+  /** Runs a saved guardrail on sample text. */
+  test: async (name: string, stage: TestStage, text: string): Promise<RuleTestResult> =>
+    testResult(await api.post('/guardrails/{name}:test', { path: { name }, body: { stage, text } })),
+  testSpec,
   policies: (): Promise<PoliciesSettings> => api.get('/settings/policies'),
   /** Writes the gateway-level input and output lists (a merge patch replaces the arrays). */
   attach: (lists: { input: string[]; output: string[] }, etag: string | undefined) =>

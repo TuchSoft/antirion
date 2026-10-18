@@ -16,17 +16,27 @@ import { useEdited } from '@/lib/hooks';
 import { notify } from '@/stores/ui';
 
 import { HeaderRowsEditor } from '@/features/mcp/components/parts';
+import { ENTITY_CHECKS, entityCheck } from '@/features/settings/custom-entities';
 
-import { type GuardrailTestResult, safetyApi } from '../api';
+import { noSpecTest, type RuleTestResult, safetyApi, type TestStage } from '../api';
 import {
   actionsFor,
+  allKinds,
   blankRun,
   CATEGORIES,
+  type CustomKind,
+  customKindErrors,
+  type CustomKindErrors,
+  customMethod,
   type DraftErrors,
   draftOf,
   emptyDraft,
   ENTITY_NAME,
+  type GuardrailSpec,
   impliedCategory,
+  kindEntity,
+  kindLabel,
+  kindName,
   LABELLED,
   LENGTH_BOUNDS,
   type LengthBound,
@@ -35,6 +45,8 @@ import {
   METHODS,
   PII_ENTITIES,
   PII_PRESERVE,
+  patternPlaceholder,
+  placeholder,
   PRESERVE_NAME,
   REPLACEABLE,
   type RuleDraft,
@@ -434,6 +446,278 @@ function RunFields({
   );
 }
 
+export function blankKind(): CustomKind {
+  return { name: '', pattern: '', validate: 'none', label: '' };
+}
+
+/**
+ * The fields of a kind of personal data a rule defines itself: its name, its pattern, an optional
+ * check and the label its placeholder shows, which appears as it is typed.
+ */
+export function CustomKindFields({
+  value,
+  onChange,
+  errors,
+  numbered,
+}: {
+  value: CustomKind;
+  onChange: (v: CustomKind) => void;
+  errors: CustomKindErrors;
+  /** Values are put back in the answer, so placeholders are numbered. */
+  numbered: boolean;
+}) {
+  const shown = value.name.trim() || value.label.trim();
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field
+          label="Kind name"
+          error={errors.name}
+          hint="Lowercase letters, digits and _; events and reports use it."
+        >
+          <Input
+            mono
+            data-autofocus
+            value={value.name}
+            placeholder="cpf"
+            onChange={(e) => onChange({ ...value, name: e.target.value.toLowerCase() })}
+          />
+        </Field>
+        <Field
+          label="Placeholder label"
+          optional
+          error={errors.label}
+          hint={
+            shown ? (
+              <>
+                A value becomes{' '}
+                <span className="mono text-fg">{placeholder(kindLabel(value), numbered)}</span>
+                {numbered ? ', numbered per value' : ''}.
+              </>
+            ) : (
+              'The name in capitals unless set.'
+            )
+          }
+        >
+          <Input
+            mono
+            value={value.label}
+            placeholder={value.name.trim() ? value.name.trim().toUpperCase() : 'CPF'}
+            onChange={(e) => onChange({ ...value, label: e.target.value })}
+          />
+        </Field>
+      </div>
+      <Field
+        label="Pattern"
+        error={errors.pattern}
+        hint="A regular expression a value matches. Like the built-in kinds, a match never runs into letters or digits around it."
+      >
+        <Input
+          mono
+          spellCheck={false}
+          value={value.pattern}
+          placeholder={'\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}'}
+          onChange={(e) => onChange({ ...value, pattern: e.target.value })}
+        />
+      </Field>
+      <Field label="Extra check" hint="Only count a match that passes this check.">
+        <Select
+          value={value.validate}
+          onChange={(v) => onChange({ ...value, validate: entityCheck(v) })}
+          options={ENTITY_CHECKS}
+        />
+      </Field>
+    </>
+  );
+}
+
+/**
+ * "Look for": the built-in kinds of personal data and the rule's own, each a checkbox; the rule's
+ * own can be changed or removed, and a new one added in place. A kind of its own left unticked is
+ * dropped when the rule is saved.
+ */
+function KindsField({
+  draft,
+  set,
+  errors,
+}: {
+  draft: RuleDraft;
+  set: (patch: Partial<RuleDraft>) => void;
+  errors: DraftErrors;
+}) {
+  // The kind being written: a new one (index -1) or one of the rule's own, by index.
+  const [editing, setEditing] = useState<{ at: number; kind: CustomKind } | null>(null);
+  const [kindErrors, setKindErrors] = useState<CustomKindErrors>({});
+  const numbered = draft.reversible;
+  const own = draft.customKinds;
+  const toggle = (id: string, on: boolean) =>
+    set({
+      entities: on
+        ? allKinds(own).filter((k) => k === id || draft.entities.includes(k))
+        : draft.entities.filter((k) => k !== id),
+    });
+  const save = () => {
+    if (!editing) return;
+    const kind = { ...editing.kind, name: editing.kind.name.trim(), label: editing.kind.label.trim() };
+    const others = own.filter((_, i) => i !== editing.at);
+    const found = customKindErrors(kind, others);
+    if (Object.keys(found).length > 0) {
+      setKindErrors(found);
+      return;
+    }
+    const before = editing.at >= 0 ? own[editing.at] : undefined;
+    const kinds = editing.at >= 0 ? own.map((k, i) => (i === editing.at ? kind : k)) : [...own, kind];
+    // A kind added is looked for at once; one renamed keeps whether it was.
+    const wasOn = before ? draft.entities.includes(before.name) : true;
+    const entities = draft.entities.filter((k) => k !== before?.name);
+    set({
+      customKinds: kinds,
+      entities: allKinds(kinds).filter((k) => entities.includes(k) || (wasOn && k === kind.name)),
+    });
+    setEditing(null);
+    setKindErrors({});
+  };
+  const remove = (at: number) => {
+    const kind = own[at];
+    if (!kind) return;
+    set({
+      customKinds: own.filter((_, i) => i !== at),
+      entities: draft.entities.filter((k) => k !== kind.name),
+    });
+  };
+  const checked = [
+    ...PII_ENTITIES.filter((e) => draft.entities.includes(e)).map((e) => e.toUpperCase()),
+    ...own.filter((k) => draft.entities.includes(k.name)).map(kindLabel),
+  ];
+  const labels = draft.action === 'redact' && draft.replacement === 'label';
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-1 text-ui font-medium text-fg">Look for</legend>
+      <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+        {PII_ENTITIES.map((id) => (
+          <Checkbox
+            key={id}
+            label={ENTITY_NAME[id] ?? id}
+            checked={draft.entities.includes(id)}
+            onChange={(on) => toggle(id, on)}
+          />
+        ))}
+        {own.map((k) => (
+          <Checkbox
+            key={k.name}
+            label={<span className="mono">{k.name}</span>}
+            description={
+              <>
+                <span className="mono">{placeholder(kindLabel(k), numbered)}</span>
+                {' · '}
+                {customMethod(k)}
+              </>
+            }
+            checked={draft.entities.includes(k.name)}
+            onChange={(on) => toggle(k.name, on)}
+          />
+        ))}
+      </div>
+      {own.length > 0 ? (
+        <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Kinds of your own">
+          {own.map((k, i) => (
+            <li key={k.name} className="flex items-center gap-1 text-caption text-muted">
+              <span className="mono text-fg">{k.name}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Change ${k.name}`}
+                onClick={() => {
+                  setEditing({ at: i, kind: k });
+                  setKindErrors({});
+                }}
+              >
+                Change
+              </Button>
+              <Button size="sm" variant="ghost" aria-label={`Remove ${k.name}`} onClick={() => remove(i)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {errors.entities || errors.customKinds ? (
+        <p role="alert" className="text-caption text-error">
+          {errors.entities ?? errors.customKinds}
+        </p>
+      ) : null}
+      {labels && checked.length > 0 ? (
+        <p className="text-caption text-muted">
+          Values become{' '}
+          <span className="mono text-fg">
+            {checked
+              .slice(0, 4)
+              .map((k) => placeholder(k, numbered))
+              .join(', ')}
+            {checked.length > 4 ? '…' : ''}
+          </span>
+          {numbered ? ', numbered per value, so the same value always gets the same placeholder.' : '.'}
+        </p>
+      ) : null}
+      {editing ? (
+        <div
+          role="group"
+          aria-label={editing.at >= 0 ? 'Change the kind' : 'A kind of personal data'}
+          className="flex flex-col gap-4 rounded-sm border border-line bg-sunken p-4"
+          onKeyDown={(e) => {
+            // Enter adds the kind instead of saving the whole rule.
+            if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+              e.preventDefault();
+              save();
+            }
+          }}
+        >
+          <p className="text-ui font-medium text-fg">
+            {editing.at >= 0 ? 'Change the kind' : 'A kind of personal data'}
+          </p>
+          <CustomKindFields
+            value={editing.kind}
+            onChange={(kind) => {
+              setEditing({ ...editing, kind });
+              setKindErrors({});
+            }}
+            errors={kindErrors}
+            numbered={numbered}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(null);
+                setKindErrors({});
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save}>
+              {editing.at >= 0 ? 'Save kind' : 'Add kind'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="plus"
+          className="self-start"
+          onClick={() => {
+            setEditing({ at: -1, kind: blankKind() });
+            setKindErrors({});
+          }}
+        >
+          Add a kind of personal data
+        </Button>
+      )}
+    </fieldset>
+  );
+}
+
 /** The settings of the chosen method. */
 function MethodFields({
   draft,
@@ -498,25 +782,53 @@ function MethodFields({
               <Field label="Checksum" hint="Only matches whose digits pass the check count.">
                 <Select
                   value={draft.validate}
-                  onChange={(v) => set({ validate: v === 'luhn' || v === 'iban_mod97' ? v : 'none' })}
+                  onChange={(v) => set({ validate: entityCheck(v) })}
                   options={[
                     { value: 'none', label: 'None' },
                     { value: 'luhn', label: 'Luhn (card numbers)' },
                     { value: 'iban_mod97', label: 'IBAN mod-97' },
+                    { value: 'cpf', label: 'CPF check digits' },
+                    { value: 'cnpj', label: 'CNPJ check digits' },
                   ]}
                 />
               </Field>
-              <Field label="Label" optional hint="What a redacted match becomes, such as IBAN.">
+              <Field
+                label="Placeholder label"
+                optional
+                hint={
+                  <>
+                    A redacted match becomes{' '}
+                    <span className="mono text-fg">
+                      {patternPlaceholder(draft.label, draft.name || 'redacted', draft.reversible)}
+                    </span>
+                    {draft.reversible ? ', numbered per value.' : '.'}
+                  </>
+                }
+              >
                 <Input
                   mono
                   value={draft.label}
                   onChange={(e) => set({ label: e.target.value })}
-                  placeholder="REDACTED"
+                  placeholder={draft.reversible && draft.name ? draft.name.toUpperCase() : 'REDACTED'}
                 />
               </Field>
             </div>
           ) : null}
           {replacement}
+          {draft.method === 'regex' && draft.action === 'redact' ? (
+            <Checkbox
+              label="Put the values back in the answer"
+              description="The provider sees numbered placeholders such as [ACCOUNT_1]; the answer gets the real values back. Needs labels."
+              checked={draft.reversible}
+              disabled={draft.replacement !== 'label'}
+              onChange={(reversible) => set({ reversible })}
+            />
+          ) : null}
+          {errors.reversible ? (
+            <p role="alert" className="text-caption text-error">
+              {errors.reversible}
+            </p>
+          ) : null}
         </>
       );
     case 'keywords':
@@ -547,14 +859,7 @@ function MethodFields({
     case 'pii':
       return (
         <>
-          <CheckGrid
-            legend="Look for"
-            all={PII_ENTITIES}
-            value={draft.entities}
-            onChange={(entities) => set({ entities })}
-            name={(e) => ENTITY_NAME[e] ?? e}
-            error={errors.entities}
-          />
+          <KindsField draft={draft} set={set} errors={errors} />
           <CheckGrid
             legend="Keep readable"
             all={PII_PRESERVE}
@@ -1117,8 +1422,16 @@ function MethodFields({
 
 const VERDICT_TONE: Record<string, Tone> = { block: 'error', redact: 'warn', flag: 'info', pass: 'success' };
 
-/** The text with the matched spans marked (code-point offsets). */
-function Marked({ text, spans }: { text: string; spans: GuardrailTestResult['spans'] }) {
+/** The text with the matched spans marked (code-point offsets), each span named by its kind. */
+function Marked({
+  text,
+  spans,
+  kinds,
+}: {
+  text: string;
+  spans: RuleTestResult['spans'];
+  kinds: CustomKind[];
+}) {
   const chars = Array.from(text);
   const parts: ReactNode[] = [];
   let at = 0;
@@ -1131,7 +1444,10 @@ function Marked({ text, spans }: { text: string; spans: GuardrailTestResult['spa
         className="rounded-xs bg-[color-mix(in_oklab,var(--ant-warn)_30%,transparent)] px-0.5 text-fg"
       >
         {chars.slice(s.start, s.end).join('')}
-        <span className="sr-only"> ({matchWord(s.entity)})</span>
+        <span className="sr-only">
+          {' '}
+          ({kinds.some((k) => kindEntity(k) === s.entity) ? kindName(s.entity, kinds) : matchWord(s.entity)})
+        </span>
       </mark>,
     );
     at = s.end;
@@ -1140,15 +1456,109 @@ function Marked({ text, spans }: { text: string; spans: GuardrailTestResult['spa
   return <p className="text-ui leading-relaxed break-words whitespace-pre-wrap text-fg">{parts}</p>;
 }
 
-/** Runs a saved guardrail on sample text, without sending anything to a provider. */
-function TestPanel({ name }: { name: string }) {
-  const [stage, setStage] = useState<'input' | 'output'>('input');
+/** What each match became ("123.456.789-09 → [CPF_1]"), where the rule replaced it. */
+function Replacements({ text, spans }: { text: string; spans: RuleTestResult['spans'] }) {
+  const chars = Array.from(text);
+  const rows = [
+    ...new Map(
+      spans
+        .filter((s) => s.replacement)
+        .map((s) => {
+          const value = chars.slice(s.start, s.end).join('');
+          return [`${value}\u0000${s.replacement ?? ''}`, { value, replacement: s.replacement ?? '' }];
+        }),
+    ).values(),
+  ];
+  if (rows.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5" aria-label="What each match became">
+      {rows.map((row) => (
+        <li key={`${row.value}-${row.replacement}`} className="mono text-caption text-muted">
+          <span className="text-fg">{row.value}</span> → <span className="text-fg">{row.replacement}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A labelled block of text the test produced: what goes on, what comes back. */
+function Produced({ title, hint, text }: { title: string; hint?: string; text: string }) {
+  return (
+    <div>
+      <p className="text-caption text-muted">{title}</p>
+      <p className="mono text-ui break-words whitespace-pre-wrap text-fg">{text}</p>
+      {hint ? <p className="mt-0.5 text-caption text-dim">{hint}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Runs the form's settings, saved or not, on sample text without sending anything to a provider.
+ */
+function TestPanel({
+  draft,
+  base,
+  saved,
+  edited,
+  onInvalid,
+}: {
+  draft: RuleDraft;
+  base: GuardrailSpec | null;
+  /** The saved rule's name, when it is one. */
+  saved: string | null;
+  edited: boolean;
+  /** The form has something to fix before it can run. */
+  onInvalid: (errors: DraftErrors) => void;
+}) {
+  const [stage, setStage] = useState<TestStage>('input');
   const [text, setText] = useState('');
-  const [result, setResult] = useState<{ text: string; r: GuardrailTestResult } | null>(null);
+  const [result, setResult] = useState<{ text: string; r: RuleTestResult } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const canTest = useCan('testGuardrail');
-  if (!canTest) return null;
+  const canTestUnsaved = useCan('testUnsavedGuardrail');
+  // An unchanged saved rule is the form as it is: the gateway runs it by name, stored secrets
+  // included, even where the form can't rebuild it (settings written elsewhere).
+  const byName = saved !== null && !edited;
+  if (!canTest && !canTestUnsaved) return null;
+  const allowed = byName ? canTest || canTestUnsaved : canTestUnsaved;
+
+  async function run() {
+    setError(null);
+    // The name doesn't change what the rule does; a new rule may not have one yet.
+    const built = specOf({ ...draft, name: 'rule_under_test' }, base);
+    if (!byName && !built.ok) {
+      onInvalid(built.errors);
+      setError(new Error('Fix the form first: the test runs what it says.'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const r =
+        byName && canTest
+          ? await safetyApi.test(saved, stage, text)
+          : built.ok
+            ? await safetyApi.testSpec(built.spec, stage, text, saved ?? undefined)
+            : null;
+      if (!r) return;
+      setResult({ text, r });
+    } catch (e) {
+      setError(
+        noSpecTest(e)
+          ? new Error(
+              saved
+                ? 'This gateway tests saved rules only. Save your changes, then test them.'
+                : 'This gateway tests saved rules only. Create the rule, then test it.',
+            )
+          : e,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const r = result?.r;
+  const redacted = r && typeof r.redacted === 'string' && r.redacted !== result.text ? r.redacted : null;
   return (
     <section
       aria-label="Test this rule"
@@ -1156,7 +1566,7 @@ function TestPanel({ name }: { name: string }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-ui font-semibold text-fg">Test this rule</h3>
-        <Segmented<'input' | 'output'>
+        <Segmented<TestStage>
           label="Test as"
           value={stage}
           onChange={setStage}
@@ -1168,13 +1578,13 @@ function TestPanel({ name }: { name: string }) {
       </div>
       <Field
         label="Sample text"
-        hint="Uses the saved rule; save your changes first to test them. Nothing is sent to a provider or logged."
+        hint="Runs the form as it is now, saved or not. Nothing is sent to a provider or logged."
       >
         <Textarea
           rows={3}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Contact me at jane@example.com"
+          placeholder={draft.type === 'pii' ? 'Contact me at jane@example.com' : 'Sample prompt or answer'}
         />
       </Field>
       <div className="flex items-center gap-3">
@@ -1182,37 +1592,45 @@ function TestPanel({ name }: { name: string }) {
           size="sm"
           icon="play"
           busy={busy}
-          disabled={!text.trim()}
-          disabledReason="Enter some text to test"
-          onClick={() => {
-            setBusy(true);
-            setError(null);
-            safetyApi
-              .test(name, stage, text)
-              .then((r) => setResult({ text, r }))
-              .catch((e: unknown) => setError(e))
-              .finally(() => setBusy(false));
-          }}
+          disabled={!text.trim() || !allowed}
+          disabledReason={
+            allowed
+              ? 'Enter some text to test'
+              : 'Your role can test saved rules only: save your changes, then test them'
+          }
+          onClick={() => void run()}
         >
           Run test
         </Button>
         <InlineError error={error} />
       </div>
-      {result ? (
-        <div className="flex flex-col gap-2" role="status">
+      {result && r ? (
+        <div className="flex flex-col gap-2.5" role="status">
           <p className="flex flex-wrap items-center gap-2 text-ui text-muted">
-            <Badge tone={VERDICT_TONE[result.r.verdict] ?? 'neutral'} dot>
-              {result.r.verdict === 'pass' ? 'Passes' : (ACTION_LABEL[result.r.verdict] ?? result.r.verdict)}
+            <Badge tone={VERDICT_TONE[r.verdict] ?? 'neutral'} dot>
+              {r.verdict === 'pass' ? 'Passes' : (ACTION_LABEL[r.verdict] ?? r.verdict)}
             </Badge>
-            {result.r.category ? <span>{CATEGORY_LABEL[result.r.category] ?? result.r.category}</span> : null}
-            <span>· {result.r.spans.length === 1 ? '1 match' : `${result.r.spans.length} matches`}</span>
+            {r.category ? <span>{CATEGORY_LABEL[r.category] ?? r.category}</span> : null}
+            <span>· {r.spans.length === 1 ? '1 match' : `${r.spans.length} matches`}</span>
           </p>
-          {result.r.spans.length > 0 ? <Marked text={result.text} spans={result.r.spans} /> : null}
-          {typeof result.r.redacted === 'string' && result.r.redacted !== result.text ? (
-            <div>
-              <p className="text-caption text-muted">What goes on</p>
-              <p className="mono text-ui break-words whitespace-pre-wrap text-fg">{result.r.redacted}</p>
-            </div>
+          {r.spans.length > 0 ? (
+            <>
+              <Marked text={result.text} spans={r.spans} kinds={draft.customKinds} />
+              <Replacements text={result.text} spans={r.spans} />
+            </>
+          ) : null}
+          {redacted !== null ? (
+            <Produced
+              title={stage === 'input' ? 'What the provider gets' : 'What your app gets'}
+              text={redacted}
+            />
+          ) : null}
+          {r.restored !== null ? (
+            <Produced
+              title="What restore gives back"
+              hint="When the answer repeats the placeholders, your app gets the real values in their place."
+              text={typeof r.restored === 'string' ? r.restored : JSON.stringify(r.restored, null, 2)}
+            />
           ) : null}
         </div>
       ) : null}
@@ -1461,11 +1879,15 @@ function Editor({
         <Switch label="On" checked={draft.enabled} onChange={(enabled) => set({ enabled })} />
         <InlineError error={error} />
       </form>
-      {original ? (
-        <div className="mt-6">
-          <TestPanel name={original.name} />
-        </div>
-      ) : null}
+      <div className="mt-6">
+        <TestPanel
+          draft={draft}
+          base={original?.spec ?? null}
+          saved={original?.name ?? null}
+          edited={edited}
+          onInvalid={setErrors}
+        />
+      </div>
       <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-line pt-4">
         {original && canWrite ? (
           <Button variant="danger" icon="trash" className="mr-auto" onClick={() => setDeleting(true)}>

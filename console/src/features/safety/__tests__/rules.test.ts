@@ -5,13 +5,22 @@ import { configChecks, generationsByDay, mfaCheck, rotationCheck, score } from '
 import {
   actionsFor,
   applyStrictness,
+  checkedKinds,
+  customKindErrors,
+  customKindsOf,
   draftOf,
   emptyDraft,
+  type GuardrailSpec,
+  kindLabel,
   maskedSample,
+  patternPlaceholder,
+  placeholder,
   prepareSimilar,
   specOf,
   strictnessChanges,
   strictnessOf,
+  withCustomKind,
+  withKind,
 } from '../rules';
 
 describe('rule drafts', () => {
@@ -230,6 +239,83 @@ describe('personal data presets', () => {
     expect(maskedSample('email', 'label', ['email_domain'])).toBe('[EMAIL]@example.com');
     expect(maskedSample('credit_card', 'mask', ['last4'])).toBe('•••• •••• •••• 4242');
     expect(maskedSample('ip_address', 'label', [])).toBe('[IP_ADDRESS]');
+  });
+});
+
+describe('kinds of personal data of a rule’s own', () => {
+  const cpf = { name: 'cpf', pattern: '\\d{3}\\.\\d{3}', validate: 'cpf' as const, label: '' };
+  const base: GuardrailSpec = { type: 'pii', action: 'redact', pii: { entities: ['email'] } };
+
+  it('adds one, looked for at once; turning it off removes it; the last kind stays', () => {
+    const added = withCustomKind(base, cpf);
+    expect(added.pii).toEqual({
+      entities: ['email'],
+      custom: [{ name: 'cpf', pattern: '\\d{3}\\.\\d{3}', validate: 'cpf' }],
+    });
+    expect(checkedKinds(added)).toEqual(['email', 'cpf']);
+    expect(customKindsOf(added)).toEqual([cpf]);
+    // A rule may look for its own kinds only.
+    const own = withKind(added, 'email', false);
+    expect(own?.pii).toEqual({
+      entities: [],
+      custom: [{ name: 'cpf', pattern: '\\d{3}\\.\\d{3}', validate: 'cpf' }],
+    });
+    expect(own && withKind(own, 'cpf', false)).toBeNull();
+    const off = withKind(added, 'cpf', false);
+    expect(off?.pii).toEqual({ entities: ['email'] });
+    const on = off && withKind(off, 'phone', true);
+    expect(on && checkedKinds(on)).toEqual(['email', 'phone']);
+    expect(withKind(base, 'email', false)).toBeNull();
+  });
+
+  it('reads and writes them through the form; an unticked one is dropped; presets leave them alone', () => {
+    const spec = withCustomKind(base, { ...cpf, label: 'tax_id' });
+    const draft = draftOf('br', spec, { input: true, output: false });
+    expect(draft.customKinds).toEqual([{ ...cpf, label: 'tax_id' }]);
+    const r = specOf(draft, spec);
+    expect(r.ok && r.spec.pii).toEqual(spec.pii);
+    const unticked = specOf({ ...draft, entities: ['email'] }, spec);
+    expect(unticked.ok && unticked.spec.pii).toEqual({ entities: ['email'] });
+    const strict = applyStrictness(spec, 'strict');
+    expect(customKindsOf(strict)).toEqual([{ ...cpf, label: 'tax_id' }]);
+    expect(strictnessOf(strict)).toBe('strict');
+    expect(strictnessChanges(strict, 'strict')).toEqual([]);
+  });
+
+  it('says what to fix in one', () => {
+    expect(customKindErrors({ name: 'CPF', pattern: '', validate: 'none', label: '1x' }, [])).toEqual({
+      name: 'Use lowercase letters, digits and underscores, starting with a letter, such as cpf',
+      label: 'Use letters, digits and _, starting with a letter',
+      pattern: 'Enter the regular expression a value matches',
+    });
+    expect(customKindErrors({ ...cpf, name: 'email' }, []).name).toBe(
+      'email is a built-in kind: tick it instead',
+    );
+    expect(customKindErrors(cpf, [cpf]).name).toBe('Another kind is already named cpf');
+    expect(customKindErrors({ ...cpf, pattern: '(unclosed' }, []).pattern).toBe(
+      'This is not a valid regular expression',
+    );
+  });
+
+  it('names the placeholder a value becomes', () => {
+    expect(kindLabel(cpf)).toBe('CPF');
+    expect(kindLabel({ ...cpf, label: 'tax_id' })).toBe('TAX_ID');
+    expect(placeholder('cpf', true)).toBe('[CPF_1]');
+    expect(placeholder('CPF', false)).toBe('[CPF]');
+    expect(patternPlaceholder('', 'accounts', false)).toBe('[REDACTED]');
+    expect(patternPlaceholder('', 'accounts', true)).toBe('[ACCOUNTS_1]');
+    expect(patternPlaceholder('acct', 'accounts', true)).toBe('[ACCT_1]');
+    expect(maskedSample('email', 'label', [], true)).toBe('[EMAIL_1]');
+  });
+
+  it('writes a pattern rule that puts values back, and refuses it without the redact action', () => {
+    const draft = { ...emptyDraft('regex'), name: 'accounts', patterns: 'ACCT-\\d+', reversible: true };
+    const r = specOf({ ...draft, action: 'redact' }, null);
+    expect(r.ok && r.spec.regex).toEqual({ deny: ['ACCT-\\d+'], reversible: true });
+    const refused = specOf(draft, null);
+    expect(!refused.ok && refused.errors.reversible).toBe(
+      'Putting values back needs the redact action and labels',
+    );
   });
 });
 

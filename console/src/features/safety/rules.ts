@@ -2,6 +2,7 @@ import type { components } from '@/lib/api/schema';
 import type { SafetyEvent } from '@/lib/api/types';
 
 import { type HeaderRow, headerErrors, headerMap, headerRows } from '@/features/mcp/fields';
+import { badPattern, type EntityCheck } from '@/features/settings/custom-entities';
 
 export type GuardrailSpec = components['schemas']['Guardrail'];
 export type GuardrailType = GuardrailSpec['type'];
@@ -88,6 +89,138 @@ export function inText(name: string): string {
   return /^([A-Z]{2}|Canadian|OpenAI|Anthropic|GitHub|Slack|Google|Stripe)/.test(name)
     ? name
     : name.charAt(0).toLowerCase() + name.slice(1);
+}
+
+/**
+ * A kind of personal data a rule defines itself (`pii.custom`), found beside the built-in ones:
+ * its name (the id, `cpf`), one pattern, an optional check a match must pass and the label its
+ * placeholder shows (`[CPF]`, `[CPF_1]`; the name in upper case when empty). A rule looks for
+ * every kind it lists; the form keeps one unticked until it saves, then drops it.
+ */
+export type CustomKind = Required<Omit<PiiCustom, 'label'>> & { label: string };
+type PiiCustom = components['schemas']['PiiCustomEntity'];
+
+/** The label a kind's placeholders show: the written one, else its name, in upper case. */
+export function kindLabel(kind: Pick<CustomKind, 'name' | 'label'>): string {
+  return (kind.label.trim() || kind.name).toUpperCase();
+}
+
+/** The entity events, reports and tests name a kind of a rule's own with: its label, lower case. */
+export function kindEntity(kind: Pick<CustomKind, 'name' | 'label'>): string {
+  return kindLabel(kind).toLowerCase();
+}
+
+export function kindId(kind: Pick<CustomKind, 'name'>): string {
+  return kind.name;
+}
+
+/** The kinds a personal data rule defines itself. */
+export function customKindsOf(spec: Pick<GuardrailSpec, 'pii'>): CustomKind[] {
+  return (spec.pii?.custom ?? []).map((k) => ({
+    name: k.name,
+    pattern: k.pattern,
+    validate: k.validate ?? 'none',
+    label: k.label ?? '',
+  }));
+}
+
+/** The kinds a personal data rule looks for: the built-ins it names (all by default) and its own. */
+export function checkedKinds(spec: Pick<GuardrailSpec, 'pii'>): string[] {
+  return [...(spec.pii?.entities ?? PII_ENTITIES), ...customKindsOf(spec).map(kindId)];
+}
+
+/** Every kind a rule can look for: the built-ins, then its own. */
+export function allKinds(kinds: CustomKind[]): string[] {
+  return [...PII_ENTITIES, ...kinds.map(kindId)];
+}
+
+function isBuiltIn(id: string): id is PiiEntity {
+  return (PII_ENTITIES as string[]).includes(id);
+}
+
+/** A kind's name: a built-in's in words, a rule's own by its name. */
+export function kindName(id: string, kinds: CustomKind[] = []): string {
+  return ENTITY_NAME[id] ?? kinds.find((k) => k.name === id || kindEntity(k) === id)?.name ?? id;
+}
+
+/** A kind's name in running text: a built-in's in lower case, a rule's own as it was written. */
+export function kindInText(id: string, kinds: CustomKind[] = []): string {
+  const builtIn = ENTITY_NAME[id];
+  return builtIn ? inText(builtIn) : kindName(id, kinds);
+}
+
+function customWire(k: CustomKind): PiiCustom {
+  return {
+    name: k.name.trim(),
+    pattern: k.pattern,
+    ...(k.validate !== 'none' ? { validate: k.validate } : {}),
+    ...(k.label.trim() ? { label: k.label.trim() } : {}),
+  };
+}
+
+/** The rule's personal data block with these built-in kinds and kinds of its own. */
+function withPii(spec: GuardrailSpec, entities: PiiEntity[], custom: CustomKind[]): GuardrailSpec {
+  const { custom: _old, ...rest } = spec.pii ?? {};
+  return {
+    ...spec,
+    pii: { ...rest, entities, ...(custom.length > 0 ? { custom: custom.map(customWire) } : {}) },
+  };
+}
+
+/**
+ * The rule with one built-in kind looked for or not, or one of its own removed (`on` false); null
+ * when it would look for nothing. A kind of its own is added with `withCustomKind`.
+ */
+export function withKind(spec: GuardrailSpec, id: string, on: boolean): GuardrailSpec | null {
+  const builtIns = PII_ENTITIES.filter((e) => checkedKinds(spec).includes(e));
+  const own = customKindsOf(spec);
+  const entities = isBuiltIn(id)
+    ? PII_ENTITIES.filter((e) => (e === id ? on : builtIns.includes(e)))
+    : builtIns;
+  const custom = isBuiltIn(id) || on ? own : own.filter((k) => k.name !== id);
+  if (entities.length + custom.length === 0) return null;
+  return withPii(spec, entities, custom);
+}
+
+/** The rule with one more kind of its own (or one replaced, by name). */
+export function withCustomKind(spec: GuardrailSpec, kind: CustomKind): GuardrailSpec {
+  const builtIns = PII_ENTITIES.filter((e) => checkedKinds(spec).includes(e));
+  const own = customKindsOf(spec);
+  const at = own.findIndex((k) => k.name === kind.name);
+  return withPii(spec, builtIns, at >= 0 ? own.map((k, i) => (i === at ? kind : k)) : [...own, kind]);
+}
+
+export type CustomKindErrors = Partial<Record<'name' | 'label' | 'pattern', string>>;
+
+/** What to fix in a kind of the rule's own, beside its other kinds (`others`, without it). */
+export function customKindErrors(kind: CustomKind, others: CustomKind[]): CustomKindErrors {
+  const errors: CustomKindErrors = {};
+  const name = kind.name.trim();
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(name))
+    errors.name = 'Use lowercase letters, digits and underscores, starting with a letter, such as cpf';
+  else if (isBuiltIn(name)) errors.name = `${name} is a built-in kind: tick it instead`;
+  else if (others.some((k) => k.name === name)) errors.name = `Another kind is already named ${name}`;
+  const label = kind.label.trim();
+  if (label && !/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(label))
+    errors.label = 'Use letters, digits and _, starting with a letter';
+  if (!kind.pattern.trim()) errors.pattern = 'Enter the regular expression a value matches';
+  else if (kind.pattern.length > 1000) errors.pattern = 'Keep the pattern under 1,000 characters';
+  else if (badPattern([kind.pattern]) !== null) errors.pattern = 'This is not a valid regular expression';
+  return errors;
+}
+
+/** The placeholder a value becomes under a label: numbered (`[CPF_1]`) where values are put back. */
+export function placeholder(label: string, numbered: boolean): string {
+  const upper = label.trim().toUpperCase() || 'REDACTED';
+  return numbered ? `[${upper}_1]` : `[${upper}]`;
+}
+
+/**
+ * A pattern rule's placeholder: its label, else `REDACTED`; numbered where values are put back,
+ * where a rule without a label takes its own name.
+ */
+export function patternPlaceholder(label: string, name: string, reversible: boolean): string {
+  return reversible ? placeholder(label.trim() || name, true) : placeholder(label, false);
 }
 
 export const PRESERVE_NAME: Record<PiiPreserve, string> = {
@@ -458,7 +591,10 @@ export interface RuleDraft {
   label: string;
   words: string;
   match: 'word' | 'substring';
-  entities: PiiEntity[];
+  /** The kinds looked for: built-in ids and the labels, in lower case, of the rule's own. */
+  entities: string[];
+  /** Kinds of personal data the rule defines itself. */
+  customKinds: CustomKind[];
   preserve: PiiPreserve[];
   replacement: 'label' | 'mask' | 'hash';
   reversible: boolean;
@@ -549,6 +685,7 @@ export function emptyDraft(method: Method = 'regex'): RuleDraft {
     words: '',
     match: 'word',
     entities: [...PII_ENTITIES],
+    customKinds: [],
     preserve: [],
     replacement: 'label',
     reversible: false,
@@ -630,10 +767,11 @@ export function draftOf(
     label: spec.regex?.label ?? '',
     words: (spec.keywords?.words ?? []).join('\n'),
     match: spec.keywords?.match ?? 'word',
-    entities: spec.pii?.entities ?? [...PII_ENTITIES],
+    entities: checkedKinds(spec),
+    customKinds: customKindsOf(spec),
     preserve: spec.pii?.preserve ?? [],
     replacement: spec.replacement ?? 'label',
-    reversible: spec.pii?.reversible ?? false,
+    reversible: spec.pii?.reversible ?? spec.regex?.reversible ?? false,
     detectors: spec.secrets?.detectors ?? [...SECRET_DETECTORS],
     minEntropy: spec.secrets?.min_entropy != null ? String(spec.secrets.min_entropy) : '',
     url: spec.classifier?.url ?? spec.webhook?.url ?? '',
@@ -897,11 +1035,15 @@ export function specOf(
       if (list.length === 0) errors.patterns = 'Enter at least one pattern, one per line';
       else if (list.some((p) => !validRegex(p)))
         errors.patterns = `Fix this pattern: ${list.find((p) => !validRegex(p)) ?? ''}`;
+      const reversible = draft.method === 'regex' && draft.reversible;
       spec.regex = {
         ...(draft.method === 'allowlist' ? { allow: list } : { deny: list }),
         ...(draft.label.trim() ? { label: draft.label.trim() } : {}),
         ...(draft.validate !== 'none' ? { validate: draft.validate } : {}),
+        ...(reversible ? { reversible: true } : {}),
       };
+      if (reversible && (draft.action !== 'redact' || draft.replacement !== 'label'))
+        errors.reversible = 'Putting values back needs the redact action and labels';
       break;
     }
     case 'keywords': {
@@ -910,10 +1052,24 @@ export function specOf(
       spec.keywords = { words, match: draft.match };
       break;
     }
-    case 'pii':
-      if (draft.entities.length === 0) errors.entities = 'Choose at least one kind of personal data';
+    case 'pii': {
+      const entities = PII_ENTITIES.filter((e) => draft.entities.includes(e));
+      const custom = draft.customKinds.filter((k) => draft.entities.includes(k.name));
+      if (entities.length + custom.length === 0)
+        errors.entities = 'Choose at least one kind of personal data';
+      const wrong = custom.find(
+        (k) =>
+          Object.keys(
+            customKindErrors(
+              k,
+              custom.filter((o) => o !== k),
+            ),
+          ).length > 0,
+      );
+      if (wrong) errors.customKinds = `Fix the kind ${wrong.name}`;
       spec.pii = {
-        entities: draft.entities,
+        entities,
+        ...(custom.length > 0 ? { custom: custom.map(customWire) } : {}),
         ...(draft.preserve.length > 0 ? { preserve: draft.preserve } : {}),
         ...(draft.reversible ? { reversible: true } : {}),
       };
@@ -924,6 +1080,7 @@ export function specOf(
       )
         errors.reversible = 'Reversible redaction needs the redact action, labels and nothing kept';
       break;
+    }
     case 'secrets': {
       if (draft.detectors.length === 0) errors.detectors = 'Choose at least one kind of secret';
       const entropy = draft.minEntropy.trim() === '' ? null : Number(draft.minEntropy);
@@ -1167,7 +1324,9 @@ export function prepareSimilar(
   event: Pick<SafetyEvent, 'entities' | 'action'>,
   draft: RuleDraft,
 ): { draft: RuleDraft; change: string } | null {
-  const found = (event.entities ?? []).map((e) => e.type);
+  // Events name a kind of the rule's own by its label; the form, by its name.
+  const types = (event.entities ?? []).map((e) => e.type);
+  const found = [...types, ...draft.customKinds.filter((k) => types.includes(kindEntity(k))).map(kindId)];
   if (kind === 'allow') {
     if (draft.type === 'pii') {
       const drop = draft.entities.filter((e) => found.includes(e));
@@ -1175,7 +1334,7 @@ export function prepareSimilar(
       if (drop.length > 0 && left.length > 0)
         return {
           draft: { ...draft, entities: left },
-          change: `Stop checking for ${drop.map((e) => inText(ENTITY_NAME[e] ?? e)).join(', ')}.`,
+          change: `Stop checking for ${drop.map((e) => kindInText(e, draft.customKinds)).join(', ')}.`,
         };
     }
     if (draft.type === 'secrets') {
@@ -1196,7 +1355,7 @@ export function prepareSimilar(
   if (draft.action === 'block' || !draft.action) return null;
   const entities =
     draft.type === 'pii'
-      ? [...new Set([...draft.entities, ...PII_ENTITIES.filter((e) => found.includes(e))])]
+      ? [...new Set([...draft.entities, ...allKinds(draft.customKinds).filter((e) => found.includes(e))])]
       : draft.entities;
   return {
     draft: { ...draft, action: 'block', entities, reversible: false },
@@ -1209,22 +1368,21 @@ export function maskedSample(
   entity: string,
   replacement: 'label' | 'mask' | 'hash',
   preserve: PiiPreserve[],
+  numbered = false,
 ): string {
-  const label = `[${entity.toUpperCase()}]`;
+  const label = placeholder(entity, numbered);
   const base = replacement === 'hash' ? '#3f9a1c…' : replacement === 'mask' ? '••••••' : label;
   switch (entity) {
     case 'email':
       return preserve.includes('email_domain')
-        ? `${replacement === 'label' ? '[EMAIL]' : base}@example.com`
+        ? `${replacement === 'label' ? label : base}@example.com`
         : base;
     case 'credit_card':
-      return preserve.includes('last4')
-        ? `${replacement === 'label' ? '[CREDIT_CARD]' : '•••• •••• ••••'} 4242`
-        : base;
+      return preserve.includes('last4') ? `${replacement === 'label' ? label : '•••• •••• ••••'} 4242` : base;
     case 'ip_address':
       return preserve.includes('ip_subnet') ? '203.0.113.x' : base;
     case 'phone':
-      return preserve.includes('country') ? `+1 ${replacement === 'label' ? '[PHONE]' : '••• •••••'}` : base;
+      return preserve.includes('country') ? `+1 ${replacement === 'label' ? label : '••• •••••'}` : base;
     case 'iban':
     case 'us_ssn':
     case 'ca_sin':
@@ -1232,6 +1390,18 @@ export function maskedSample(
     default:
       return base;
   }
+}
+
+/** How a kind of the rule's own is found. */
+export function customMethod(kind: CustomKind): string {
+  const check: Record<EntityCheck, string> = {
+    none: '',
+    luhn: ' and Luhn checksum',
+    iban_mod97: ' and mod-97 checksum',
+    cpf: ' and CPF check digits',
+    cnpj: ' and CNPJ check digits',
+  };
+  return `Your pattern${check[kind.validate]}`;
 }
 
 /** How each kind of data is found. */
@@ -1294,8 +1464,14 @@ function sameSet<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((x) => b.includes(x));
 }
 
+/** The built-in kinds a rule looks for; presets leave the rule's own kinds as they are. */
+function builtinKinds(spec: GuardrailSpec): PiiEntity[] {
+  const checked = checkedKinds(spec);
+  return PII_ENTITIES.filter((e) => checked.includes(e));
+}
+
 export function strictnessOf(spec: GuardrailSpec): Strictness | null {
-  const entities = spec.pii?.entities ?? PII_ENTITIES;
+  const entities = builtinKinds(spec);
   const preserve = spec.pii?.preserve ?? [];
   const replacement = spec.replacement ?? 'label';
   for (const [key, p] of Object.entries(STRICTNESS) as [Strictness, (typeof STRICTNESS)[Strictness]][])
@@ -1307,7 +1483,7 @@ export function strictnessOf(spec: GuardrailSpec): Strictness | null {
 /** What applying a preset changes, in words; empty when nothing does. */
 export function strictnessChanges(spec: GuardrailSpec, to: Strictness): string[] {
   const p = STRICTNESS[to];
-  const entities = spec.pii?.entities ?? PII_ENTITIES;
+  const entities = builtinKinds(spec);
   const preserve = spec.pii?.preserve ?? [];
   const replacement = spec.replacement ?? 'label';
   const out: string[] = [];
@@ -1334,10 +1510,12 @@ export function strictnessChanges(spec: GuardrailSpec, to: Strictness): string[]
 export function applyStrictness(spec: GuardrailSpec, to: Strictness): GuardrailSpec {
   const p = STRICTNESS[to];
   const reversible = Boolean(spec.pii?.reversible) && p.replacement === 'label' && p.preserve.length === 0;
+  const own = customKindsOf(spec);
   const next: GuardrailSpec = {
     ...spec,
     pii: {
       entities: p.entities,
+      ...(own.length > 0 ? { custom: own.map(customWire) } : {}),
       ...(p.preserve.length > 0 ? { preserve: p.preserve } : {}),
       ...(reversible ? { reversible } : {}),
     },

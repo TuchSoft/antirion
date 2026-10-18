@@ -21,6 +21,7 @@ import {
 } from './fixtures';
 import { http, HttpResponse } from 'msw';
 
+import { guardrailTestHandlers } from './guardrail-test';
 import { mock } from './http';
 
 type S = components['schemas'];
@@ -229,6 +230,7 @@ function providerTestHandlers(): HttpHandler[] {
  */
 export const contractHandlers: HttpHandler[] = [
   ...providerTestHandlers(),
+  ...guardrailTestHandlers(),
   mock('get', '/analytics/usage', ({ query }) => ({ items: usageBuckets(query), next_cursor: null })),
   mock('get', '/reports/provider_pressure', ({ query }) => {
     const to = query.get('to') ? new Date(query.get('to') ?? '') : new Date();
