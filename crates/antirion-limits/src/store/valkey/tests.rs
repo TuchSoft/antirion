@@ -368,6 +368,116 @@ fn lua_arithmetic_matches_the_rust_model() {
         .unwrap();
 }
 
+/// A rate hold settled at its reserved amount leaves the counter exactly where admission put it,
+/// as the memory store does, and one settled below it gives the difference back.
+#[test]
+fn settling_a_rate_hold_at_its_reservation_changes_nothing() {
+    let Some(url) = url() else { return };
+    rt().block_on(async {
+        let v = store(&url);
+        let m = MemoryCounters::new(Arc::new(FakeClock::at(UtcMicros(1_790_000_000_000_000))));
+        // Ten units a day: refill within the test is far below one unit.
+        let h = gcra(id("g"), 10, DAY_US, 3);
+        for (actual, remaining) in [(3, 7), (3, 4), (1, 3)] {
+            let u = uid();
+            assert!(admitted(&admit(&m, u, std::slice::from_ref(&h)).await));
+            assert!(admitted(&admit(&v, u, std::slice::from_ref(&h)).await));
+            let sm = scenarios::settle(&m, u, std::slice::from_ref(&h), &[actual])
+                .await
+                .unwrap();
+            let sv = scenarios::settle(&v, u, std::slice::from_ref(&h), &[actual])
+                .await
+                .unwrap();
+            assert_eq!(sm, sv);
+            let views = (
+                m.read(std::slice::from_ref(&h)).await.unwrap(),
+                v.read(std::slice::from_ref(&h)).await.unwrap(),
+            );
+            assert_eq!(views.0[0].remaining, remaining);
+            assert_eq!(views.1[0].remaining, remaining);
+        }
+    });
+}
+
+/// Long division by limbs is exact for every limb count of dividend and divisor, at the limb
+/// boundaries and where a quotient limb's estimate in doubles is off by one; numbers read and
+/// written at the 2^48 and 2^53 boundaries keep every digit.
+#[test]
+fn lua_division_and_number_text_are_exact() {
+    let Some(url) = url() else { return };
+    let rt = rt();
+    let s = rt.block_on(async { store(&url) });
+    let check = |a: u128, b: u128| -> Result<(), TestCaseError> {
+        let out = rt
+            .block_on(s.eval(&["divmod".into(), a.to_string(), b.to_string()]))
+            .unwrap();
+        let (q, r) = (a / b, a % b);
+        let expect = vec![q.to_string(), r.to_string(), (q + u128::from(r > 0)).to_string()];
+        prop_assert_eq!(out, expect, "{} / {}", a, b);
+        Ok(())
+    };
+    let base = 1u128 << 24;
+    let mut edges = vec![0u128, 1, 2, 3, 999_999, 1_000_000, 1_000_001];
+    for k in 1..5u32 {
+        let p = base.pow(k);
+        edges.extend([p - 1, p, p + 1, 2 * p - 1, (base - 1) * p]);
+    }
+    for k in [48u32, 53, 63, 64, 96, 120, 126] {
+        let p = 1u128 << k;
+        edges.extend([p - 1, p, p + 1]);
+    }
+    edges.extend([
+        9_007_199_254_740_991,
+        9_007_199_254_740_992,
+        9_007_199_254_740_993,
+    ]);
+    edges.extend([999_999_999_999_999, 1_000_000_000_000_000, 9_999_999_999_999_999]);
+    for &a in &edges {
+        for &b in edges.iter().filter(|b| **b > 0) {
+            check(a, b).unwrap();
+        }
+    }
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig::with_cases(400));
+    let limbs = |max_bits: u32| {
+        (1u32..=max_bits).prop_flat_map(|bits| (1u128 << (bits - 1))..=(u128::MAX >> (128 - bits)))
+    };
+    runner
+        .run(&(limbs(127), limbs(100)), |(a, b)| check(a, b))
+        .unwrap();
+    // A divisor whose top limb is small and whose lower limbs are large makes the estimate of a
+    // quotient limb, from the leading limbs in doubles, land one away from the true limb.
+    runner
+        .run(
+            &(limbs(127), 1u128..base, 1u32..4, 0u128..base),
+            |(a, top, shift, low)| {
+                let b =
+                    (top << (24 * shift)) | (low.wrapping_mul(0x00ff_fff1) & ((1u128 << (24 * shift)) - 1));
+                check(a, b.max(1))?;
+                check(a.wrapping_mul(b.max(1)) >> 1, b.max(1))
+            },
+        )
+        .unwrap();
+    // Text in and out: the arithmetic answers with every digit around the fast paths' bounds.
+    let signed = edges
+        .iter()
+        .filter(|v| **v < (1u128 << 100))
+        .flat_map(|v| [i128::try_from(*v).unwrap(), -i128::try_from(*v).unwrap()]);
+    for a in signed {
+        let out = rt
+            .block_on(s.eval(&["arith".into(), a.to_string(), "1".into()]))
+            .unwrap();
+        let expect: Vec<String> = vec![
+            (a + 1).to_string(),
+            (a - 1).to_string(),
+            a.to_string(),
+            a.max(0).to_string(),
+            "0".into(),
+            (a.cmp(&1) as i8).to_string(),
+        ];
+        assert_eq!(out, expect, "{a}");
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(12))]
 

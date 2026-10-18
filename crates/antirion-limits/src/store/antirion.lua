@@ -1,11 +1,21 @@
 #!lua name=antirion_v1
 
 -- Counter arithmetic mirrored from the Rust model (antirion_limits::math). Lua 5.1 numbers are
--- doubles, exact only below 2^53, so every amount is an exact signed integer N: little-endian limbs
--- in base 2^24, where a limb product stays below 2^48 and every intermediate step is exact.
--- Doubles appear only in TTLs, never in a decision or a stored value.
+-- doubles, exact only below 2^53, so every amount is an exact signed integer N held one of two
+-- ways: a Lua number while its magnitude is below 2^53, else little-endian limbs in base 2^24 (a
+-- table), where a limb product stays below 2^48 and every intermediate step is exact. Each
+-- operation works on numbers while its result provably stays below 2^53 and on limbs otherwise,
+-- and a result that fits again is a number. Doubles appear only in TTLs, never in a decision or a
+-- stored value.
 
 local BASE = 16777216
+-- Magnitudes below SAFE are exact doubles.
+local SAFE = 9007199254740992
+-- Below HALF, a quotient in doubles is corrected exactly (quotient times divisor stays below SAFE).
+local HALF = 4503599627370496
+-- A divisor below SHORT divides limbs one at a time: remainder times BASE plus a limb stays below
+-- SAFE.
+local SHORT = 536870912
 
 local function trim(a)
   local n = #a
@@ -17,7 +27,8 @@ local function trim(a)
   return a
 end
 
-local function nint(x)
+-- Limbs of an exact double.
+local function limbs(x)
   local a = { neg = x < 0 }
   x = math.abs(x)
   local i = 1
@@ -30,9 +41,47 @@ local function nint(x)
   return trim(a)
 end
 
--- Load time has no standard library, so constants are written as limbs.
-local ZERO = { neg = false }
-local MILLION = { 1000000, neg = false }
+-- Per call (see `fresh`): numbers by their text, limbs of numbers, counter states written so far
+-- and B·T products. An amount is never changed once made, so callers may share one.
+local PARSED, LIMBS, WRITTEN, CAPS = {}, {}, {}, {}
+
+local function big(x)
+  if type(x) ~= 'number' then return x end
+  local a = LIMBS[x]
+  if not a then
+    a = limbs(x)
+    LIMBS[x] = a
+  end
+  return a
+end
+
+-- The magnitude as a double: only an estimate once it passes 2^53, never a result.
+local function approx(a)
+  local x = 0
+  for i = #a, 1, -1 do x = x * BASE + a[i] end
+  return x
+end
+
+-- Limbs below 2^53 (a third limb below 32) as a number.
+local function norm(a)
+  local n = #a
+  if n <= 2 or (n == 3 and a[3] < 32) then
+    local x = approx(a)
+    if a.neg then return 0 - x end
+    return x
+  end
+  return a
+end
+
+local function iszero(a)
+  if type(a) == 'number' then return a == 0 end
+  return #a == 0
+end
+
+local function isneg(a)
+  if type(a) == 'number' then return a < 0 end
+  return a.neg
+end
 
 local function cmpmag(a, b)
   if #a ~= #b then return (#a < #b) and -1 or 1 end
@@ -62,28 +111,50 @@ local function submag(a, b)
 end
 
 local function negate(a)
+  if type(a) == 'number' then return 0 - a end
   local r = { neg = false }
   for i = 1, #a do r[i] = a[i] end
   r.neg = (#r > 0) and not a.neg
   return r
 end
 
+-- A sum of two numbers below SAFE is exact when the rounded sum is below SAFE (rounding is
+-- monotonic and SAFE is a double); the same holds for differences and products.
 local function add(a, b)
-  if a.neg == b.neg then
-    local r = addmag(a, b)
-    r.neg = a.neg and #r > 0
-    return r
+  if type(a) == 'number' and type(b) == 'number' then
+    local r = a + b
+    if r < SAFE and r > -SAFE then return r end
   end
-  local c = cmpmag(a, b)
-  if c == 0 then return nint(0) end
+  a, b = big(a), big(b)
   local r
-  if c > 0 then r = submag(a, b); r.neg = a.neg else r = submag(b, a); r.neg = b.neg end
-  return r
+  if a.neg == b.neg then
+    r = addmag(a, b)
+    r.neg = a.neg and #r > 0
+  else
+    local c = cmpmag(a, b)
+    if c == 0 then return 0 end
+    if c > 0 then r = submag(a, b); r.neg = a.neg else r = submag(b, a); r.neg = b.neg end
+  end
+  return norm(r)
 end
 
-local function sub(a, b) return add(a, negate(b)) end
+local function sub(a, b)
+  if type(a) == 'number' and type(b) == 'number' then
+    local r = a - b
+    if r < SAFE and r > -SAFE then return r end
+  end
+  return add(a, negate(b))
+end
 
 local function cmp(a, b)
+  local na, nb = type(a) == 'number', type(b) == 'number'
+  if na and nb then
+    if a < b then return -1 elseif a > b then return 1 end
+    return 0
+  end
+  -- Limbs are only ever kept for magnitudes of at least 2^53, past every number.
+  if na then return b.neg and 1 or -1 end
+  if nb then return a.neg and -1 or 1 end
   if a.neg ~= b.neg then return a.neg and -1 or 1 end
   local c = cmpmag(a, b)
   if a.neg then return -c end
@@ -91,6 +162,14 @@ local function cmp(a, b)
 end
 
 local function mul(a, b)
+  if type(a) == 'number' and type(b) == 'number' then
+    local r = a * b
+    if r < SAFE and r > -SAFE then
+      if r == 0 then return 0 end
+      return r
+    end
+  end
+  a, b = big(a), big(b)
   local r = { neg = false }
   for i = 1, #a + #b do r[i] = 0 end
   for i = 1, #a do
@@ -109,52 +188,81 @@ local function mul(a, b)
     end
   end
   r.neg = a.neg ~= b.neg
+  return norm(trim(r))
+end
+
+-- A magnitude times a limb (0 <= m < BASE).
+local function mullimb(a, m)
+  local r, c = { neg = false }, 0
+  for i = 1, #a do
+    local t = a[i] * m + c
+    c = math.floor(t / BASE)
+    r[i] = t - c * BASE
+  end
+  if c > 0 then r[#r + 1] = c end
   return trim(r)
 end
 
-local function bitlen(a)
-  if #a == 0 then return 0 end
-  local top, n = a[#a], (#a - 1) * 24
-  while top > 0 do
-    n = n + 1
-    top = math.floor(top / 2)
-  end
-  return n
-end
-
-local function bit(a, i)
-  local limb = a[math.floor(i / 24) + 1] or 0
-  return math.floor(limb / 2 ^ (i % 24)) % 2
-end
-
-local function shl1(a, b)
-  local r, c = { neg = false }, b
-  for i = 1, #a do
-    local s = a[i] * 2 + c
-    if s >= BASE then r[i] = s - BASE; c = 1 else r[i] = s; c = 0 end
-  end
-  if c > 0 then r[#r + 1] = c end
-  return r
-end
-
--- Quotient and remainder of magnitudes, b > 0.
+-- Quotient and remainder of the magnitudes, b non-zero. Small operands divide in doubles, a
+-- small divisor limb by limb, anything else by long division whose quotient limbs are estimated
+-- in doubles and corrected exactly, so an estimate's rounding never reaches the result.
 local function divmod(a, b)
-  local q, r = { neg = false }, { neg = false }
-  for i = bitlen(a) - 1, 0, -1 do
-    r = shl1(r, bit(a, i))
-    if cmpmag(r, b) >= 0 then
-      r = submag(r, b)
-      q = shl1(q, 1)
-    else
-      q = shl1(q, 0)
-    end
+  if type(a) == 'number' then a = math.abs(a) end
+  if type(b) == 'number' then b = math.abs(b) end
+  if type(a) == 'number' and type(b) == 'number' and a < HALF and b < HALF then
+    local q = math.floor(a / b)
+    local r = a - q * b
+    while r < 0 do q = q - 1; r = r + b end
+    while r >= b do q = q + 1; r = r - b end
+    return q, r
   end
-  return trim(q), trim(r)
+  a = big(a)
+  local q = { neg = false }
+  if type(b) == 'number' and b < SHORT then
+    local rem = 0
+    for i = #a, 1, -1 do
+      local t = rem * BASE + a[i]
+      local qi = math.floor(t / b)
+      rem = t - qi * b
+      while rem < 0 do qi = qi - 1; rem = rem + b end
+      while rem >= b do qi = qi + 1; rem = rem - b end
+      q[i] = qi
+    end
+    return norm(trim(q)), rem
+  end
+  b = big(b)
+  if cmpmag(a, b) < 0 then
+    local r = { neg = false }
+    for i = 1, #a do r[i] = a[i] end
+    return 0, norm(r)
+  end
+  local bd, r = approx(b), { neg = false }
+  for i = #a, 1, -1 do
+    -- r < b here, so r·BASE + a[i] < b·BASE and the quotient limb is below BASE.
+    table.insert(r, 1, a[i])
+    trim(r)
+    local qi = 0
+    if cmpmag(r, b) >= 0 then
+      qi = math.min(math.floor(approx(r) / bd), BASE - 1)
+      local p = mullimb(b, qi)
+      while cmpmag(p, r) > 0 do
+        qi = qi - 1
+        p = submag(p, b)
+      end
+      r = submag(r, p)
+      while cmpmag(r, b) >= 0 do
+        qi = qi + 1
+        r = submag(r, b)
+      end
+    end
+    q[i] = qi
+  end
+  return norm(trim(q)), norm(trim(r))
 end
 
 local function ceil_div(a, b)
   local q, r = divmod(a, b)
-  if #r > 0 then q = add(q, nint(1)) end
+  if not iszero(r) then q = add(q, 1) end
   return q
 end
 
@@ -163,24 +271,54 @@ local function floor_div(a, b)
   return q
 end
 
+-- A magnitude times a limb plus a limb (both below BASE), in place.
+local function muladd(a, m, c)
+  for i = 1, #a do
+    local t = a[i] * m + c
+    c = math.floor(t / BASE)
+    a[i] = t - c * BASE
+  end
+  if c > 0 then a[#a + 1] = c end
+  return a
+end
+
 local function parse(s)
   s = tostring(s or '0')
-  local neg = false
+  local hit = PARSED[s]
+  if hit then return hit end
+  local text, neg = s, false
   if string.sub(s, 1, 1) == '-' then neg = true; s = string.sub(s, 2) end
-  local a, len = nint(0), #s
-  local pos, chunk = 1, len % 6
-  if chunk == 0 then chunk = 6 end
-  while pos <= len do
-    a = add(mul(a, MILLION), nint(tonumber(string.sub(s, pos, pos + chunk - 1))))
-    pos = pos + chunk
-    chunk = 6
+  local len = #s
+  local a
+  if len <= 16 and string.find(s, '^%d+$') and (len < 16 or s <= '9007199254740991') then
+    -- At most 2^53 - 1: the double is exact.
+    a = tonumber(s)
+    if neg then a = 0 - a end
+  else
+    a = { neg = false }
+    local pos, chunk = 1, len % 6
+    if chunk == 0 then chunk = 6 end
+    while pos <= len do
+      muladd(a, 1000000, tonumber(string.sub(s, pos, pos + chunk - 1)))
+      pos = pos + chunk
+      chunk = 6
+    end
+    trim(a)
+    a.neg = neg and #a > 0
+    a = norm(a)
+    if type(a) == 'table' and string.sub(s, 1, 1) ~= '0' then a.text = text end
   end
-  a.neg = neg and #a > 0
+  PARSED[text] = a
   return a
 end
 
 local function str(a)
+  if type(a) == 'number' then
+    if a == 0 then return '0' end
+    return string.format('%.0f', a)
+  end
   if #a == 0 then return '0' end
+  if a.text then return a.text end
   local cur, parts = { neg = false }, {}
   for i = 1, #a do cur[i] = a[i] end
   while #cur > 0 do
@@ -196,26 +334,46 @@ local function str(a)
   end
   local s = table.concat(parts)
   if a.neg then s = '-' .. s end
+  a.text = s
   return s
 end
 
 local function min(a, b) if cmp(a, b) <= 0 then return a end return b end
-local function max0(a) if a.neg then return nint(0) end return a end
-local function num(a) return tonumber(str(a)) end
+local function max0(a) if isneg(a) then return 0 end return a end
+local function num(a)
+  if type(a) == 'number' then return a end
+  return tonumber(str(a))
+end
 
--- GCRA: `a` is available units × T; refill adds L per microsecond up to B·T.
+-- B·T, once per call for each pair.
+local function cap_of(B, T)
+  local row = CAPS[B]
+  if not row then
+    row = {}
+    CAPS[B] = row
+  end
+  local cap = row[T]
+  if not cap then
+    cap = mul(B, T)
+    row[T] = cap
+  end
+  return cap
+end
+
 local function gcra_refilled(L, T, B, st, now)
-  local cap = mul(B, T)
+  local cap = cap_of(B, T)
   if not st then return cap end
   local a = st.a
-  if st.p and #st.p > 0 and cmp(st.p, T) ~= 0 then
+  if st.p and not iszero(st.p) and cmp(st.p, T) ~= 0 then
     local q = floor_div(mul(a, T), st.p)
-    if a.neg then q = negate(q) end
+    if isneg(a) then q = negate(q) end
     a = q
   end
-  a = add(a, mul(sub(B, st.b), T))
+  -- Adding zero changes nothing: skipped for an unchanged burst and an unmoved clock.
+  if cmp(B, st.b) ~= 0 then a = add(a, mul(sub(B, st.b), T)) end
   local dt = max0(sub(now, st.t))
-  return min(add(a, mul(dt, L)), cap)
+  if not iszero(dt) then a = add(a, mul(dt, L)) end
+  return min(a, cap)
 end
 
 local function gcra_admit(L, T, B, st, now, rho)
@@ -223,7 +381,7 @@ local function gcra_admit(L, T, B, st, now, rho)
   local a = gcra_refilled(L, T, B, st, now)
   local need = mul(rho, T)
   if cmp(need, a) <= 0 then return 'admit', { a = sub(a, need), t = now, b = B, p = T } end
-  if #L == 0 then return 'wait', nil end
+  if iszero(L) then return 'wait', nil end
   return 'wait', ceil_div(sub(need, a), L)
 end
 
@@ -240,8 +398,10 @@ end
 local function gcra_view(L, T, B, st, now)
   local a = gcra_refilled(L, T, B, st, now)
   local remaining = floor_div(max0(a), T)
-  local missing = sub(mul(B, T), a)
-  if missing.neg or #missing == 0 or #L == 0 then return remaining, ZERO end
+  -- A state this call stored, unchanged since: its time to full was computed then.
+  if st and a == st.a and st.full then return remaining, st.full end
+  local missing = sub(cap_of(B, T), a)
+  if isneg(missing) or iszero(missing) or iszero(L) then return remaining, 0 end
   return remaining, ceil_div(missing, L)
 end
 
@@ -249,7 +409,7 @@ end
 local function win_slot(T, P, now) return floor_div(mul(now, P), T) end
 
 local function win_expiry(T, P, k)
-  return ceil_div(add(mul(add(k, nint(1)), T), mul(T, P)), P)
+  return ceil_div(add(mul(add(k, 1), T), mul(T, P)), P)
 end
 
 local function win_load(key)
@@ -263,13 +423,13 @@ end
 local function win_prune(T, P, slots, now)
   local live = {}
   for _, s in ipairs(slots) do
-    if #s.v > 0 and not s.v.neg and cmp(now, win_expiry(T, P, s.k)) < 0 then live[#live + 1] = s end
+    if not iszero(s.v) and not isneg(s.v) and cmp(now, win_expiry(T, P, s.k)) < 0 then live[#live + 1] = s end
   end
   return live
 end
 
 local function win_sum(slots)
-  local sum = nint(0)
+  local sum = 0
   for _, s in ipairs(slots) do sum = add(sum, s.v) end
   return sum
 end
@@ -305,13 +465,13 @@ end
 local function win_view(L, T, P, slots, now)
   local live = win_prune(T, P, slots, now)
   local remaining = max0(sub(L, win_sum(live)))
-  if #live == 0 then return remaining, ZERO end
+  if #live == 0 then return remaining, 0 end
   return remaining, max0(sub(win_expiry(T, P, live[#live].k), now))
 end
 
 local function now_us()
   local t = redis.call('TIME')
-  return nint(tonumber(t[1]) * 1000000 + tonumber(t[2]))
+  return tonumber(t[1]) * 1000000 + tonumber(t[2])
 end
 
 -- A hold: algo (G, W, C, B), mode (E enforce, S shadow, T track), p1..p3, rho, and the sub-window.
@@ -349,18 +509,22 @@ local function hold_parse(s)
 end
 
 local function gcra_load(key)
+  local w = WRITTEN[key]
+  if w then return w end
   local cur = redis.call('HMGET', key, 'a', 't', 'b', 'p')
   if not cur[1] then return nil end
   return { a = parse(cur[1]), t = parse(cur[2]), b = parse(cur[3]), p = cur[4] and parse(cur[4]) or nil }
 end
 
 local function gcra_store(key, L, T, B, st)
+  WRITTEN[key] = st
   redis.call('HSET', key, 'a', str(st.a), 't', str(st.t), 'b', str(st.b), 'p', str(T))
-  if #L == 0 then
+  if iszero(L) then
+    st.full = 0
     redis.call('PERSIST', key)
   else
-    local missing = max0(sub(mul(B, T), st.a))
-    local idle_ms = math.floor(num(ceil_div(missing, L)) / 1000) + 1000
+    st.full = ceil_div(max0(sub(cap_of(B, T), st.a)), L)
+    local idle_ms = math.floor(num(st.full) / 1000) + 1000
     redis.call('PEXPIRE', key, math.min(idle_ms, 4503599627370496))
   end
 end
@@ -368,18 +532,21 @@ end
 local function win_store(key, T, P, slots)
   redis.call('DEL', key)
   for _, s in ipairs(slots) do
-    if #s.v > 0 then redis.call('HSET', key, str(s.k), str(s.v)) end
+    if not iszero(s.v) then redis.call('HSET', key, str(s.k), str(s.v)) end
   end
   local ttl = math.floor(num(add(T, ceil_div(T, P))) / 1000) + 1000
   if #slots > 0 then redis.call('PEXPIRE', key, ttl) end
 end
 
 local function budget_load(key)
+  local w = WRITTEN[key]
+  if w then return w.s, w.r end
   local cur = redis.call('HMGET', key, 's', 'r')
   return parse(cur[1] or '0'), parse(cur[2] or '0')
 end
 
 local function budget_store(key, s, r, ending)
+  WRITTEN[key] = { s = s, r = r }
   redis.call('HSET', key, 's', str(s), 'r', str(r))
   if ending ~= '' then
     redis.call('PEXPIREAT', key, math.floor(tonumber(ending) / 1000) + 604800000)
@@ -409,7 +576,7 @@ end
 
 -- What the headroom holds right after hold i have left: an enforced hold keeps it free.
 local function headroom(keys, kbase, holds, i, now)
-  local extra, j = nint(0), i + 1
+  local extra, j = 0, i + 1
   while holds[j] and holds[j].mode == 'H' do
     extra = add(extra, parse(view(keys[kbase + j], holds[j], now)[1]))
     j = j + 1
@@ -423,7 +590,7 @@ local function take(keys, kbase, holds, now)
   for i, h in ipairs(holds) do
     local key, rho, enforce = keys[kbase + i], parse(h.rho), h.mode == 'E'
     local w = nil
-    local extra = nint(0)
+    local extra = 0
     if enforce then extra = headroom(keys, kbase, holds, i, now) end
     if h.mode == 'T' or h.mode == 'H' then
       w = nil
@@ -432,7 +599,7 @@ local function take(keys, kbase, holds, now)
       local st = gcra_load(key)
       if enforce then
         local verdict, x = gcra_admit(L, T, B, st, now, rho)
-        if verdict == 'admit' and #extra > 0 then
+        if verdict == 'admit' and not iszero(extra) then
           local v2, x2 = gcra_admit(L, T, B, st, now, add(rho, extra))
           if v2 == 'wait' then verdict, x = 'wait', x2 elseif v2 == 'exceeds' then verdict, x = 'wait', nil end
         end
@@ -440,7 +607,7 @@ local function take(keys, kbase, holds, now)
         elseif verdict == 'exceeds' then refused[#refused + 1] = { tostring(i), 'exceeds', '' }
         else refused[#refused + 1] = { tostring(i), 'rate', x and str(x) or '' } end
       else
-        local x = gcra_settle(L, T, B, st, now, ZERO, rho)
+        local x = gcra_settle(L, T, B, st, now, 0, rho)
         w = function() gcra_store(key, L, T, B, x) end
       end
     elseif h.algo == 'W' then
@@ -448,7 +615,7 @@ local function take(keys, kbase, holds, now)
       local slots = win_load(key)
       if enforce then
         local verdict, x, k = win_admit(L, T, P, slots, now, rho)
-        if verdict == 'admit' and #extra > 0 then
+        if verdict == 'admit' and not iszero(extra) then
           local v2, x2 = win_admit(L, T, P, win_load(key), now, add(rho, extra))
           if v2 == 'wait' then verdict, x = 'wait', x2 elseif v2 == 'exceeds' then verdict, x = 'wait', nil end
         end
@@ -483,7 +650,7 @@ local function take(keys, kbase, holds, now)
       local L = parse(h.p1)
       local g = parse(redis.call('HGET', key, 'g') or '0')
       local next_g = add(g, rho)
-      if enforce and #L == 0 then refused[#refused + 1] = { tostring(i), 'exceeds', '' }
+      if enforce and iszero(L) then refused[#refused + 1] = { tostring(i), 'exceeds', '' }
       elseif enforce and cmp(add(next_g, extra), L) > 0 then refused[#refused + 1] = { tostring(i), 'rate', '1000000' }
       else w = function() redis.call('HSET', key, 'g', str(next_g)) end end
     else
@@ -572,7 +739,12 @@ local function settle(keys, kbase, held, actual, now)
       -- never charged: nothing to settle
     elseif h.algo == 'G' then
       local L, T, B = parse(h.p1), parse(h.p2), parse(h.p3)
-      gcra_store(key, L, T, B, gcra_settle(L, T, B, gcra_load(key), now, rho, a))
+      local st = gcra_load(key)
+      -- Settling at the reserved amount only refills the state to now, which every later read
+      -- does from the stored time anyway: an unchanged rule needs no write.
+      if not (st and cmp(a, rho) == 0 and cmp(st.b, B) == 0 and st.p and cmp(st.p, T) == 0) then
+        gcra_store(key, L, T, B, gcra_settle(L, T, B, st, now, rho, a))
+      end
     elseif h.algo == 'W' then
       local T, P = parse(h.p2), parse(h.p3)
       local slots = win_charge(win_load(key), parse(h.slot), sub(a, rho))
@@ -592,7 +764,7 @@ local function settle(keys, kbase, held, actual, now)
     else
       local s, r = budget_load(key)
       local held_rho = rho
-      if h.mode == 'T' then held_rho = nint(0) end
+      if h.mode == 'T' then held_rho = 0 end
       local s1 = add(s, a)
       budget_store(key, s1, max0(sub(r, held_rho)), h.p2)
       changes[#changes + 1] = { tostring(i), str(s), str(s1) }
@@ -664,7 +836,7 @@ end
 local function adjust(keys, argv)
   local s, r = budget_load(keys[1])
   local s1 = add(s, parse(argv[1]))
-  if s1.neg then return { 'negative' } end
+  if isneg(s1) then return { 'negative' } end
   budget_store(keys[1], s1, r, argv[2])
   return { 'ok', str(s1) }
 end
@@ -696,7 +868,7 @@ local function adjust_window(keys, argv)
   local delta, T, P = parse(argv[1]), parse(argv[2]), parse(argv[3])
   local now = now_us()
   local slots = win_prune(T, P, win_load(keys[1]), now)
-  if not delta.neg then
+  if not isneg(delta) then
     slots = win_charge(slots, win_slot(T, P, now), delta)
   else
     local credit = negate(delta)
@@ -752,17 +924,28 @@ local function eval(_, argv)
     local a, b = parse(argv[2]), parse(argv[3])
     local q, r = divmod(max0(a), b)
     return { str(add(a, b)), str(sub(a, b)), str(mul(a, b)), str(q), str(r), tostring(cmp(a, b)) }
+  elseif op == 'divmod' then
+    local q, r = divmod(parse(argv[2]), parse(argv[3]))
+    return { str(q), str(r), str(ceil_div(parse(argv[2]), parse(argv[3]))) }
   end
   return redis.error_reply('ERR unknown op')
 end
 
-redis.register_function('antirion_admit', admit)
-redis.register_function('antirion_admit_attempt', admit_attempt)
-redis.register_function('antirion_reconcile', reconcile)
-redis.register_function('antirion_expire', expire)
-redis.register_function('antirion_seed', seed)
-redis.register_function('antirion_adjust', adjust)
-redis.register_function('antirion_seed_window', seed_window)
-redis.register_function('antirion_adjust_window', adjust_window)
-redis.register_function { function_name = 'antirion_read', callback = read, flags = { 'no-writes' } }
-redis.register_function { function_name = 'antirion_eval', callback = eval, flags = { 'no-writes' } }
+-- Every call starts with empty per-call caches.
+local function fresh(f)
+  return function(keys, argv)
+    PARSED, LIMBS, WRITTEN, CAPS = {}, {}, {}, {}
+    return f(keys, argv)
+  end
+end
+
+redis.register_function('antirion_admit', fresh(admit))
+redis.register_function('antirion_admit_attempt', fresh(admit_attempt))
+redis.register_function('antirion_reconcile', fresh(reconcile))
+redis.register_function('antirion_expire', fresh(expire))
+redis.register_function('antirion_seed', fresh(seed))
+redis.register_function('antirion_adjust', fresh(adjust))
+redis.register_function('antirion_seed_window', fresh(seed_window))
+redis.register_function('antirion_adjust_window', fresh(adjust_window))
+redis.register_function { function_name = 'antirion_read', callback = fresh(read), flags = { 'no-writes' } }
+redis.register_function { function_name = 'antirion_eval', callback = fresh(eval), flags = { 'no-writes' } }

@@ -1180,7 +1180,13 @@ from the ledger).
 
 Counter stores implement `store::CounterStore`. `MemoryCounters` serves standalone mode and every
 node's local share. `ValkeyCounters` runs `store/antirion.lua`, a function library whose amounts
-are exact big integers (Lua numbers are doubles); `math` is the Rust model it mirrors. The Valkey
+are exact integers: a Lua number while below 2^53, limbs in base 2^24 past it, each operation
+checking that its result still fits a double before it keeps one, and division by limbs with
+quotient limbs estimated in doubles and corrected exactly; `math` is the Rust model it mirrors.
+Every admission and settlement of a cluster runs one of these functions on the counter store's
+single thread, so their cost bounds a cluster's request rate per organization: within a call,
+parsed numbers, limbs, stored states and burst products are kept (`fresh` empties them per call),
+and a rate hold settled at its reservation is not written again. The Valkey
 tests run when `ANTIRION_TEST_VALKEY_URL` is set:
 
 ```bash
