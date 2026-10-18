@@ -397,10 +397,14 @@ impl Def {
         )
     }
 
-    /// A `pii` guardrail whose input tokens are put back into the response.
+    /// A `pii` or `regex` guardrail whose input tokens are put back into the response.
     #[must_use]
     pub fn reversible(&self) -> bool {
-        matches!(&self.check, Check::Pii(p) if p.reversible)
+        match &self.check {
+            Check::Pii(p) => p.reversible,
+            Check::Regex(r) => r.reversible,
+            _ => false,
+        }
     }
 
     /// A check that makes a network call.

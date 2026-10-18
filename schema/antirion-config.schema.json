@@ -9575,6 +9575,7 @@
             "label": {
               "type": "string",
               "minLength": 1,
+              "description": "The label a replacement names ([LABEL]); a reversible rule without one uses its name in upper case.",
               "default": "REDACTED"
             },
             "validate": {
@@ -9584,6 +9585,11 @@
                 "iban_mod97"
               ],
               "default": "none"
+            },
+            "reversible": {
+              "type": "boolean",
+              "description": "Input matches become numbered tokens ([LABEL_1]) that the response gets back wherever the model repeats them; needs action redact, replacement label and no allow patterns.",
+              "default": false
             }
           },
           "additionalProperties": false
@@ -9657,7 +9663,7 @@
             },
             "reversible": {
               "type": "boolean",
-              "description": "Input values become numbered tokens ([EMAIL_1]) that the output stage puts back; needs action redact, replacement label and no preserve.",
+              "description": "Input values become numbered tokens ([EMAIL_1]) that the response gets back wherever the model repeats them; needs action redact, replacement label and no preserve.",
               "default": false
             }
           },

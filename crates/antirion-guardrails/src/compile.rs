@@ -223,17 +223,27 @@ fn definition(
             )),
         }
     }
-    if let Check::Pii(p) = &check
-        && p.reversible
+    let mut check = check;
+    if let Check::Regex(r) = &mut check
+        && r.reversible
+        && !r.labelled
     {
+        name.to_uppercase().clone_into(&mut r.label);
+    }
+    let reversible_at = match &check {
+        Check::Pii(p) if p.reversible => Some(at.key("pii")),
+        Check::Regex(r) if r.reversible => Some(at.key("regex")),
+        _ => None,
+    };
+    if let Some(block) = reversible_at {
         if action != Action::Redact {
             conflict(
                 errors,
-                &at.key("pii").key("reversible"),
+                &block.key("reversible"),
                 "reversible tokens need action redact",
             );
         }
-        if !p.preserve.is_empty() {
+        if matches!(&check, Check::Pii(p) if !p.preserve.is_empty()) {
             conflict(
                 errors,
                 &at.key("pii").key("preserve"),
@@ -616,6 +626,35 @@ mod tests {
                 "guardrails.definitions.g.regex.deny[1]"
             ]
         );
+    }
+
+    #[test]
+    fn reversible_patterns_are_checked_and_labelled() {
+        let doc = json!({"guardrails": {"definitions": {
+            "c": {"type": "regex", "action": "block", "regex": {"deny": ["x"], "reversible": true}},
+            "d": {"type": "regex", "replacement": "mask", "regex": {"deny": ["x"], "reversible": true}, "action": "redact"}
+        }}});
+        assert_eq!(
+            paths(&doc),
+            [
+                "guardrails.definitions.c.regex.reversible",
+                "guardrails.definitions.d.replacement",
+            ]
+        );
+        let doc = json!({"guardrails": {"definitions": {
+            "customer_ids": {"type": "regex", "action": "redact", "regex": {"deny": ["C-[0-9]+"], "reversible": true}},
+            "named": {"type": "regex", "action": "redact", "regex": {"deny": ["N-[0-9]+"], "label": "member", "reversible": true}}
+        }}});
+        let g = compile(&doc).unwrap();
+        let Check::Regex(r) = &g.defs["customer_ids"].check else {
+            panic!()
+        };
+        assert_eq!(r.label, "CUSTOMER_IDS");
+        let Check::Regex(r) = &g.defs["named"].check else {
+            panic!()
+        };
+        assert_eq!(r.label, "member");
+        assert!(g.defs["named"].reversible() && !g.defs["named"].enforcing());
     }
 
     #[test]

@@ -401,7 +401,7 @@ pub async fn run_stage<N: Net>(cx: &StageCx<'_, N>, body: &mut Value, dialect: D
                 }
                 Vec::new()
             }
-            Check::Pii(_) if phase(def, cx.stage) == Phase::Restore => {
+            Check::Pii(_) | Check::Regex(_) if phase(def, cx.stage) == Phase::Restore => {
                 if let Some(slot) = results.get_mut(i) {
                     *slot = Some(pass(def, started));
                 }
@@ -768,6 +768,45 @@ mod tests {
         let mut body = json!({"template": {"name": "other"}});
         let out = run_stage(&cx, &mut body, Dialect::Chat).await;
         assert_eq!(out.template, Some(TemplateError::Unknown("other".into())));
+    }
+
+    #[tokio::test]
+    async fn pattern_rules_get_numbered_restorable_tokens() {
+        let doc = json!({"guardrails": {"definitions": {
+            "p": {"type": "pii", "pii": {"entities": ["phone"], "reversible": true}},
+            "acct": {"type": "regex", "action": "redact",
+                     "regex": {"deny": ["ACCT-[0-9]{4}"], "reversible": true}},
+            "plain": {"type": "regex", "action": "redact", "regex": {"deny": ["ORDER-[0-9]{3}"]}}
+        }}});
+        let list = defs(&doc, &["p", "acct", "plain"]);
+        let facts = CallFacts::default();
+        let tokens = Tokenizer::default();
+        let cx = cx(&list, GuardStage::Input, &facts, Some(&tokens));
+        let text = "call +5511978399280; ACCT-1234 and ACCT-9999 and ACCT-1234; ORDER-123";
+        let mut body = json!({"messages": [{"role": "user", "content": text}]});
+        run_stage(&cx, &mut body, Dialect::Chat).await;
+        assert_eq!(
+            body["messages"][0]["content"],
+            "call [PHONE_1]; [ACCT_1] and [ACCT_2] and [ACCT_1]; [REDACTED]"
+        );
+        let back = tokens.finish().unwrap();
+        assert_eq!(
+            back.restore("\"[ACCT_2]\" [[ACCT_1]] [PHONE_1] [REDACTED]")
+                .as_deref(),
+            Some("\"ACCT-9999\" [ACCT-1234] +5511978399280 [REDACTED]")
+        );
+        let out = run_stage(
+            &cx_of(&list, GuardStage::Output, &facts),
+            &mut json!({"choices": [{"index": 0, "message": {"role": "assistant", "content": "[ACCT_1]"}}]}),
+            Dialect::Chat,
+        )
+        .await;
+        let verdicts: Vec<Verdict> = out.evals.iter().map(|e| e.verdict).collect();
+        assert_eq!(verdicts, [Verdict::Pass, Verdict::Pass, Verdict::Pass]);
+    }
+
+    fn cx_of<'a>(list: &'a [Arc<Def>], stage: GuardStage, facts: &'a CallFacts) -> StageCx<'a, NoNet> {
+        cx(list, stage, facts, None)
     }
 
     #[tokio::test]

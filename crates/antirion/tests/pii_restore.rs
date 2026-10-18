@@ -1,7 +1,8 @@
 //! Reversible tokens: the provider sees `[PHONE_1]`, the client gets its number back, on Chat,
 //! Messages and Responses, streamed and not, translated and passthrough, with the token cut across
-//! stream chunks and wrapped in quotes and brackets; the request log keeps the answer the client
-//! received, with the restored values masked as its redaction says.
+//! stream chunks and wrapped in quotes and brackets; for built-in entities and pattern rules alike.
+//! The request log keeps the answer the client received, with the restored values masked as its
+//! redaction says.
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -14,8 +15,27 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 
 const TOKEN: &str = "pii-restore-bootstrap-token-0123456789abcdef";
-const PHONE: &str = "+5511978399280";
-const EMAIL: &str = "ana@acme.example";
+/// The values of the prompt, in order, with the label the request log masks each with.
+const VALUES: &[(&str, &str)] = &[
+    ("+5511978399280", "PHONE"),
+    ("ana@acme.example", "EMAIL"),
+    ("ACCT-1234", "ACCOUNT"),
+];
+
+fn prompt() -> String {
+    let values: Vec<&str> = VALUES.iter().map(|(v, _)| *v).collect();
+    format!("my details: {}", values.join(", "))
+}
+
+/// The answer the client must get, each value `shown` as the client or the log sees it.
+fn expected(shown: impl Fn(&str, &str) -> String) -> String {
+    let mut text = String::from("It came through as just a placeholder");
+    for (v, label) in VALUES {
+        let s = shown(v, label);
+        text.push_str(&format!(", \"{s}\" ([{s}])"));
+    }
+    text
+}
 
 /// One HTTP/1.1 exchange on a fresh connection: (status, lowercase headers, body).
 async fn exchange(
@@ -104,7 +124,7 @@ fn answer(request: &str) -> String {
     for t in tokens_in(request) {
         text.push_str(&format!(", \"{t}\" ([{t}])"));
     }
-    if request.contains(PHONE) || request.contains(EMAIL) {
+    if VALUES.iter().any(|(v, _)| request.contains(v)) {
         text.push_str(" LEAKED");
     }
     text
@@ -376,16 +396,16 @@ fn collect_text(v: &Value) -> String {
 
 fn chat(model: &str, stream: bool) -> Value {
     json!({"model": model, "stream": stream,
-        "messages": [{"role": "user", "content": format!("my phone is {PHONE}, mail {EMAIL}")}]})
+        "messages": [{"role": "user", "content": prompt()}]})
 }
 
 fn messages(model: &str, stream: bool) -> Value {
     json!({"model": model, "stream": stream, "max_tokens": 64,
-        "messages": [{"role": "user", "content": format!("my phone is {PHONE}, mail {EMAIL}")}]})
+        "messages": [{"role": "user", "content": prompt()}]})
 }
 
 fn responses(model: &str, stream: bool) -> Value {
-    json!({"model": model, "stream": stream, "input": format!("my phone is {PHONE}, mail {EMAIL}")})
+    json!({"model": model, "stream": stream, "input": prompt()})
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -414,10 +434,12 @@ async fn restored_values_reach_the_client_on_every_path_and_stay_masked_in_the_l
         },
         "guardrails": {"definitions": {
             "personal": {"type": "pii", "action": "redact",
-                "pii": {"entities": ["phone", "email"], "reversible": true}}
+                "pii": {"entities": ["phone", "email"], "reversible": true}},
+            "account": {"type": "regex", "action": "redact",
+                "regex": {"deny": ["ACCT-[0-9]{4}"], "reversible": true}}
         }},
         "policies": {
-            "guardrails": {"input": ["personal"]},
+            "guardrails": {"input": ["personal", "account"]},
             "observability": {"content": {"enabled": true, "redact_pii": true}}
         }
     });
@@ -501,26 +523,16 @@ async fn restored_values_reach_the_client_on_every_path_and_stay_masked_in_the_l
             !text.contains("LEAKED"),
             "{case}: the provider saw a value: {text}"
         );
-        assert_eq!(
-            text,
-            format!(
-                "It came through as just a placeholder, \"{PHONE}\" ([{PHONE}]), \"{EMAIL}\" ([{EMAIL}])"
-            ),
-            "{case}: {sent}"
-        );
-        assert!(
-            !sent.contains("[PHONE_1]") && !sent.contains("[EMAIL_1]"),
-            "{case}: {sent}"
-        );
+        assert_eq!(text, expected(|v, _| v.to_owned()), "{case}: {sent}");
+        assert!(tokens_in(&sent).is_empty(), "{case}: {sent}");
         let logged = &record["content"]["response"]["body"];
-        let logged_text = collect_text(logged);
         assert_eq!(
-            logged_text,
-            "It came through as just a placeholder, \"[PHONE]\" ([[PHONE]]), \"[EMAIL]\" ([[EMAIL]])",
+            collect_text(logged),
+            expected(|_, label| format!("[{label}]")),
             "{case}: {record}"
         );
         let all = record.to_string();
-        assert!(!all.contains(PHONE) && !all.contains(EMAIL), "{case}: {record}");
+        assert!(VALUES.iter().all(|(v, _)| !all.contains(v)), "{case}: {record}");
     }
 
     shutdown.cancel();

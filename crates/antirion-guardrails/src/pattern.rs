@@ -49,10 +49,14 @@ pub struct RegexCheck {
     deny: Vec<Regex>,
     allow: Vec<Regex>,
     pub(crate) label: String,
+    /// `label` was written; otherwise a reversible rule's tokens take the rule's name.
+    pub(crate) labelled: bool,
     validate: Validate,
     /// The longest deny match in code points, when every deny pattern is bounded and there is no
     /// allow list.
     max: Option<usize>,
+    /// Matches become numbered tokens (`[LABEL_1]`) that the output stage puts back.
+    pub reversible: bool,
 }
 
 /// The longest match of a pattern in code points; `None` when unbounded.
@@ -136,11 +140,8 @@ impl RegexCheck {
         };
         let deny = list("deny", true, &mut bounded);
         let allow = list("allow", false, &mut bounded);
-        let label = block
-            .and_then(|b| b.get("label"))
-            .and_then(Value::as_str)
-            .unwrap_or("REDACTED")
-            .to_owned();
+        let written = block.and_then(|b| b.get("label")).and_then(Value::as_str);
+        let label = written.unwrap_or("REDACTED").to_owned();
         let max = if allow.is_empty() { bounded } else { None };
         let validate = match block.and_then(|b| b.get("validate")).and_then(Value::as_str) {
             Some("luhn") => Validate::Luhn,
@@ -151,8 +152,10 @@ impl RegexCheck {
             deny,
             allow,
             label,
+            labelled: written.is_some(),
             validate,
             max,
+            reversible: block.and_then(|b| b.get("reversible")).and_then(Value::as_bool) == Some(true),
         }
     }
 
