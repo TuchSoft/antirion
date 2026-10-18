@@ -516,9 +516,77 @@ fn membership_and_shared_revocations() {
         assert_eq!(s.announce("b", 10_000).await.unwrap(), 2);
         let far = 4_000_000_000i64;
         let digest = "ab".repeat(32);
-        s.share_revocations(&[(digest.clone(), far)]).await.unwrap();
-        s.share_revocations(&[(digest.clone(), far)]).await.unwrap();
+        assert_eq!(s.share_revocations(&[(digest.clone(), far)]).await.unwrap(), 1);
+        assert_eq!(s.share_revocations(&[(digest.clone(), far)]).await.unwrap(), 0);
         assert_eq!(s.revocations().await.unwrap(), vec![(digest, far)]);
+    });
+}
+
+/// A node reads only the revocations shared after the last one it saw; expired ones are dropped,
+/// lookups by digest are exact (the previous version's keys included), and a lost log is read
+/// again from the start.
+#[test]
+fn revocations_are_read_incrementally_from_the_log() {
+    let Some(url) = url() else { return };
+    rt().block_on(async {
+        let s = store(&url);
+        let far = 4_000_000_000i64;
+        let d = |i: usize| format!("{i:064x}");
+        let first: Vec<(String, i64)> = (0..2500).map(|i| (d(i), far)).collect();
+        assert_eq!(s.share_revocations(&first).await.unwrap(), 2500);
+        let (cursor, all) = s.revocations_since(0).await.unwrap();
+        assert_eq!((cursor, all.len()), (2500, 2500), "read page by page");
+        assert_eq!(s.revocations_since(cursor).await.unwrap(), (cursor, vec![]));
+
+        let expired = (d(9999), 1_000);
+        let fresh = (d(10_000), far + 1);
+        assert_eq!(
+            s.share_revocations(&[expired.clone(), fresh.clone(), first[0].clone()])
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            s.revocations_since(cursor).await.unwrap(),
+            (cursor + 1, vec![fresh.clone()])
+        );
+        assert_eq!(s.revocation(&fresh.0).await.unwrap(), Some(far + 1));
+        assert_eq!(s.revocation(&expired.0).await.unwrap(), None);
+
+        // A node of the previous version writes only its own key.
+        let mut conn = s.conn.clone();
+        let old = d(20_000);
+        redis::cmd("SET")
+            .arg(format!("{}mrev:{old}", s.prefix))
+            .arg(far.to_string())
+            .query_async::<()>(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(s.revocation(&old).await.unwrap(), Some(far));
+        let legacy: Option<String> = redis::cmd("GET")
+            .arg(format!("{}mrev:{}", s.prefix, fresh.0))
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            legacy,
+            Some((far + 1).to_string()),
+            "nodes of the previous version find it"
+        );
+
+        // The store lost the log: a cursor past its sequence reads everything again.
+        for k in ["mrevs:n", "mrevs:log", "mrevs:exp"] {
+            redis::cmd("DEL")
+                .arg(format!("{}{k}", s.prefix))
+                .query_async::<()>(&mut conn)
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            s.share_revocations(std::slice::from_ref(&fresh)).await.unwrap(),
+            1
+        );
+        assert_eq!(s.revocations_since(cursor + 1).await.unwrap(), (1, vec![fresh]));
     });
 }
 

@@ -1,8 +1,13 @@
-//! MCP session revocations are shared through the counter store: each node writes the ones it made
-//! (kept until the token would expire) and adds the others' to its own set, every second. While the
-//! counter store is down, each node checks only the revocations it knows (upstreams still refuse
-//! deleted sessions).
+//! MCP session revocations are shared through the counter store: a node writes each one it makes at
+//! once (kept until the token would expire), and every request with a session token the node does
+//! not know as revoked asks the store, so a revocation is exact on every node from its next request.
+//! Every second each node also reads the revocations shared since its last read, from the store's
+//! revocation log, and writes the ones of its own the store does not hold yet (those made while the
+//! store could not be reached): the cost follows the revocations, not the traffic. While the counter
+//! store is down, each node checks only the revocations it knows (upstreams still refuse deleted
+//! sessions).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -67,7 +72,7 @@ impl Runtime {
         if let (digest, Some(exp)) = self.state.mcp.revocation_of(token) {
             let item = [(hex(&digest), exp)];
             let shared = valkey.share_revocations(&item);
-            if !matches!(tokio::time::timeout(CHECK_TIMEOUT, shared).await, Ok(Ok(()))) {
+            if !matches!(tokio::time::timeout(CHECK_TIMEOUT, shared).await, Ok(Ok(_))) {
                 tracing::debug!("a session revocation is shared with the next round");
             }
         }
@@ -75,6 +80,7 @@ impl Runtime {
 }
 
 pub(crate) async fn run(rt: Arc<Runtime>) {
+    let mut sync = Sync::default();
     while pause(&rt, EVERY).await {
         let engine = rt.accounts.engine();
         let Some(valkey) = engine.store().valkey() else {
@@ -83,22 +89,35 @@ pub(crate) async fn run(rt: Arc<Runtime>) {
         if engine.is_store_down() {
             continue;
         }
-        let mine: Vec<(String, i64)> = rt
-            .state
-            .mcp
-            .revocations()
+        let Ok((upto, shared)) = valkey.revocations_since(sync.cursor).await else {
+            continue;
+        };
+        if upto < sync.cursor {
+            // The store lost its log: what this node knows is shared again.
+            sync.stored.clear();
+        }
+        sync.cursor = upto;
+        let shared: Vec<([u8; 32], i64)> = shared.iter().filter_map(|(d, e)| Some((unhex(d)?, *e))).collect();
+        sync.stored.extend(shared.iter().copied());
+        rt.state.mcp.add_revocations(shared);
+        let mine = rt.state.mcp.revocations();
+        let unshared: Vec<(String, i64)> = mine
             .iter()
+            .filter(|(d, _)| !sync.stored.contains_key(d))
             .map(|(d, e)| (hex(d), *e))
             .collect();
-        if valkey.share_revocations(&mine).await.is_err() {
-            continue;
-        }
-        if let Ok(all) = valkey.revocations().await {
-            rt.state
-                .mcp
-                .add_revocations(all.iter().filter_map(|(d, e)| Some((unhex(d)?, *e))));
+        if unshared.is_empty() || valkey.share_revocations(&unshared).await.is_ok() {
+            // What the node holds is in the store now; expired ones fall out with it.
+            sync.stored = mine.into_iter().collect();
         }
     }
+}
+
+/// A node's position in the store's revocation log and the revocations it knows the store holds.
+#[derive(Default)]
+struct Sync {
+    cursor: u64,
+    stored: HashMap<[u8; 32], i64>,
 }
 
 #[cfg(test)]

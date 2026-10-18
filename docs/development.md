@@ -554,7 +554,12 @@ which migrates under an advisory lock (`store/src/pg/schema.rs`; a binary older 
 - **MCP sessions** need nothing shared but the session key (`mcp_session_key`, first writer wins in
   the store) and the revocations, kept in the counter store: a deletion is written there before its
   204, every request with a session token asks it (`cluster/revocations.rs`), and when it cannot be
-  asked the token is served with `session_store` in `x-antirion-degraded`.
+  asked the token is served with `session_store` in `x-antirion-degraded`. Each revocation new to
+  the store takes the next number of a sequence (`store/valkey/revocations.rs`, keys
+  `<prefix>mrevs:*`, pruned as tokens expire); every second a node reads the revocations after the
+  last number it saw and writes the ones of its own the store lacks, so a sync costs as many
+  entries as there are new revocations, whatever the keyspace holds. Each one is also written as
+  `<prefix>mrev:<digest>`, the key nodes of the previous version read, and lookups fall back to it.
 - **Keys created elsewhere**: a key unknown to the serving generation makes the node read the
   store's generation once before it is checked (`auth::catch_up_for_unknown_key`); requests waiting
   together share one read.

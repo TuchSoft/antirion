@@ -404,53 +404,6 @@ impl ValkeyCounters {
         Ok(alive.max(1))
     }
 
-    /// Records revoked MCP sessions (hex digest, expiry in Unix seconds) until they expire.
-    pub async fn share_revocations(&self, items: &[(String, i64)]) -> Result<(), StoreError> {
-        if items.is_empty() {
-            return Ok(());
-        }
-        let mut pipe = redis::pipe();
-        for (digest, exp) in items {
-            pipe.cmd("SET")
-                .arg(format!("{}mrev:{digest}", self.prefix))
-                .arg(exp.to_string())
-                .arg("EXAT")
-                .arg((*exp).max(1))
-                .arg("NX")
-                .ignore();
-        }
-        let mut conn = self.conn.clone();
-        pipe.query_async::<()>(&mut conn).await.map_err(|e| store_err(&e))
-    }
-
-    /// Every revoked MCP session the store holds (hex digest, expiry in Unix seconds).
-    pub async fn revocations(&self) -> Result<Vec<(String, i64)>, StoreError> {
-        let pattern = format!("{}mrev:*", glob_escape(&self.prefix));
-        let keys = self.conn.scan(&pattern).await.map_err(|e| store_err(&e))?;
-        let mut out = Vec::with_capacity(keys.len());
-        for chunk in keys.chunks(500) {
-            let mut get = redis::cmd("MGET");
-            get.arg(chunk);
-            let values = self.run(&get).await?;
-            for (k, v) in chunk.iter().zip(items(&values)) {
-                if let (Some(digest), Some(exp)) =
-                    (k.rsplit(':').next(), text(v).and_then(|t| t.parse::<i64>().ok()))
-                {
-                    out.push((digest.to_owned(), exp));
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    /// The expiry (Unix seconds) of one revoked MCP session, by hex digest, if it was revoked.
-    pub async fn revocation(&self, digest: &str) -> Result<Option<i64>, StoreError> {
-        let mut get = redis::cmd("GET");
-        get.arg(format!("{}mrev:{digest}", self.prefix));
-        let v = self.run(&get).await?;
-        Ok(text(&v).and_then(|t| t.parse().ok()))
-    }
-
     /// A session-affinity binding by its digest, as another node wrote it.
     pub async fn binding(&self, digest: &str) -> Result<Option<String>, StoreError> {
         let mut get = redis::cmd("GET");
@@ -663,6 +616,7 @@ impl CounterStore for ValkeyCounters {
 mod health;
 mod inflight;
 mod probe_lease;
+mod revocations;
 
 #[cfg(test)]
 mod tests;
