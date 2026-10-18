@@ -45,7 +45,9 @@ commit="$(git -C "$repo" rev-parse "$rev")"
 epoch="$(git -C "$repo" log -1 --format=%ct "$commit")"
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
 rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
-work="$(mktemp -d)"
+# The real path: on macOS the temporary directory is under /var, a link to /private/var, and the
+# compiler records the real one, which a remap of the linked path would miss.
+work="$(cd "$(mktemp -d)" && pwd -P)"
 cleanup() { if [[ "$keep" == 0 ]]; then rm -rf "$work"; else echo "kept $work"; fi; }
 trap cleanup EXIT
 
