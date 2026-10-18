@@ -113,8 +113,14 @@ pub(super) async fn relay(
         }
         let far = Instant::now() + Duration::from_secs(86_400 * 365);
         let total_at = setup.total.map_or(far, |t| Instant::now() + t);
-        let mut idle_at = setup.idle.map_or(far, |t| Instant::now() + t);
+        // Upstream silence is measured from the last read, less the time spent waiting for the client
+        // to take what was read (a full send buffer): that wait is not the upstream's.
+        let mut idle_from = Instant::now();
+        let mut blocked_mark = w.blocked;
         loop {
+            let idle_at = setup
+                .idle
+                .map_or(far, |t| idle_from + t + w.blocked.saturating_sub(blocked_mark));
             let buffering = guard.as_ref().and_then(OutGuard::buffer_heartbeat);
             let beat_at = w.last_write + buffering.unwrap_or(setup.policy.heartbeat);
             let pulled = tokio::select! {
@@ -149,9 +155,8 @@ pub(super) async fn relay(
                 }
                 continue;
             };
-            if let Some(t) = setup.idle {
-                idle_at = Instant::now() + t;
-            }
+            idle_from = Instant::now();
+            blocked_mark = w.blocked;
             let read_at = Instant::now();
             let blocked_before = w.blocked;
             let ev = match pulled {
