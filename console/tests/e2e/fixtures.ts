@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -24,6 +26,54 @@ export async function admin(
     ...(body === undefined ? {} : { data: body }),
   });
   return response;
+}
+
+/**
+ * An OpenAI-style upstream on a free port: `GET /v1/models` lists `models` (what "Test connection"
+ * and the Add model list read) and every other call gets a short chat completion. `seen` keeps each
+ * call as "METHOD /path".
+ */
+export async function openAiUpstream(
+  models: string[] = ['gpt-4o-mini', 'gpt-4o'],
+): Promise<{ server: Server; baseUrl: string; seen: string[]; close: () => Promise<void> }> {
+  const seen: string[] = [];
+  const server = createServer((req, res) => {
+    seen.push(`${req.method ?? ''} ${(req.url ?? '').split('?')[0] ?? ''}`);
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/v1/models') {
+        res.end(
+          JSON.stringify({
+            object: 'list',
+            data: models.map((id) => ({ id, object: 'model', created: 1, owned_by: 'openai' })),
+          }),
+        );
+        return;
+      }
+      res.end(
+        JSON.stringify({
+          id: 'chatcmpl-e2e',
+          object: 'chat.completion',
+          created: 1,
+          model: models[0],
+          choices: [{ index: 0, message: { role: 'assistant', content: 'Hi.' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+        }),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${String(port)}/v1`,
+    seen,
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
 }
 
 /** Opens the admin-token form; with local accounts on, it sits behind a link under the password form. */

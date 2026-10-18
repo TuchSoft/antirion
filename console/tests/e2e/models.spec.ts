@@ -1,6 +1,7 @@
-import { admin, expect, pickOption, test, unique } from './fixtures';
+import { admin, expect, openAiUpstream, pickOption, test, unique } from './fixtures';
 
 test('add a provider, then create, edit and delete a Model', async ({ signedIn: page, request }) => {
+  const upstream = await openAiUpstream();
   const provider = unique('prov');
   const model = unique('model');
   const display = `E2E ${model}`;
@@ -11,6 +12,11 @@ test('add a provider, then create, edit and delete a Model', async ({ signedIn: 
   await pickOption(page, add.getByRole('combobox', { name: 'Provider', exact: true }), /^OpenAI$/, 'OpenAI');
   await add.getByRole('textbox', { name: 'Name', exact: true }).fill(provider);
   await add.getByLabel('API key').fill('sk-test-0000000000');
+  await add.getByLabel('Base URL').fill(upstream.baseUrl);
+  // Saving waits for a passing test of these exact values.
+  await expect(add.getByRole('button', { name: 'Add provider' })).toBeDisabled();
+  await add.getByRole('button', { name: 'Test connection' }).click();
+  await expect(add.getByRole('status')).toContainText('Connected');
   await add.getByRole('button', { name: 'Add provider' }).click();
   await expect(add).toBeHidden();
   await expect(
@@ -59,6 +65,7 @@ test('add a provider, then create, edit and delete a Model', async ({ signedIn: 
 
   const audit = (await (await admin(request, 'GET', `/audit?resource=models/${model}`)).json()) as unknown;
   expect(JSON.stringify(audit)).toContain('models.delete');
+  await upstream.close();
 });
 
 test('a Model form refuses invalid input before calling the API', async ({ signedIn: page }) => {
