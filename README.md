@@ -73,16 +73,6 @@ request logging, no cache. Every figure is the median of the repetitions.
 | Peak memory     | **215 MiB**   |     1,389 MiB |       1,851 MiB |
 | Idle memory     | **41 MiB**    |       498 MiB |       1,653 MiB |
 
-<p align="center">
-  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.95 ms, Bifrost 19.7 and 95.2 ms" width="760">
-</p>
-<p align="center">
-  <img src="docs/images/bench-resources.svg" alt="CPU per request and memory at 5,000 RPS for Antirion, Bifrost and LiteLLM" width="760">
-</p>
-<p align="center">
-  <img src="docs/images/bench-throughput.svg" alt="Throughput over 64 connections: Antirion 21,512 requests per second, Bifrost 6,568, LiteLLM 424" width="760">
-</p>
-
 **More scenarios, same machine**
 
 | Scenario                                          | Antirion             | Bifrost 2.2.4 | LiteLLM 1.103.1   |
