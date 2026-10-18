@@ -50,6 +50,7 @@ tikv-jemallocator = { workspace = true }
 
 [dev-dependencies]
 antirion-testkit = { workspace = true }
+redis = { workspace = true }
 rusqlite = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tokio-postgres = { workspace = true }

@@ -116,6 +116,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "mimalloc",
+ "redis",
  "rusqlite",
  "rustix",
  "rustls",
