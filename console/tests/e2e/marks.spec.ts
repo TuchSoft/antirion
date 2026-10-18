@@ -83,14 +83,13 @@ test("a claude model shows Anthropic's mark in the request log, whatever provide
   await expect(row.first().locator('[data-mark=openai]')).toHaveCount(0);
 });
 
-test('a generic provider shows the neutral monogram, an openai-typed one the OpenAI mark', async ({
+test('an OpenAI-compatible provider and an openai-typed one both show the OpenAI mark', async ({
   signedIn: page,
 }) => {
   await page.goto('providers/');
   const genericRow = page.getByRole('row').filter({ hasText: generic });
   await expect(genericRow).toBeVisible();
-  await expect(genericRow.locator('[data-mark]').first()).toHaveAttribute('data-mark', 'monogram');
-  await expect(genericRow.locator('[data-mark=monogram]')).toHaveText('O');
+  await expect(genericRow.locator('[data-mark]').first()).toHaveAttribute('data-mark', 'openai');
   const typedRow = page.getByRole('row').filter({ hasText: openaiTyped });
   await expect(typedRow.locator('[data-mark]').first()).toHaveAttribute('data-mark', 'openai');
 });

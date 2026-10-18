@@ -2,8 +2,8 @@
  * Which brand mark names a provider or a model, in one place, so a provider or a model looks the
  * same on every screen.
  *
- * - A provider's mark is its type's brand. Generic types (OpenAI- or Anthropic-compatible, and any
- *   type without a mark) get a neutral monogram: never another brand's logo.
+ * - A provider's mark is its type's brand. A compatible type (OpenAI- or Anthropic-compatible) shows
+ *   the brand of the API it speaks; a type without a mark gets a neutral monogram.
  * - A model's mark is its maker's, never the provider that serves it: `claude-*` is Anthropic's
  *   whether it runs on Anthropic, Bedrock or an OpenAI-compatible proxy. The maker comes from the
  *   model's own metadata (`owned_by`, `catalog.family`), then from the upstream model ids it calls,
@@ -243,9 +243,11 @@ export function resolveModelMaker(hints: ModelMakerHints): Maker | null {
   );
 }
 
-/** Provider types and the brand their mark shows; generic types have none (a monogram). */
+/** Provider types and the brand their mark shows; a compatible type shows the API it speaks. */
 const PROVIDER_BRANDS: Record<string, BrandId> = {
   openai: 'openai',
+  openai_compatible: 'openai',
+  anthropic_compatible: 'anthropic',
   azure_openai: 'azure',
   anthropic: 'anthropic',
   bedrock: 'bedrock',
@@ -277,7 +279,7 @@ function monogram(text: string | null | undefined, label: string): MarkFace {
   return { brand: null, letter, label };
 }
 
-/** A provider type's mark: its brand, or a monogram of its label for generic and unknown types. */
+/** A provider type's mark: its brand, or a monogram of its label for unknown types. */
 export function providerFace(type: string | null | undefined): MarkFace {
   const label = providerTypeLabel(type ?? undefined);
   const brand = type ? PROVIDER_BRANDS[type] : undefined;

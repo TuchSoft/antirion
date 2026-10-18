@@ -104,19 +104,14 @@ describe('resolveModelMaker', () => {
 });
 
 describe('providerFace', () => {
-  it("draws a provider type's brand, and generic or unknown types as a monogram", () => {
+  it("draws a provider type's brand, a compatible type the API it speaks, unknown types a monogram", () => {
     expect(providerFace('openai')).toEqual({ brand: 'openai', label: 'OpenAI' });
     expect(providerFace('bedrock')).toEqual({ brand: 'bedrock', label: 'AWS Bedrock' });
     expect(providerFace('azure_openai')).toEqual({ brand: 'azure', label: 'Azure OpenAI' });
     expect(providerFace('triton')).toEqual({ brand: 'nvidia', label: 'Triton' });
-    expect(providerFace('openai_compatible')).toEqual({
-      brand: null,
-      letter: 'O',
-      label: 'OpenAI-compatible',
-    });
+    expect(providerFace('openai_compatible')).toEqual({ brand: 'openai', label: 'OpenAI-compatible' });
     expect(providerFace('anthropic_compatible')).toEqual({
-      brand: null,
-      letter: 'A',
+      brand: 'anthropic',
       label: 'Anthropic-compatible',
     });
     expect(providerFace('custom_thing')).toEqual({ brand: null, letter: 'C', label: 'custom_thing' });

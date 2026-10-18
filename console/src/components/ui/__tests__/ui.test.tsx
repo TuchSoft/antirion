@@ -134,15 +134,16 @@ describe('Segmented', () => {
 });
 
 describe('ProviderMark and ModelMark', () => {
-  it('draws a provider type as its brand and a generic type as a monogram', () => {
+  it('draws a provider type as its brand, a compatible type as the API it speaks, an unknown one as a monogram', () => {
     const { container, rerender } = render(<ProviderMark type="openai" />);
     expect(container.querySelector('svg')).toHaveAttribute('data-mark', 'openai');
     expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     rerender(<ProviderMark type="openai_compatible" />);
-    expect(container.querySelector('svg')).toBeNull();
-    expect(container.querySelector('[data-mark=monogram]')).toHaveTextContent('O');
+    expect(container.querySelector('svg')).toHaveAttribute('data-mark', 'openai');
     rerender(<ProviderMark type="anthropic_compatible" />);
-    expect(container.querySelector('[data-mark=monogram]')).toHaveTextContent('A');
+    expect(container.querySelector('svg')).toHaveAttribute('data-mark', 'anthropic');
+    rerender(<ProviderMark type="custom_thing" />);
+    expect(container.querySelector('[data-mark=monogram]')).toHaveTextContent('C');
     rerender(<ProviderName type="anthropic" name="claude-east" />);
     expect(container).toHaveTextContent('claude-east');
     expect(container.querySelector('svg')).toHaveAttribute('data-mark', 'anthropic');
