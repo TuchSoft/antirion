@@ -356,8 +356,8 @@ pub(crate) async fn accept(p: &Public) -> Result<Response, AdminError> {
     let local = p.rt.gens.load().identity.console.local;
     let password = m.get("password").and_then(Value::as_str);
     if !local {
-        return Err(AdminError::invalid_parameter(
-            "local accounts are disabled: accept the invitation by signing in with single sign-on",
+        return Err(AdminError::identity(
+            antirion_runtime::operators::IdentityError::LocalLoginRefused,
         ));
     }
     let Some(password) = password else {
@@ -378,13 +378,7 @@ pub(crate) async fn accept(p: &Public) -> Result<Response, AdminError> {
         p.rt.invitation_challenge(&inv.user)
             .await
             .map_err(AdminError::identity)?;
-    p.audit(
-        "invitations.accept",
-        Some(&inv.user),
-        Outcome::Success,
-        StatusCode::OK,
-    )
-    .await;
+    // Enabling the user recorded the acceptance in the audit log, with the change it made.
     Ok(json_response(StatusCode::OK, &crate::local::step_json(&step)))
 }
 

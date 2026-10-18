@@ -95,6 +95,10 @@ export const MESSAGES = {
   passwordNoReset: "That email and password don't match. Try again.",
   token: "That token didn't work. Check that you copied all of it and try again.",
   ssoRequired: 'Your organization signs in with single sign-on. Use its button above instead of a password.',
+  invitationSso:
+    'This gateway takes no passwords. Go to sign in and use single sign-on with this email to accept the invitation.',
+  invitationNoSignIn:
+    "Email and password sign-in is turned off on this gateway, and it has no single sign-on, so the invitation can't be accepted yet. Ask the person who invited you to turn on email and password sign-in, then open this link again.",
   throttled: 'Too many attempts. Wait a few minutes, then try again.',
   code: "That code didn't work. Codes change every 30 seconds; enter the newest one.",
   recoveryCode: "That recovery code didn't work. Check it, or try another one; each works only once.",
@@ -105,13 +109,22 @@ export const MESSAGES = {
   enrolKey: "Your security key wasn't registered. Try again, or use an authenticator app.",
 } as const;
 
+/** The sign-in methods that are single sign-on. */
+const SSO_TYPES = new Set(['oidc', 'saml', 'oauth']);
+
+/** The gateway refused a password because local accounts are off (detail `local_login_disabled`). */
+function localRefused(e: unknown): boolean {
+  return (
+    e instanceof ApiError && e.status === 403 && e.details.some((d) => d.code === 'local_login_disabled')
+  );
+}
+
 /** Plain words for a refused sign-in. A 401 stays generic so it never reveals which part was wrong. */
 function signInMessage(e: unknown, fallback: string): string {
   if (!(e instanceof ApiError)) return fallback;
   if (e.status === 0) return "Can't reach the gateway. Check your connection and try again.";
   if (e.status === 429) return MESSAGES.throttled;
-  if (e.status === 403 && e.details.some((d) => d.code === 'local_login_disabled'))
-    return MESSAGES.ssoRequired;
+  if (localRefused(e)) return MESSAGES.ssoRequired;
   return fallback;
 }
 
@@ -382,6 +395,13 @@ export const useLogin = create<LoginState>()((set, get) => ({
     } catch (e) {
       const policy = e instanceof ApiError ? policyMessage(e) : null;
       if (policy) set({ passwordError: policy });
+      else if (step.purpose === 'invitation' && localRefused(e))
+        // The link still works: the gateway refused it before using it.
+        set({
+          error: (get().options?.methods ?? []).some((m) => SSO_TYPES.has(m.type))
+            ? MESSAGES.invitationSso
+            : MESSAGES.invitationNoSignIn,
+        });
       else if (e instanceof ApiError && e.code === 'invalid_parameter')
         set({ step: { ...step, link: 'invalid' } });
       else set({ error: signInMessage(e, 'Something went wrong. Try again.') });
