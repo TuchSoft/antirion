@@ -142,6 +142,10 @@ pub(crate) struct ContentFact {
     pub(crate) output_messages: Option<String>,
     /// How PII and secrets are removed from the stored copy, when they are.
     pub(crate) redact_pii: Option<PiiAction>,
+    /// Values the request carried that reversible guardrails stood tokens for, with their labels:
+    /// personal data wherever they appear, the restored response included, whatever entity found
+    /// them.
+    pub(crate) known: Vec<(String, String)>,
 }
 
 /// `policies.observability.content.on_pii`.
@@ -165,8 +169,14 @@ impl ContentFact {
             PiiAction::Mask => Replacement::Label,
             PiiAction::Hash => Replacement::Hash,
             PiiAction::DropContent => {
-                let found = self.request.as_ref().is_some_and(holds_sensitive)
-                    || self.response.as_ref().is_some_and(holds_sensitive);
+                let found = self
+                    .request
+                    .as_ref()
+                    .is_some_and(|v| holds_sensitive(v, &self.known))
+                    || self
+                        .response
+                        .as_ref()
+                        .is_some_and(|v| holds_sensitive(v, &self.known));
                 if found {
                     self.enabled = false;
                     self.request = None;
@@ -178,14 +188,14 @@ impl ContentFact {
             }
         };
         for v in [&mut self.request, &mut self.response].into_iter().flatten() {
-            scrub(v, how, hash_key);
+            scrub(v, how, hash_key, &self.known);
         }
         for t in [&mut self.input_messages, &mut self.output_messages]
             .into_iter()
             .flatten()
         {
             let mut v = Value::String(std::mem::take(t));
-            scrub(&mut v, how, hash_key);
+            scrub(&mut v, how, hash_key, &self.known);
             *t = v.as_str().map(str::to_owned).unwrap_or_default();
         }
     }

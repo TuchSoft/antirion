@@ -365,12 +365,16 @@ impl RequestGuard {
         self.streaming.mode == "reject" && !self.enforcing_output().is_empty()
     }
 
-    /// The tokens a streamed response must have put back: the input stage handed some out and a
-    /// reversible guardrail applies to the output.
+    /// The tokens the response must have put back: whatever the input stage handed out. A
+    /// reversible guardrail promises the values back in the answer, so the restore does not wait
+    /// for the guardrail to be attached to the output stage as well.
     pub(crate) fn restoring(&self) -> Option<Arc<Tokens>> {
-        self.tokens
-            .clone()
-            .filter(|_| self.attached.output.iter().any(|d| d.reversible()))
+        self.tokens.clone()
+    }
+
+    /// The output stage has work: output guardrails, or tokens to put back.
+    fn has_output(&self) -> bool {
+        !self.attached.output.is_empty() || self.tokens.is_some()
     }
 
     /// A `json_repair` guardrail must see the whole output.
@@ -385,7 +389,7 @@ impl RequestGuard {
 
     /// How a streamed response is checked; `None` when no output guardrail applies.
     pub(crate) fn out_mode(&self) -> Option<OutMode> {
-        if self.attached.output.is_empty() || self.dialect.is_none_or(Dialect::is_flat) {
+        if !self.has_output() || self.dialect.is_none_or(Dialect::is_flat) {
             return None;
         }
         let enforcing = self.enforcing_output();
@@ -700,10 +704,14 @@ pub(crate) async fn output(
     body: &mut Value,
     attempts: u16,
 ) -> Result<bool, GatewayError> {
-    if g.attached.output.is_empty() || g.dialect.is_none() {
+    if !g.has_output() || g.dialect.is_none() {
         return Ok(false);
     }
-    let out = g.run_output(body).await;
+    let out = if g.attached.output.is_empty() {
+        antirion_guardrails::StageOutcome::default()
+    } else {
+        g.run_output(body).await
+    };
     record(&cx.rt, &cx.log, Some(&cx.guard), &out.evals, false);
     if let Some(e) = out.failed.and_then(|i| out.evals.get(i)) {
         if let antirion_guardrails::Check::JsonSchema(j) = &e.def.check
@@ -725,7 +733,8 @@ pub(crate) async fn output(
 /// Whether a stream's output verdicts follow it as an `x-antirion-guardrails` trailer: output
 /// guardrails apply, their results are exposed, and the client accepts trailers.
 pub(crate) fn trailer_applies(g: Option<&RequestGuard>, headers: &http::HeaderMap) -> bool {
-    g.is_some_and(|g| g.expose && g.out_mode().is_some()) && crate::account::accepts_trailers(headers)
+    g.is_some_and(|g| g.expose && !g.attached.output.is_empty() && g.out_mode().is_some())
+        && crate::account::accepts_trailers(headers)
 }
 
 /// The output items of a request's record, as the `x-antirion-guardrails` list.
@@ -805,7 +814,7 @@ pub(crate) async fn complete_response(
         .plan
         .guard
         .as_deref()
-        .filter(|g| !g.attached.output.is_empty() && g.dialect.is_some());
+        .filter(|g| g.has_output() && g.dialect.is_some());
     let hooks = a.plan.hooks.as_deref().filter(|h| crate::extend::has_response(h));
     if guard.is_none() && hooks.is_none() {
         return Ok((body, Vec::new()));

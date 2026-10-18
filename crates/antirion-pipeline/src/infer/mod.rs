@@ -541,6 +541,10 @@ async fn pipeline(
     changed |= input.changed;
     let alongside = input.alongside;
     request_guard.tokens = input.tokens;
+    if let Some(t) = &request_guard.tokens {
+        let known = t.labelled();
+        cx.log.update(|r| r.content.known = known);
+    }
     if parsed.member("template").is_some()
         && let Some(body) = body_value.as_ref().or(parsed.doc())
     {

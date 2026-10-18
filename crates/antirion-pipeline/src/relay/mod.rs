@@ -252,8 +252,10 @@ pub(crate) async fn hold(
     let mut held_events = 0usize;
     let mut held_bytes = 0usize;
     let mut transform = shaper.transforms(setup);
+    // The upstream's own chunks stand for what the client received only when no output guard
+    // changes them (redactions, restored tokens): otherwise the sent frames are assembled.
     let mut assembler =
-        (setup.assemble && setup.dialect == StreamDialect::Chat && shaper.translator.is_none())
+        (setup.assemble && setup.dialect == StreamDialect::Chat && shaper.translator.is_none() && !holding)
             .then(Assembler::default);
     let headers_at = Instant::now();
     let hold_until = headers_at + setup.policy.max_hold;

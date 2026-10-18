@@ -97,6 +97,20 @@ impl Tokens {
         Tokens { pairs, longest }
     }
 
+    /// Each value with the label of its token (`[PHONE_1]` → `PHONE`): what the request log must
+    /// still treat as personal data once the values are back in the response.
+    #[must_use]
+    pub fn labelled(&self) -> Vec<(String, String)> {
+        self.pairs
+            .iter()
+            .map(|(t, v)| {
+                let inner = t.trim_start_matches('[').trim_end_matches(']');
+                let label = inner.rsplit_once('_').map_or(inner, |(l, _)| l);
+                (v.clone(), label.to_owned())
+            })
+            .collect()
+    }
+
     /// Every whole token in `text`, as byte ranges with the value that replaces them, in order.
     #[must_use]
     pub fn find(&self, text: &str) -> Vec<Redaction> {
@@ -196,6 +210,28 @@ mod tests {
             Some("write to c@d.co or a@b.co")
         );
         assert_eq!(tokens.restore("[EMAIL_1] stays"), None);
+        assert_eq!(
+            tokens.labelled(),
+            [
+                ("a@b.co".to_owned(), "EMAIL".to_owned()),
+                ("c@d.co".to_owned(), "EMAIL".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn quoted_bracketed_and_custom_tokens_are_restored() {
+        let t = Tokenizer::default();
+        let text = "cpf 529.982.247-25 phone +5511978399280";
+        let out = t.apply(text, &[span(4, 18, "CPF"), span(25, 39, "PHONE")]);
+        assert_eq!(out, "cpf [CPF_1] phone [PHONE_1]");
+        let tokens = t.finish().unwrap();
+        assert_eq!(
+            tokens
+                .restore("it came through as \"[PHONE_1]\", and [[CPF_1]] ([PHONE_1])")
+                .as_deref(),
+            Some("it came through as \"+5511978399280\", and [529.982.247-25] (+5511978399280)")
+        );
     }
 
     #[test]
