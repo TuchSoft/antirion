@@ -93,6 +93,9 @@ embedded first (the commands are in [Run the console](#run-the-console)).
   `--manifest-path bench/Cargo.toml`.
 - Parsers: `ci/fuzz.sh 30` runs every fuzz target briefly (it needs a nightly toolchain and
   `cargo-fuzz`).
+- The npm launcher in `npm/`: `node --test` there (Node 18 or later).
+- The image: `docker/test/smoke.sh <image>` and `docker/test/quickstart.sh <image>` after
+  `docker build -f docker/Dockerfile`.
 
 ## Commit messages
 
@@ -133,6 +136,25 @@ left in the pull request or an issue.
   source.
 - [console/README.md](console/README.md): the console's commands, layout and screens.
 - The "Known gaps" sections of `docs/development.md` list what is not built yet.
+
+## Releases
+
+A `vX.Y.Z` tag on `main` runs `.github/workflows/release.yml`: it builds the binaries for Linux and
+macOS on amd64 and arm64 with the console embedded, their SHA-256 list, SBOMs, signatures and
+provenance, and the multi-arch image on `ghcr.io`, verifies them and publishes the GitHub Release.
+It then starts `.github/workflows/publish.yml`, which copies the image to Docker Hub and publishes
+the npm package `antirion`, whose version it sets from the tag.
+
+`publish.yml` needs these repository secrets; without them, it skips that part with a notice:
+
+| Secret               | For                                                                  |
+| -------------------- | -------------------------------------------------------------------- |
+| `DOCKERHUB_USERNAME` | the Docker Hub account that can push to `antirion/antirion`          |
+| `DOCKERHUB_TOKEN`    | a Docker Hub access token of that account, with read and write scope |
+| `NPM_TOKEN`          | an npm automation (or granular, publish) token for the package       |
+
+To publish an existing release again, run the `publish` workflow by hand with its tag; what is
+already published is left as it is.
 
 ## Reporting security issues
 
