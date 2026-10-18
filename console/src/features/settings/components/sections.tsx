@@ -28,6 +28,7 @@ import { SignInSection } from './sign-in-section';
 import { SignInExtras } from './sign-in-extras';
 import { PrivacySection } from './privacy-section';
 import { TRAFFIC_SECTIONS } from './traffic-sections';
+import { TransportCard } from './transport-card';
 
 export type SectionScope = 'gateway' | 'organization' | 'mixed' | 'follows';
 
@@ -179,6 +180,7 @@ export const SETTINGS_GROUPS: { label: string; sections: Section[] }[] = [
           <>
             <ApiAccessSection />
             <EncryptionCard />
+            <TransportCard />
             <AdminMcpCard />
             <McpSessionsCard />
           </>

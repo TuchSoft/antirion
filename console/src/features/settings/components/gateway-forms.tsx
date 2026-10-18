@@ -21,6 +21,15 @@ import { notify } from '@/stores/ui';
 
 import { detailErrors, DURATION_RE, mergePatch, same, URL_RE } from '../form-errors';
 import { useOrgSettings } from '../store';
+import {
+  checkEstimation,
+  ESTIMATION_PATHS,
+  EstimationFields,
+  estimationSpec,
+  type EstimationValues,
+  estimationValues,
+  type LimitsShape,
+} from './limit-estimation';
 import { Card, SaveBar } from './parts';
 
 /** A size with an IEC unit, as the configuration takes it ("32MiB"). */
@@ -146,7 +155,7 @@ const listError = (values: string[], re: RegExp, what: string) => {
 
 // Rate limiting ---------------------------------------------------------------------------------
 
-type LimitsSpec = {
+type LimitsSpec = LimitsShape & {
   enabled?: boolean;
   algorithm?: string;
   on_store_unavailable?: string;
@@ -163,6 +172,7 @@ interface LimitValues {
   maxPolicies: string;
   exposeReservation: boolean;
   forwardUpstream: boolean;
+  estimation: EstimationValues;
 }
 
 const LD = SETTINGS_DEFAULTS.limits;
@@ -177,6 +187,7 @@ export function limitValues(spec: LimitsSpec): LimitValues {
     maxPolicies: String(spec.headers?.max_policies ?? LD.headers.max_policies),
     exposeReservation: spec.headers?.expose_reservation ?? LD.headers.expose_reservation,
     forwardUpstream: spec.forward_upstream_headers ?? LD.forward_upstream_headers,
+    estimation: estimationValues(spec),
   };
 }
 
@@ -191,6 +202,7 @@ const limitsSpec = (v: LimitValues) => ({
     expose_reservation: v.exposeReservation,
   },
   forward_upstream_headers: v.forwardUpstream,
+  ...estimationSpec(v.estimation),
 });
 
 const ALGORITHMS = [
@@ -230,10 +242,14 @@ function RateLimitForm({ initial }: { initial: LimitValues }) {
       'limits.algorithm': 'algorithm',
       'limits.on_store_unavailable': 'onStoreDown',
       'limits.headers.max_policies': 'maxPolicies',
+      ...ESTIMATION_PATHS,
     },
     check: (v): FieldErrors => {
       const n = Number(v.maxPolicies);
-      return /^\d+$/.test(v.maxPolicies) && n >= 1 && n <= 32 ? {} : { maxPolicies: 'Enter 1 to 32' };
+      return {
+        ...(/^\d+$/.test(v.maxPolicies) && n >= 1 && n <= 32 ? {} : { maxPolicies: 'Enter 1 to 32' }),
+        ...checkEstimation(v.estimation),
+      };
     },
   });
   const { values: v, set, errors } = form;
@@ -318,6 +334,12 @@ function RateLimitForm({ initial }: { initial: LimitValues }) {
           />
         </Field>
       </Group>
+      <EstimationFields
+        values={v.estimation}
+        set={(patch) => set('estimation', { ...v.estimation, ...patch })}
+        errors={errors}
+        disabled={disabled}
+      />
       <ConfirmDialog
         open={confirmOff}
         onClose={() => setConfirmOff(false)}

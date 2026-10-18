@@ -14,6 +14,7 @@ import {
   checkEntry,
   entryForm,
 } from '../components/catalog-section';
+import { RateLimitCard } from '../components/gateway-forms';
 import { KeyChecksCard, pepperWords } from '../components/key-checks-card';
 import { McpSessionsCard } from '../components/mcp-sessions-card';
 import { checkSeries, seriesSpec, seriesValues } from '../components/metric-series';
@@ -21,6 +22,7 @@ import { AlertTimingCard, RequestDetailsCard } from '../components/observability
 import { PrometheusDrawer } from '../components/prometheus-drawer';
 import { CallPricesCard, checkCallPrice, checkMarkup, MarkupsCard } from '../components/pricing-tables';
 import { RecordFieldsCard } from '../components/record-fields';
+import { TransportCard } from '../components/transport-card';
 import { FailureHandlingCard, RetryPolicyCard } from '../components/retry-policy-cards';
 import { SmtpCard } from '../components/smtp-card';
 import { useLinks, useOrgSettings } from '../store';
@@ -441,5 +443,67 @@ describe('MCP sessions', () => {
     await pickOption(within(c).getByRole('combobox', { name: 'A session lasts at most' }), '8 hours');
     await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(patches).toEqual([{ session: { max_lifetime: '8h' } }]));
+  });
+});
+
+describe('Rate-limit estimates and the limit store', () => {
+  it('needs a cap before clamping answers, then writes only what changed', async () => {
+    signInAs(['policies:read', 'policies:write']);
+    useOrgSettings.setState({ limits: emptySlot() });
+    const patches = settingsKey('limits', {});
+    server.use(
+      http.get('*/admin/v1/settings/auth', () => HttpResponse.json({ spec: {}, metadata: meta })),
+      http.get('*/admin/v1/settings/security', () => HttpResponse.json({ spec: {}, metadata: meta })),
+      http.get('*/admin/v1/settings/observability', () => HttpResponse.json({ spec: {}, metadata: meta })),
+    );
+    await useOrgSettings.getState().loadSettings();
+    render(<RateLimitCard />);
+    const c = card('Rate limiting');
+    await userEvent.click(within(c).getByText('Token estimates and the limit store'));
+    await pickOption(within(c).getByRole('combobox', { name: 'Count answer tokens' }), /cap the answer too/);
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    expect(await within(c).findByText('Set a cap: this way of counting needs one')).toBeInTheDocument();
+    await userEvent.type(within(c).getByLabelText(/^Cap/), '2048');
+    await pickOption(
+      within(c).getByRole('combobox', { name: 'Wait for the limit store up to' }),
+      '250 milliseconds',
+    );
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(patches).toEqual([
+        { estimation: { output: 'clamp', output_cap: 2048 }, store: { timeout: '250ms' } },
+      ]),
+    );
+  });
+});
+
+describe('HTTPS and fetched media', () => {
+  it('turns HSTS on, narrows image types and shows the listeners read-only', async () => {
+    signInAs(['security:read', 'security:write']);
+    useOrgSettings.setState({ security: emptySlot() });
+    server.use(
+      http.get('*/admin/v1/settings/auth', () => HttpResponse.json({ spec: {}, metadata: meta })),
+      http.get('*/admin/v1/settings/limits', () => HttpResponse.json({ spec: {}, metadata: meta })),
+      http.get('*/admin/v1/settings/observability', () => HttpResponse.json({ spec: {}, metadata: meta })),
+    );
+    const patches = settingsKey('security', {
+      tls: {
+        listeners: {
+          data: { cert_file: '/etc/tls/data.pem', key_file: '/etc/tls/data.key', client_auth: 'required' },
+        },
+      },
+    });
+    await useOrgSettings.getState().loadSettings();
+    render(<TransportCard />);
+    const c = card('HTTPS and fetched media');
+    expect(within(c).getByText('/etc/tls/data.pem')).toBeInTheDocument();
+    expect(within(c).getByText(/Required, checked against the system roots/)).toBeInTheDocument();
+    expect(within(c).getByText('Plain HTTP: no certificate is set.')).toBeInTheDocument();
+    await userEvent.click(within(c).getByRole('switch', { name: 'Tell browsers to use HTTPS only (HSTS)' }));
+    await pickOption(within(c).getByRole('combobox', { name: 'Largest file' }), '10 MiB');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(patches).toEqual([{ hsts: { enabled: true }, media_fetch: { max_bytes: '10MiB' } }]),
+    );
   });
 });
