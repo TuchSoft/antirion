@@ -15336,11 +15336,6 @@
                     "urls": []
                   }
                 },
-                "pool_size": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "default": 32
-                },
                 "command_timeout": {
                   "$ref": "#/$defs/Duration",
                   "x-range": {

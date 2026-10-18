@@ -313,11 +313,16 @@ mod tests {
     }
 
     #[test]
-    fn former_policy_locations_are_unknown_fields() {
+    fn former_locations_and_removed_settings_are_unknown_fields() {
         for (key, value, path) in [
             ("cache", json!({"policy": {"enabled": true}}), "cache.policy"),
             ("limits", json!({"gateway": {}}), "limits.gateway"),
             ("frobnicate", json!({}), "frobnicate"),
+            (
+                "cluster",
+                json!({"counters": {"redis": {"pool_size": 32}}}),
+                "cluster.counters.redis.pool_size",
+            ),
         ] {
             let mut doc = base();
             doc[key] = value;

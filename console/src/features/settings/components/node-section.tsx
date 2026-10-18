@@ -273,7 +273,6 @@ const REDIS_FACTS: NodeFact[] = [
     path: 'counters.redis.topology',
     words: { standalone: 'One server', sentinel: 'Sentinel', cluster: 'Cluster' },
   },
-  { label: 'Connections in the pool', path: 'counters.redis.pool_size' },
   { label: 'Command timeout', path: 'counters.redis.command_timeout' },
   { label: 'Key prefix', path: 'counters.redis.key_prefix' },
   { label: 'Failed calls counted over', path: 'counters.redis.failure_detection.window' },

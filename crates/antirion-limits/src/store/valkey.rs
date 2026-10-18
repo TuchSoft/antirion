@@ -2,6 +2,10 @@
 //! settlement, each atomic on the server, with the server's clock as the one clock. On a Redis
 //! Cluster every key is under one hash tag (the prefix), so each call's keys share a slot and stay
 //! atomic; the cluster client follows the slot when it moves.
+//!
+//! A node keeps one multiplexed connection: every request's calls are pipelined on it. The server
+//! runs them one at a time on its single thread, so more connections add no throughput; they only
+//! cost the node a socket and a write per call instead of batched writes, and measured worse.
 
 use antirion_redis::{RedisConn, Topology};
 use redis::{Cmd, Value};

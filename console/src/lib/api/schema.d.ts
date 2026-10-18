@@ -7957,7 +7957,6 @@ export interface components {
                         master_name?: string | null;
                         urls?: string[];
                     };
-                    pool_size?: number;
                     command_timeout?: components["schemas"]["$defs-Duration"];
                     key_prefix?: string;
                     failure_detection?: {
@@ -11418,7 +11417,6 @@ export interface components {
                                 master_name?: string | null;
                                 urls?: string[];
                             };
-                            pool_size?: number;
                             command_timeout?: components["schemas"]["$defs-Duration"];
                             key_prefix?: string;
                             failure_detection?: {

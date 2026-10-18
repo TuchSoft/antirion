@@ -1209,8 +1209,18 @@ quotient limbs estimated in doubles and corrected exactly; `math` is the Rust mo
 Every admission and settlement of a cluster runs one of these functions on the counter store's
 single thread, so their cost bounds a cluster's request rate per organization: within a call,
 parsed numbers, limbs, stored states and burst products are kept (`fresh` empties them per call),
-and a rate hold settled at its reservation is not written again. The Valkey
-tests run when `ANTIRION_TEST_VALKEY_URL` is set:
+and a rate hold settled at its reservation is not written again.
+
+A node talks to the counter store over one multiplexed connection (`antirion-redis`), whatever its
+load: calls from every request are pipelined on it, and the server runs them one at a time anyway.
+Admit-and-settle cycles of 32 to 256 concurrent callers through one connection, four, or 32 in
+turn gave the same throughput at saturation (about 10,000 cycles a second on one Valkey core), one
+or four connections the best p99, and 32 the worst, with twice to three times the client's system
+CPU. `cluster.counters.redis.pool_size` was therefore removed: it was never read, and a
+configuration that still sets it is refused with `unknown_field` at that path; delete the key
+when upgrading.
+
+The Valkey tests run when `ANTIRION_TEST_VALKEY_URL` is set:
 
 ```bash
 docker run -d --name antirion-valkey -p 16379:6379 valkey/valkey:8

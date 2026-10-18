@@ -141,7 +141,6 @@ export const SETTINGS_DEFAULTS = {
           master_name: null,
           urls: [],
         },
-        pool_size: 32,
         command_timeout: '50ms',
         key_prefix: 'antirion:',
         failure_detection: {
