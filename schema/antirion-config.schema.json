@@ -8178,11 +8178,11 @@
             },
             "local": {
               "type": "object",
-              "description": "Local accounts (… 067, …). Off by default.",
+              "description": "Local accounts: people sign in to the console with an email and a password (and a second factor), and accept invitations by choosing one. On by default.",
               "properties": {
                 "enabled": {
                   "type": "boolean",
-                  "default": false
+                  "default": true
                 },
                 "password_policy": {
                   "type": "object",

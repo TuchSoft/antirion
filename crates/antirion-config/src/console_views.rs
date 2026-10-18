@@ -36,10 +36,11 @@ pub struct DeviceAuthorizationView {
     pub max_starts_per_minute: Option<u32>,
 }
 
-/// `auth.admin.local`.
-#[derive(Clone, Debug, Default, Deserialize)]
+/// `auth.admin.local`. Local accounts are on unless `enabled: false`: an invited person accepts by
+/// choosing a password, so a gateway without single sign-on can still add people.
+#[derive(Clone, Debug, Deserialize)]
 pub struct LocalView {
-    #[serde(default)]
+    #[serde(default = "on")]
     pub enabled: bool,
     #[serde(default)]
     pub password_policy: PasswordPolicyView,
@@ -50,6 +51,23 @@ pub struct LocalView {
     #[serde(default)]
     pub lockout: LockoutView,
     pub reset_token_ttl: Option<String>,
+}
+
+fn on() -> bool {
+    true
+}
+
+impl Default for LocalView {
+    fn default() -> Self {
+        LocalView {
+            enabled: true,
+            password_policy: PasswordPolicyView::default(),
+            mfa: MfaView::default(),
+            sso_required_domains: Vec::new(),
+            lockout: LockoutView::default(),
+            reset_token_ttl: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

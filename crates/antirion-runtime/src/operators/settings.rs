@@ -218,7 +218,8 @@ mod tests {
     #[test]
     fn defaults_and_overrides() {
         let d = ConsoleSettings::default();
-        assert!(!d.local && d.mail.is_none() && d.trusted.is_none() && d.personal_tokens);
+        assert!(d.local && d.mail.is_none() && d.trusted.is_none() && d.personal_tokens);
+        assert!(!ConsoleSettings::of(&json!({"auth": {"admin": {"local": {"enabled": false}}}})).local);
         assert_eq!(d.factors, vec![FactorKind::Totp, FactorKind::Webauthn]);
         assert_eq!(d.lockout_failures, 10);
         let s = ConsoleSettings::of(&json!({
