@@ -170,6 +170,7 @@ async fn forward(
             candidates: &[],
             stream: false,
             hedge: 1,
+            deadline: None,
         },
     )
     .await?;

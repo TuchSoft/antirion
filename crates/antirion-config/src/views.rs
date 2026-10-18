@@ -438,6 +438,16 @@ pub struct RedisView {
     pub command_timeout: Option<String>,
     pub key_prefix: Option<String>,
     pub topology: Option<String>,
+    #[serde(default)]
+    pub failure_detection: FailureDetectionView,
+}
+
+/// `cluster.counters.redis.failure_detection`.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct FailureDetectionView {
+    pub window: Option<String>,
+    pub failure_rate: Option<f64>,
+    pub min_failures: Option<u32>,
 }
 
 #[cfg(test)]

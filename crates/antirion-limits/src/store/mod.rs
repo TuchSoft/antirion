@@ -131,6 +131,12 @@ pub enum StoreError {
     Unavailable(String),
     #[error("counter store protocol error: {0}")]
     Protocol(String),
+    /// The call missed its deadline; the store may still apply it.
+    #[error("counter store call timed out")]
+    TimedOut,
+    /// The store is out of use on this node, so the call was not sent.
+    #[error("counter store marked unavailable")]
+    MarkedDown,
 }
 
 /// An adjustment that would make a budget's spend negative.

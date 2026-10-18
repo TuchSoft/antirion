@@ -15351,6 +15351,33 @@
                 "key_prefix": {
                   "type": "string",
                   "default": "antirion:"
+                },
+                "failure_detection": {
+                  "type": "object",
+                  "description": "When failed calls take the counter store out of use on a node: within the trailing window, at least min_failures calls failed and they are at least failure_rate of the calls. A failed call leaves its request's counters to on_store_unavailable either way; out of use, calls are no longer sent until three probes in a row pass.",
+                  "properties": {
+                    "window": {
+                      "$ref": "#/$defs/Duration",
+                      "x-range": {
+                        "min": "100ms",
+                        "max": "60s"
+                      },
+                      "default": "1s"
+                    },
+                    "failure_rate": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1,
+                      "default": 0.5
+                    },
+                    "min_failures": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000,
+                      "default": 5
+                    }
+                  },
+                  "additionalProperties": false
                 }
               },
               "additionalProperties": false

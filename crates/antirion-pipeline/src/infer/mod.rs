@@ -406,6 +406,7 @@ async fn pipeline(
                 candidates: &[],
                 stream: false,
                 hedge: 1,
+                deadline: None,
             },
         )
         .await?;
@@ -452,6 +453,7 @@ async fn pipeline(
     if Box::pin(admission(cx, &key.project)).await?.is_none() {
         return Ok(Done::Cancelled);
     }
+    let resilience = policies.effective("resilience");
     let admitted = account::admit(
         cx,
         &cx.account,
@@ -465,7 +467,8 @@ async fn pipeline(
             tags: &tags,
             candidates: &servable,
             stream: streams,
-            hedge: account::hedge_factor(&policies.effective("resilience")),
+            hedge: account::hedge_factor(&resilience),
+            deadline: account::deadline(cx, &resilience, &parts.headers, streams),
         },
     )
     .await?;

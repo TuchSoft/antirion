@@ -144,6 +144,11 @@ export const SETTINGS_DEFAULTS = {
         pool_size: 32,
         command_timeout: '50ms',
         key_prefix: 'antirion:',
+        failure_detection: {
+          window: '1s',
+          failure_rate: 0.5,
+          min_failures: 5,
+        },
       },
     },
   },

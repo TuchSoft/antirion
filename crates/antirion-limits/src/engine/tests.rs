@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use antirion_core::{ResourceUid, UtcMicros};
@@ -22,12 +22,19 @@ use crate::store::{AttemptRequest, NegativeSpend};
 use crate::usage::Usage;
 use crate::weights::Incurred;
 
-/// A memory store that can be switched off.
+/// A memory store that can be switched off, or made to stall its next admissions.
 #[derive(Debug)]
 struct Flaky {
     inner: MemoryCounters,
     down: AtomicBool,
+    /// Admissions still to stall, each for `STALL` before it is applied.
+    stalls: AtomicU32,
+    /// Admissions sent to the store.
+    admits: AtomicU32,
 }
+
+/// Longer than the engine's store timeout.
+const STALL: Duration = Duration::from_millis(150);
 
 impl Flaky {
     fn check(&self) -> Result<(), StoreError> {
@@ -41,7 +48,15 @@ impl Flaky {
 
 impl CounterStore for Flaky {
     async fn admit(&self, req: &AdmitRequest<'_>) -> Result<AdmitDecision, StoreError> {
+        self.admits.fetch_add(1, Ordering::SeqCst);
         self.check()?;
+        let stall = self
+            .stalls
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok();
+        if stall {
+            tokio::time::sleep(STALL).await;
+        }
         self.inner.admit(req).await
     }
     async fn admit_attempt(&self, req: &AttemptRequest<'_>) -> Result<AdmitDecision, StoreError> {
@@ -92,6 +107,8 @@ fn engine() -> LimitsEngine<Flaky> {
     let store = Flaky {
         inner: MemoryCounters::new(clock.clone()),
         down: AtomicBool::new(false),
+        stalls: AtomicU32::new(0),
+        admits: AtomicU32::new(0),
     };
     LimitsEngine::new(
         store,
@@ -100,6 +117,7 @@ fn engine() -> LimitsEngine<Flaky> {
             node: "n1".into(),
             lease_ttl: Duration::from_secs(60),
             store_timeout: Duration::from_millis(100),
+            failure_detection: FailureDetection::default(),
             replay_capacity: 100,
         },
     )
@@ -316,11 +334,92 @@ async fn settlements_queue_while_down_and_replay_once() {
     assert_eq!(report.degraded.limits, Some(DegradedCause::StoreTimeout));
     assert_eq!(e.flush().await, 0);
     e.store().down.store(false, Ordering::SeqCst);
-    assert!(!e.probe().await && !e.probe().await && e.probe().await);
+    assert!(!e.is_store_down(), "two failed calls are no outage");
     assert_eq!(e.flush().await, 1);
     assert_eq!(e.queued(), (0, 0));
     let again = e.admit(plan(&p, &input("k", 1, &[])).unwrap()).await.unwrap();
     assert!(again.remote);
+}
+
+fn budgeted() -> Policies {
+    policies(
+        json!({"keys": {"k": {"policies": {"budgets": {"b": {"unit": "tokens", "amount": 1_000_000_000u64}}}}}}),
+    )
+}
+
+/// A stall longer than the store timeout fails every call it holds; the admission is sent once
+/// more, and the store stays in use because most calls of the window succeeded.
+#[tokio::test]
+async fn a_stall_is_absorbed_by_one_retry_and_leaves_the_store_in_use() {
+    let e = Arc::new(engine());
+    let p = Arc::new(budgeted());
+    for _ in 0..200 {
+        e.admit(plan(&p, &input("k", 1, &[])).unwrap()).await.unwrap();
+    }
+    e.store().stalls.store(50, Ordering::SeqCst);
+    let mut set = JoinSet::new();
+    for _ in 0..50 {
+        let (e, p) = (Arc::clone(&e), Arc::clone(&p));
+        set.spawn(async move { e.admit(plan(&p, &input("k", 1, &[])).unwrap()).await });
+    }
+    while let Some(r) = set.join_next().await {
+        let r = r.unwrap().unwrap();
+        assert!(r.remote && !r.degraded.is_degraded());
+    }
+    assert!(!e.is_store_down());
+    assert_eq!(
+        e.store().admits.load(Ordering::SeqCst),
+        300,
+        "one retry per stalled call"
+    );
+}
+
+/// A retry is sent only when another store timeout fits before the request's deadline.
+#[tokio::test]
+async fn a_timed_out_admission_is_retried_only_within_the_deadline() {
+    let e = engine();
+    let p = budgeted();
+    let mut tight = plan(&p, &input("k", 1, &[])).unwrap();
+    tight.deadline = Some(std::time::Instant::now() + Duration::from_millis(50));
+    e.store().stalls.store(1, Ordering::SeqCst);
+    let err = e.admit(tight).await.unwrap_err();
+    assert_eq!(err.code, Code::DependencyUnavailable, "budgets fail closed");
+    assert_eq!(e.store().admits.load(Ordering::SeqCst), 1);
+    let mut roomy = plan(&p, &input("k", 1, &[])).unwrap();
+    roomy.deadline = Some(std::time::Instant::now() + Duration::from_secs(10));
+    e.store().stalls.store(1, Ordering::SeqCst);
+    assert!(e.admit(roomy).await.unwrap().remote);
+    assert_eq!(e.store().admits.load(Ordering::SeqCst), 3);
+}
+
+/// Failures that persist take the store out of use: calls are no longer sent and budgets fail
+/// closed until three probes in a row find it again.
+#[tokio::test]
+async fn a_lasting_outage_takes_the_store_out_of_use_until_probes_pass() {
+    let e = engine();
+    let p = budgeted();
+    e.store().down.store(true, Ordering::SeqCst);
+    let min = FailureDetection::default().min_failures;
+    for i in 1..=min {
+        let err = e.admit(plan(&p, &input("k", 1, &[])).unwrap()).await.unwrap_err();
+        assert_eq!(err.code, Code::DependencyUnavailable);
+        assert_eq!(e.is_store_down(), i == min, "after {i} failures");
+    }
+    let err = e.admit(plan(&p, &input("k", 1, &[])).unwrap()).await.unwrap_err();
+    assert_eq!(err.code, Code::DependencyUnavailable);
+    assert_eq!(
+        e.store().admits.load(Ordering::SeqCst),
+        min,
+        "nothing is sent while down"
+    );
+    e.store().down.store(false, Ordering::SeqCst);
+    assert!(!e.probe().await && !e.probe().await && e.probe().await);
+    assert!(
+        e.admit(plan(&p, &input("k", 1, &[])).unwrap())
+            .await
+            .unwrap()
+            .remote
+    );
 }
 
 #[tokio::test]

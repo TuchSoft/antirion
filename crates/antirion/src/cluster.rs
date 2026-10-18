@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use antirion_config::scalar::parse_duration;
 use antirion_config::views::StaticView;
+use antirion_limits::engine::{FailureDetection, StoreSettings};
 use antirion_limits::store::valkey::ValkeyCounters;
 use antirion_runtime::atrest::Sealer;
 use antirion_runtime::cluster::{ClusterSettings, Loaded, SnapshotFile};
@@ -188,8 +189,8 @@ pub(crate) fn sealer(doc: &Value) -> anyhow::Result<Sealer> {
     Ok(Sealer::new(&keys)?.with_configured(configured))
 }
 
-/// The counter store and its command timeout.
-pub(crate) async fn counters(doc: &Value, v: &StaticView) -> anyhow::Result<(ValkeyCounters, Duration)> {
+/// The counter store and how the node uses it.
+pub(crate) async fn counters(doc: &Value, v: &StaticView) -> anyhow::Result<(ValkeyCounters, StoreSettings)> {
     let r = &v.cluster.counters.redis;
     let url = resolved_string(doc, "/cluster/counters/redis/url")?
         .ok_or_else(|| anyhow!("cluster mode needs cluster.counters.redis.url"))?;
@@ -203,8 +204,22 @@ pub(crate) async fn counters(doc: &Value, v: &StaticView) -> anyhow::Result<(Val
         Ok(Err(e)) => tracing::warn!(error = %e, "the counter store's functions could not be loaded yet"),
         Err(_) => tracing::warn!("the counter store did not answer at startup"),
     }
-    let timeout = duration(r.command_timeout.as_ref(), Duration::from_millis(50));
-    Ok((counters, timeout))
+    Ok((counters, store_settings(v)))
+}
+
+/// `cluster.counters.redis`: the command timeout and when failed calls take the store out of use.
+fn store_settings(v: &StaticView) -> StoreSettings {
+    let r = &v.cluster.counters.redis;
+    let f = &r.failure_detection;
+    let d = FailureDetection::default();
+    StoreSettings {
+        timeout: duration(r.command_timeout.as_ref(), Duration::from_millis(50)),
+        failure_detection: FailureDetection {
+            window: duration(f.window.as_ref(), d.window),
+            failure_rate: f.failure_rate.unwrap_or(d.failure_rate),
+            min_failures: f.min_failures.unwrap_or(d.min_failures),
+        },
+    }
 }
 
 #[cfg(test)]

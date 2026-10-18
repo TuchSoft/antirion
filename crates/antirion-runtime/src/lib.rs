@@ -306,8 +306,11 @@ pub struct RuntimeParts {
     pub shutdown: drain::Settings,
     pub liveness_stall: Duration,
     pub sealer: atrest::Sealer,
-    /// The shared counter store and its command timeout, in cluster mode.
-    pub counters: Option<(antirion_limits::store::valkey::ValkeyCounters, Duration)>,
+    /// The shared counter store and how the node uses it, in cluster mode.
+    pub counters: Option<(
+        antirion_limits::store::valkey::ValkeyCounters,
+        antirion_limits::engine::StoreSettings,
+    )>,
     pub cluster: Option<cluster::ClusterSettings>,
     pub spool: spool::SpoolSettings,
     pub readiness_requires: Vec<String>,
@@ -346,11 +349,11 @@ impl Runtime {
             gens: Generations::new(parts.first),
             state: RuntimeState::default(),
             accounts: match parts.counters {
-                Some((valkey, timeout)) => Accounts::with_counters(
+                Some((valkey, settings)) => Accounts::with_counters(
                     Arc::clone(&clock),
                     &parts.node.id,
                     antirion_limits::store::Counters::Valkey(valkey),
-                    timeout,
+                    settings,
                 ),
                 None => Accounts::new(Arc::clone(&clock), &parts.node.id),
             },

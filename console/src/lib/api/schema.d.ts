@@ -7960,6 +7960,11 @@ export interface components {
                     pool_size?: number;
                     command_timeout?: components["schemas"]["$defs-Duration"];
                     key_prefix?: string;
+                    failure_detection?: {
+                        window?: components["schemas"]["$defs-Duration"];
+                        failure_rate?: number;
+                        min_failures?: number;
+                    };
                 };
             };
         } & unknown;
@@ -11416,6 +11421,11 @@ export interface components {
                             pool_size?: number;
                             command_timeout?: components["schemas"]["$defs-Duration"];
                             key_prefix?: string;
+                            failure_detection?: {
+                                window?: components["schemas"]["$defs-Duration"];
+                                failure_rate?: number;
+                                min_failures?: number;
+                            };
                         };
                     };
                 } & unknown;

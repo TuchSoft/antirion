@@ -45,6 +45,8 @@ pub struct Reservation {
     pub admitted_at: UtcMicros,
     pub headers: HeaderSettings,
     pub degraded: Degraded,
+    /// The request's deadline, from its plan.
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl Reservation {
@@ -64,6 +66,7 @@ impl Reservation {
             admitted_at: plan.admitted_at,
             headers: plan.headers.clone(),
             degraded: Degraded::default(),
+            deadline: plan.deadline,
         }
     }
 

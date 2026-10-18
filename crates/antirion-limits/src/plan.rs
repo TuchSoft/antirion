@@ -94,6 +94,9 @@ pub struct AdmitPlan {
     pub usd: Option<Nusd>,
     pub admitted_at: UtcMicros,
     pub headers: HeaderSettings,
+    /// When the request must be answered by, if known: a store call that timed out is sent again
+    /// only when another fits before it.
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl AdmitPlan {
@@ -346,6 +349,7 @@ pub fn plan(policies: &Policies, input: &AdmitInput<'_>) -> Result<AdmitPlan, Ga
         usd,
         admitted_at: input.now,
         headers: policies.limits.headers.clone(),
+        deadline: None,
     })
 }
 

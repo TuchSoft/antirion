@@ -2,6 +2,8 @@
 //! store is unavailable, and the replay queue of settlements that could not reach it.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -88,38 +90,133 @@ impl Degraded {
     }
 }
 
-/// Whether request-path commands go to the store: down from the first failure until
-/// [`PROBES_TO_RECOVER`] probes succeed in a row.
-#[derive(Debug, Default)]
+/// When the counter store counts as unavailable
+/// (`cluster.counters.redis.failure_detection`): within the trailing `window`, at least
+/// `min_failures` calls failed and failures are at least `failure_rate` of the calls. A short stall
+/// fails the calls it holds but leaves the rate low, so it is never taken for an outage.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct FailureDetection {
+    pub window: Duration,
+    pub failure_rate: f64,
+    pub min_failures: u32,
+}
+
+impl Default for FailureDetection {
+    fn default() -> FailureDetection {
+        FailureDetection {
+            window: Duration::from_secs(1),
+            failure_rate: 0.5,
+            min_failures: 5,
+        }
+    }
+}
+
+/// Buckets of the trailing window.
+const BUCKETS: u32 = 10;
+
+/// Calls and failures in one bucket of the window.
+#[derive(Copy, Clone, Debug, Default)]
+struct Bucket {
+    /// The bucket's index since the tracker started; stale buckets count nothing.
+    at: u64,
+    calls: u32,
+    failed: u32,
+}
+
+#[derive(Debug)]
+struct Tracker {
+    started: Instant,
+    buckets: [Bucket; BUCKETS as usize],
+    /// Consecutive good probes while down.
+    probes: u8,
+}
+
+/// Whether request-path commands go to the store: down once the failures of the trailing window
+/// meet [`FailureDetection`], until [`PROBES_TO_RECOVER`] probes succeed in a row. While down,
+/// calls are not sent and every counter follows its `on_store_unavailable`.
+#[derive(Debug)]
 pub(crate) struct Health {
-    state: Mutex<(bool, u8)>,
+    down: AtomicBool,
+    detection: FailureDetection,
+    tracker: Mutex<Tracker>,
 }
 
 impl Health {
-    pub(crate) fn is_down(&self) -> bool {
-        self.state.lock().0
+    pub(crate) fn new(detection: FailureDetection) -> Health {
+        Health {
+            down: AtomicBool::new(false),
+            detection,
+            tracker: Mutex::new(Tracker {
+                started: Instant::now(),
+                buckets: [Bucket::default(); BUCKETS as usize],
+                probes: 0,
+            }),
+        }
     }
 
-    pub(crate) fn mark_down(&self) {
-        *self.state.lock() = (true, 0);
+    pub(crate) fn is_down(&self) -> bool {
+        self.down.load(Ordering::Acquire)
+    }
+
+    fn bucket_width(&self) -> Duration {
+        (self.detection.window / BUCKETS).max(Duration::from_micros(1))
+    }
+
+    /// Records the outcome of a call; true when it marked the store down.
+    pub(crate) fn record(&self, ok: bool) -> bool {
+        if self.is_down() {
+            return false;
+        }
+        let width = self.bucket_width().as_micros();
+        let mut t = self.tracker.lock();
+        let now = u64::try_from(t.started.elapsed().as_micros() / width).unwrap_or(u64::MAX);
+        let i = usize::try_from(now % u64::from(BUCKETS)).unwrap_or(0);
+        if let Some(b) = t.buckets.get_mut(i) {
+            if b.at != now {
+                *b = Bucket {
+                    at: now,
+                    ..Bucket::default()
+                };
+            }
+            b.calls = b.calls.saturating_add(1);
+            b.failed = b.failed.saturating_add(u32::from(!ok));
+        }
+        if ok {
+            return false;
+        }
+        let live = |b: &&Bucket| now.saturating_sub(b.at) < u64::from(BUCKETS);
+        let (calls, failed) = t.buckets.iter().filter(live).fold((0u64, 0u64), |(c, f), b| {
+            (c + u64::from(b.calls), f + u64::from(b.failed))
+        });
+        #[allow(clippy::cast_precision_loss)]
+        let rate = failed as f64 / calls.max(1) as f64;
+        if failed >= u64::from(self.detection.min_failures) && rate >= self.detection.failure_rate {
+            t.buckets = [Bucket::default(); BUCKETS as usize];
+            t.probes = 0;
+            self.down.store(true, Ordering::Release);
+            return true;
+        }
+        false
     }
 
     /// Records a probe; true when the store is up afterwards.
     pub(crate) fn probed(&self, ok: bool) -> bool {
-        let mut s = self.state.lock();
-        if !s.0 {
+        if !self.is_down() {
             return true;
         }
-        if ok {
-            s.1 = s.1.saturating_add(1);
-            if s.1 >= PROBES_TO_RECOVER {
-                *s = (false, 0);
-                return true;
-            }
-        } else {
-            s.1 = 0;
+        let mut t = self.tracker.lock();
+        if !ok {
+            t.probes = 0;
+            return false;
         }
-        false
+        t.probes = t.probes.saturating_add(1);
+        if t.probes < PROBES_TO_RECOVER {
+            return false;
+        }
+        t.probes = 0;
+        t.buckets = [Bucket::default(); BUCKETS as usize];
+        self.down.store(false, Ordering::Release);
+        true
     }
 }
 
@@ -242,6 +339,34 @@ mod tests {
         }
     }
 
+    /// The store is out of use only when enough calls failed and they are a large enough share
+    /// of the window's calls; failures older than the window are forgotten.
+    #[test]
+    fn failures_take_the_store_down_by_count_and_rate_within_the_window() {
+        let h = Health::new(FailureDetection {
+            window: Duration::from_millis(100),
+            ..FailureDetection::default()
+        });
+        for _ in 0..4 {
+            assert!(!h.record(false));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        for _ in 0..4 {
+            assert!(!h.record(false), "the first four are out of the window");
+        }
+        assert!(h.record(false) && h.is_down());
+        assert!(!h.probed(true) && !h.probed(true) && h.probed(true) && !h.is_down());
+
+        let h = Health::new(FailureDetection::default());
+        for _ in 0..100 {
+            h.record(true);
+        }
+        for _ in 0..99 {
+            assert!(!h.record(false), "fewer failures than successes");
+        }
+        assert!(h.record(false), "100 of 200 calls failed");
+    }
+
     #[test]
     fn shares() {
         let g = hold(
@@ -286,9 +411,10 @@ mod tests {
 
     #[test]
     fn health_needs_three_good_probes() {
-        let h = Health::default();
+        let h = Health::new(FailureDetection::default());
         assert!(!h.is_down());
-        h.mark_down();
+        while !h.record(false) {}
+        assert!(h.is_down());
         assert!(!h.probed(true));
         assert!(!h.probed(false));
         assert!(!h.probed(true));

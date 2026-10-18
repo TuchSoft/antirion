@@ -14,7 +14,10 @@ use parking_lot::Mutex;
 use crate::applicable::NamedBudget;
 use crate::book::{Book, LedgerHistory, WINDOW};
 use crate::counter::{CounterId, Hold, HoldMode, Rule};
-use crate::engine::{AttemptRefused, EngineConfig, LimitsEngine, Reservation, SettleReport, Settlement};
+use crate::engine::{
+    AttemptRefused, EngineConfig, FailureDetection, LimitsEngine, Reservation, SettleReport, Settlement,
+    StoreSettings,
+};
 use crate::ledger::{BudgetCharge, LedgerLine};
 use crate::level::Level;
 use crate::math::Window;
@@ -101,21 +104,26 @@ impl Accounts {
     #[must_use]
     pub fn new(clock: Arc<dyn Clock>, node: &str) -> Accounts {
         let store = Counters::Memory(Box::new(MemoryCounters::new(Arc::clone(&clock))));
-        Accounts::with_counters(clock, node, store, Duration::from_millis(100))
+        let settings = StoreSettings {
+            timeout: Duration::from_millis(100),
+            failure_detection: FailureDetection::default(),
+        };
+        Accounts::with_counters(clock, node, store, settings)
     }
 
-    /// Accounts on `store`, whose every call must answer within `store_timeout`.
+    /// Accounts on `store`, used as `settings` say.
     #[must_use]
     pub fn with_counters(
         clock: Arc<dyn Clock>,
         node: &str,
         store: Counters,
-        store_timeout: Duration,
+        settings: StoreSettings,
     ) -> Accounts {
         let cfg = EngineConfig {
             node: node.to_owned(),
             lease_ttl: LEASE_TTL,
-            store_timeout,
+            store_timeout: settings.timeout,
+            failure_detection: settings.failure_detection,
             replay_capacity: 10_000,
         };
         Accounts {

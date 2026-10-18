@@ -249,6 +249,27 @@ pub(crate) struct Admission<'a> {
     pub(crate) stream: bool,
     /// `H = 1 + h`: the attempts the route may keep outstanding at once.
     pub(crate) hedge: u32,
+    /// When the request must be answered by, if known (see [`deadline`]).
+    pub(crate) deadline: Option<std::time::Instant>,
+}
+
+/// When a request must be answered by: its start plus the earlier of `timeouts.deadline` and the
+/// client's read timeout (a whole response's for unstreamed requests), as routing applies them.
+pub(crate) fn deadline(
+    cx: &Ctx,
+    resilience: &Value,
+    headers: &http::HeaderMap,
+    stream: bool,
+) -> Option<std::time::Instant> {
+    let configured = antirion_resilience::Policy::from_value(resilience)
+        .timeouts
+        .deadline;
+    let read = crate::controls::read_timeout(headers).filter(|_| !stream);
+    let within = match (configured, read) {
+        (Some(d), Some(r)) => Some(d.min(r)),
+        (d, r) => d.or(r),
+    };
+    within.map(|d| cx.started + d)
 }
 
 /// `H = 1 + h` from the effective `policies.resilience`: `h` is `hedging.max_extra` (default 1)
@@ -462,7 +483,8 @@ pub(crate) async fn admit(cx: &Ctx, slot: &Slot, a: &Admission<'_>) -> Result<Ad
         multiplier: line.multiplier,
         now: cx.rt.now(),
     };
-    let planned = plan(policies, &input)?;
+    let mut planned = plan(policies, &input)?;
+    planned.deadline = a.deadline;
     if cx.rt.ledger.rejects_budgeted() && planned.holds.iter().any(|h| h.info.unit.is_budget()) {
         let mut e = GatewayError::with_reason(
             crate::reasons::LEDGER_UNAVAILABLE,

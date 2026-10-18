@@ -247,6 +247,7 @@ async fn open(
             candidates: &refs,
             stream: true,
             hedge: 1,
+            deadline: None,
         },
     )
     .await?;

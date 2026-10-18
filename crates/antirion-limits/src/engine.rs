@@ -1,6 +1,8 @@
 //! The reservation engine the data plane calls: admit at stage `admit`, per-attempt holds before
-//! each attempt, settle before the last response byte. Every store call has a deadline; a store
-//! that misses it is unavailable and each counter follows its `on_store_unavailable`.
+//! each attempt, settle before the last response byte. Every store call has a deadline; a call
+//! that misses it, or fails, leaves its counters to their `on_store_unavailable`, and an admission
+//! that timed out is sent once more when the request's deadline allows. The store is taken out of
+//! use only when failures persist ([`FailureDetection`]), until probes find it again.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -15,6 +17,7 @@ use parking_lot::Mutex;
 
 use crate::counter::{CounterId, Hold, HoldMode, Rule};
 use crate::decl::OnUnavailable;
+pub use crate::degraded::FailureDetection;
 use crate::degraded::{DegradedCause, Health, Queued, ReplayQueue, local_share};
 use crate::headers;
 use crate::money::DEC_ONE;
@@ -43,8 +46,18 @@ pub struct EngineConfig {
     pub lease_ttl: Duration,
     /// The deadline of every store call.
     pub store_timeout: Duration,
+    /// When failed calls take the store out of use.
+    pub failure_detection: FailureDetection,
     /// Settlements kept for replay while the store is down.
     pub replay_capacity: usize,
+}
+
+/// How a node uses its counter store.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct StoreSettings {
+    /// The deadline of every call (`cluster.counters.redis.command_timeout`).
+    pub timeout: Duration,
+    pub failure_detection: FailureDetection,
 }
 
 /// The reservation engine over a counter store.
@@ -92,9 +105,9 @@ impl<S: CounterStore> LimitsEngine<S> {
             local: MemoryCounters::new(clock),
             queue: ReplayQueue::new(cfg.replay_capacity),
             lease_us: AtomicU64::new(u64::try_from(cfg.lease_ttl.as_micros()).unwrap_or(u64::MAX)),
+            health: Health::new(cfg.failure_detection),
             cfg,
             known_nodes: AtomicU32::new(1),
-            health: Health::default(),
             synced: Mutex::new(HashMap::new()),
         }
     }
@@ -122,18 +135,31 @@ impl<S: CounterStore> LimitsEngine<S> {
 
     async fn call<T>(&self, f: impl Future<Output = Result<T, StoreError>>) -> Result<T, StoreError> {
         if self.health.is_down() {
-            return Err(StoreError::Unavailable("marked down".into()));
+            return Err(StoreError::MarkedDown);
         }
-        match tokio::time::timeout(self.cfg.store_timeout, f).await {
-            Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => {
-                self.health.mark_down();
-                Err(e)
-            }
-            Err(_) => {
-                self.health.mark_down();
-                Err(StoreError::Unavailable("timed out".into()))
-            }
+        let outcome = match tokio::time::timeout(self.cfg.store_timeout, f).await {
+            Ok(r) => r,
+            Err(_) => Err(StoreError::TimedOut),
+        };
+        self.health.record(outcome.is_ok());
+        outcome
+    }
+
+    /// An admission call, sent once more when it timed out and the request's deadline leaves time
+    /// for another: a short stall then costs one store deadline, not the request. The store may
+    /// have applied the first call late; the second then replays it.
+    async fn admit_call(
+        &self,
+        req: &AdmitRequest<'_>,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<AdmitDecision, StoreError> {
+        let first = self.call(self.store.admit(req)).await;
+        let again = matches!(first, Err(StoreError::TimedOut))
+            && deadline.is_none_or(|d| std::time::Instant::now() + self.cfg.store_timeout <= d);
+        if again {
+            self.call(self.store.admit(req)).await
+        } else {
+            first
         }
     }
 
@@ -182,7 +208,7 @@ impl<S: CounterStore> LimitsEngine<S> {
             group: plan.group,
             holds: &holds,
         };
-        let mut decision = self.call(self.store.admit(&req)).await;
+        let mut decision = self.admit_call(&req, plan.deadline).await;
         if let Ok(AdmitDecision::Refused { refusals }) = &decision
             && refusals.iter().any(|f| {
                 plan.holds
@@ -389,7 +415,7 @@ impl<S: CounterStore> LimitsEngine<S> {
             group: r.group,
             holds: store_holds,
         };
-        match self.call(self.store.admit(&req)).await {
+        match self.admit_call(&req, r.deadline).await {
             Ok(AdmitDecision::Admitted { views }) => {
                 r.holds = holds;
                 r.views = views;

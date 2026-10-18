@@ -276,6 +276,16 @@ const REDIS_FACTS: NodeFact[] = [
   { label: 'Connections in the pool', path: 'counters.redis.pool_size' },
   { label: 'Command timeout', path: 'counters.redis.command_timeout' },
   { label: 'Key prefix', path: 'counters.redis.key_prefix' },
+  { label: 'Failed calls counted over', path: 'counters.redis.failure_detection.window' },
+  {
+    label: 'Out of use after at least',
+    path: 'counters.redis.failure_detection.min_failures',
+    hint: 'Failed calls within that time.',
+  },
+  {
+    label: 'And a share of calls of at least',
+    path: 'counters.redis.failure_detection.failure_rate',
+  },
 ];
 
 /**

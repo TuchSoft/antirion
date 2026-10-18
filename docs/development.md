@@ -567,6 +567,21 @@ which migrates under an advisory lock (`store/src/pg/schema.rs`; a binary older 
   (`account::Slot`); a refused local share carries the header on its 429. `limits.lease_ttl` is the
   node lease, renewed every `probe_interval`; a concurrency refusal first expires the reservations
   of nodes whose lease ran out.
+- **Counter store failures** (`antirion-limits/src/degraded.rs`, `engine.rs`): every call has
+  `cluster.counters.redis.command_timeout`. A call that fails or misses it leaves that request's
+  counters to their `on_store_unavailable` (a budget fails closed: 503 `limits_unavailable`) and
+  queues its settlement. An admission that timed out is sent once more when another timeout fits
+  before the request's deadline (`timeouts.deadline`, or the client's read timeout for an
+  unstreamed request), so a stall shorter than about twice the timeout costs the request latency,
+  not an answer; when the store applied the first call late, the second replays it. The node takes
+  the store out of use only when `failure_detection` finds failures persisting: within its trailing
+  `window` (1 s) at least `min_failures` (5) calls failed and they are at least `failure_rate` (0.5)
+  of the calls, so a stall that fails every call in flight but few of the window's is not an
+  outage, while a store that stops answering is out of use after about half a window under load
+  (and after `min_failures` heartbeats when idle). Out of use, no call is sent: every request is
+  evaluated without the store (budgets fail closed) until three probes in a row pass,
+  `probe_interval` apart. Settlements queued while the store stayed in use are replayed at the next
+  probe round.
 - **`?wait=`** on a write (`Call::mutated`) polls the live nodes until every ready one serves the
   new generation, and says whether it did in `x-antirion-config-propagated` (and `propagated` of
   `config:apply`).
@@ -1420,6 +1435,9 @@ The Valkey tests run when `ANTIRION_TEST_VALKEY_URL` is set (see Limits).
 - Ledger lines are copied into every node's memory (the whole ledger); the spend reports read
   memory, not the store.
 - Expired reservations of a stopped node release their holds but write no `expired` ledger line.
+- An admission the counter store applies only after both of its calls timed out keeps its holds
+  until the node stops and its lease runs out: the request was evaluated without the store, and
+  nothing settles the late record.
   Admin reads during a store outage are served from the snapshot, but only `GET /cluster` says
   `stale` (a document export has no place for it).
 
