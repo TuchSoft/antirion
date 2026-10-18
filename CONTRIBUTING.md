@@ -139,11 +139,12 @@ left in the pull request or an issue.
 
 ## Releases
 
-A `vX.Y.Z` tag on `main` runs `.github/workflows/release.yml`: it builds the binaries for Linux and
-macOS on amd64 and arm64 with the console embedded, their SHA-256 list, SBOMs, signatures and
+A `vX.Y.Z` tag on `main` runs `.github/workflows/release.yml`: it builds the binaries for Linux on
+amd64 and arm64 with the console embedded, their SHA-256 list, SBOMs, signatures and
 provenance, and the multi-arch image on `ghcr.io`, verifies them and publishes the GitHub Release.
-It then starts `.github/workflows/publish.yml`, which copies the image to Docker Hub and publishes
-the npm package `antirion`, whose version it sets from the tag.
+It then starts `.github/workflows/publish.yml`, which copies the image to Docker Hub. The npm
+package `antirion` (the launcher in `npm/`) is published only from a release that also has the
+macOS binaries it downloads; releases are Linux only for now, so that part is skipped.
 
 `publish.yml` needs these repository secrets; without them, it skips that part with a notice:
 

@@ -4,21 +4,13 @@ Run Antirion on your machine, open the console, and send a first request through
 is the quickest way; Docker Compose adds email and a mock upstream, and Kubernetes with Helm and
 running from source follow.
 
-## One command: npx or docker run
-
-With Node.js 18 or later:
+## One command: docker run
 
 ```bash
-npx -y antirion
+docker run -p 8080:8080 -p 8081:8081 -v antirion-data:/var/lib/antirion eliasbiondo/antirion
 ```
 
-or with Docker:
-
-```bash
-docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion
-```
-
-Neither needs a config file. The gateway starts standalone with the embedded store, generates a
+It needs no config file. The gateway starts standalone with the embedded store, generates a
 bootstrap token and an encryption key into its data directory, and prints where everything is:
 
 ```text
@@ -27,24 +19,23 @@ Antirion 0.1.0 is running.
   Console      http://localhost:8081/ui/
   Admin token  ak-antirion-…
                Shown on this first start only; it is kept in
-               /home/you/.antirion/bootstrap-token
+               /var/lib/antirion/data/bootstrap-token
   Data plane   http://localhost:8080/v1
-  Data dir     /home/you/.antirion
+  Data dir     /var/lib/antirion/data
 
 Open http://localhost:8081/ui/ and sign in with the admin token, then add a provider, a model and an API key.
 ```
 
 Open the console and paste the token into **Admin token**, then follow
 [Your first request](#your-first-request) with a real provider (the mock upstream comes with
-Compose, below). Later starts print where the token is kept instead of the token itself:
-`~/.antirion/bootstrap-token`, or `/var/lib/antirion/data/bootstrap-token` in the container
+Compose, below). Later starts print where the token is kept instead of the token itself,
+`/var/lib/antirion/data/bootstrap-token` in the `antirion-data` volume
 (`docker cp <container>:/var/lib/antirion/data/bootstrap-token - | tar -xO` reads it).
 
-`npx -y antirion` downloads the release binary for your platform (Linux with glibc 2.36 or later,
-or macOS, on x64 or arm64) on its first run, checks its SHA-256 against the release's checksums and
-keeps it in `~/.cache/antirion/<version>/`; arguments go to the binary. Running the binary with no
-arguments, or `antirion serve` without `--config`, does the same. These flags, or the variables
-next to them, change it:
+The release binary for Linux, or one built from source, does the same with no arguments (or
+`antirion serve` without `--config`), with its data in the data directory below. In the container, flags go
+after the image name (`docker run … eliasbiondo/antirion serve --admin-port 9081`). These flags, or
+the variables next to them, change it:
 
 | Flag               | Variable                  | Default                                       |
 | ------------------ | ------------------------- | --------------------------------------------- |
@@ -56,8 +47,8 @@ next to them, change it:
 | `--data-plane-url` | `ANTIRION_DATA_PLANE_URL` | `http://localhost:<data port>`                |
 
 `ANTIRION_BOOTSTRAP_TOKEN` and `ANTIRION_ENCRYPTION_KEY` (the base64 of 32 bytes) replace the
-generated token and key. The image keeps its data in the volume `/var/lib/antirion`; name it
-(`-v antirion-data:/var/lib/antirion`) to keep the gateway across containers. When you publish the
+generated token and key. The image keeps its data in the volume `/var/lib/antirion`; the command
+above names it `antirion-data`, so a new container keeps the same gateway. When you publish the
 container's ports elsewhere, say so: `docker run -p 9080:8080 -p 9081:8081 -e
 ANTIRION_PUBLIC_ORIGIN=http://localhost:9081 -e ANTIRION_DATA_PLANE_URL=http://localhost:9080
 eliasbiondo/antirion`.
@@ -106,7 +97,7 @@ gateway` follows its log.
 
 ## Your first request
 
-With `npx` or `docker run`, skip the mock: add your provider in step 1 by choosing it and pasting
+With `docker run`, skip the mock: add your provider in step 1 by choosing it and pasting
 its API key.
 
 The mock upstream answers like OpenAI and Anthropic, with fixed text, token counts and a little
@@ -173,7 +164,7 @@ shows. Compose sets it to `http://localhost:<ANTIRION_ADMIN_PORT>`, so open the 
 Then `docker compose up -d` again to apply. After editing the startup file in `compose.yaml`
 itself (its `configs:` section), add `--force-recreate`: Compose does not notice that change.
 
-Without a config file (`npx -y antirion`, `docker run`), no `auth.admin.public_origin` is
+Without a config file (`docker run`, or the binary with no arguments), no `auth.admin.public_origin` is
 configured: the gateway's own origin is `--public-origin` (`ANTIRION_PUBLIC_ORIGIN`, by default
 `http://localhost:<admin port>`), used for links to the console, and cookie changes are accepted
 from it or from the address the browser used, so `http://127.0.0.1:8081/ui/` works too. Once

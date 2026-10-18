@@ -1,4 +1,4 @@
-# On a vX.Y.Z tag: release binaries for Linux and macOS (amd64 and arm64) with the console embedded,
+# On a vX.Y.Z tag: release binaries for Linux (amd64 and arm64) with the console embedded,
 # their SHA-256 checksums, and multi-arch images on ghcr.io, each with a CycloneDX SBOM, keyless
 # Sigstore signatures bound to this workflow, and SLSA v1.0 Build Level 3 provenance; the published
 # artefacts are verified before the release is published. publish.yml then copies the image to
@@ -65,8 +65,8 @@ jobs:
           path: console/out
           if-no-files-found: error
 
-  # Archives are named antirion-<tag>-<os>-<arch>.tar.gz, os linux or darwin, arch amd64 or arm64,
-  # each holding the one file `antirion`: the npm package downloads them by that name.
+  # Archives are named antirion-<tag>-linux-<arch>.tar.gz, arch amd64 or arm64, each holding the one
+  # file `antirion`.
   binaries-linux:
     needs: console
     strategy:
@@ -124,65 +124,10 @@ jobs:
             antirion-*.cdx.json
             dist/${{ matrix.arch }}/antirion
 
-  binaries-macos:
-    needs: console
-    strategy:
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-15
-          - arch: amd64
-            runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: console
-          path: console/out
-      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
-        with:
-          tool: cargo-auditable,cargo-cyclonedx
-      - name: The build is reproducible
-        run: ci/reproducible.sh --auditable --package antirion --bin antirion
-      - name: Build
-        env:
-          ANTIRION_BUILD_COMMIT: ${{ github.sha }}
-          CARGO_INCREMENTAL: "0"
-          ARCH: ${{ matrix.arch }}
-          ARCHIVE: antirion-${{ github.ref_name }}-darwin-${{ matrix.arch }}.tar.gz
-        run: |
-          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
-          export SOURCE_DATE_EPOCH
-          # Apple's linker records the absolute paths of the object files that hold the debug information.
-          export CARGO_BUILD_RUSTFLAGS="--remap-path-prefix=$PWD=/antirion --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup -C link-arg=-Wl,-oso_prefix,$PWD/"
-          export CFLAGS="-ffile-prefix-map=$PWD=/antirion" CXXFLAGS="-ffile-prefix-map=$PWD=/antirion"
-          cargo auditable build --release --locked -p antirion
-          target/release/antirion version --json | tee version.json
-          if grep -q test-hooks version.json; then echo "the release binary has test hooks" >&2; exit 1; fi
-          expected=$([ "$ARCH" = amd64 ] && echo x86_64 || echo arm64)
-          actual=$(lipo -archs target/release/antirion)
-          if [ "$actual" != "$expected" ]; then echo "the binary is $actual, not $expected" >&2; exit 1; fi
-          COPYFILE_DISABLE=1 tar -C target/release --no-mac-metadata -czf "$ARCHIVE" antirion
-      - name: SBOM
-        run: |
-          cargo cyclonedx --manifest-path crates/antirion/Cargo.toml --format json --spec-version 1.5
-          cp crates/antirion/*.cdx.json antirion-${{ github.ref_name }}-darwin-${{ matrix.arch }}.cdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: release-darwin-${{ matrix.arch }}
-          path: |
-            antirion-*.tar.gz
-            antirion-*.cdx.json
-
   # One SHA-256 list of every archive, published with them (the npm package checks its download
   # against it) and the subjects of their provenance.
   checksums:
-    needs: [binaries-linux, binaries-macos]
+    needs: binaries-linux
     runs-on: ubuntu-24.04
     permissions: {}
     outputs:
@@ -195,7 +140,7 @@ jobs:
       - id: sums
         run: |
           sums="antirion-$GITHUB_REF_NAME-sha256sums.txt"
-          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+          for platform in linux-amd64 linux-arm64; do
             test -f "antirion-$GITHUB_REF_NAME-$platform.tar.gz" || { echo "no archive for $platform" >&2; exit 1; }
           done
           sha256sum antirion-*.tar.gz | tee "$sums"
@@ -359,11 +304,11 @@ jobs:
           DIGEST: ${{ needs.image.outputs.digest }}
         run: |
           cat > notes.md <<NOTES
-          Run it: \`npx -y antirion\`, or \`docker run -p 8080:8080 -p 8081:8081 eliasbiondo/antirion:${GITHUB_REF_NAME#v}\`.
+          Run it: \`docker run -p 8080:8080 -p 8081:8081 -v antirion-data:/var/lib/antirion eliasbiondo/antirion:${GITHUB_REF_NAME#v}\`.
 
           Image: \`$IMAGE@$DIGEST\`
 
-          Binaries: \`antirion-$GITHUB_REF_NAME-<os>-<arch>.tar.gz\` for linux and darwin on amd64 and arm64, with
+          Binaries: \`antirion-$GITHUB_REF_NAME-linux-<arch>.tar.gz\` for amd64 and arm64, with
           their SHA-256 in \`antirion-$GITHUB_REF_NAME-sha256sums.txt\`.
 
           Verify an archive:

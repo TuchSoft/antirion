@@ -1,8 +1,8 @@
 # After a release is published: copies its image from ghcr.io to Docker Hub as
 # eliasbiondo/antirion:<version> (and :latest when it is the latest release), and publishes the npm
-# package `antirion` at the release's version, with npm provenance. Each part runs only when its
-# secrets are set (DOCKERHUB_USERNAME and DOCKERHUB_TOKEN; NPM_TOKEN) and is skipped with a notice
-# otherwise.
+# package `antirion` at the release's version, with npm provenance, when the release has every
+# archive the launcher downloads (Linux and macOS). Each part runs only when its secrets are set
+# (DOCKERHUB_USERNAME and DOCKERHUB_TOKEN; NPM_TOKEN) and is skipped with a notice otherwise.
 #
 # The release workflow starts this one once it has published a release, since a release published
 # with a workflow's token starts no other workflow. Run it by hand to publish an existing tag again;
@@ -138,7 +138,9 @@ jobs:
         working-directory: npm
         run: node --test
       # The package carries the release's checksums, checked against the release workflow's
-      # signature, so the launcher verifies its download against what was published with it.
+      # signature, so the launcher verifies its download against what was published with it. A
+      # release without an archive the launcher downloads (a Linux-only release) publishes no
+      # package.
       - name: The release's checksums
         if: env.HAS_SECRETS == 'true'
         env:
@@ -150,16 +152,21 @@ jobs:
             --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com "$sums"
           for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
-            grep -q " antirion-$TAG-$platform.tar.gz\$" "$sums" || { echo "::error::$sums lists no $platform archive"; exit 1; }
+            if ! grep -q " antirion-$TAG-$platform.tar.gz\$" "$sums"; then
+              echo "::notice title=npm skipped::$TAG has no $platform archive, so the npm package was not published."
+              echo "COMPLETE=false" >> "$GITHUB_ENV"
+              exit 0
+            fi
           done
+          echo "COMPLETE=true" >> "$GITHUB_ENV"
           cp "$sums" npm/checksums.txt
           cp LICENSE npm/LICENSE
       - name: Set the version
-        if: env.HAS_SECRETS == 'true'
+        if: env.HAS_SECRETS == 'true' && env.COMPLETE == 'true'
         working-directory: npm
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
       - name: Publish
-        if: env.HAS_SECRETS == 'true'
+        if: env.HAS_SECRETS == 'true' && env.COMPLETE == 'true'
         working-directory: npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
