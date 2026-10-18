@@ -1,0 +1,66 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "client": {
+    "drop_excess_requests": false,
+    "initial_pool_size": @POOL@,
+    "enable_logging": false,
+    "disable_content_logging": true,
+    "enforce_auth_on_inference": true,
+    "allowed_origins": ["*"],
+    "max_request_body_size_mb": 64
+  },
+  "framework": {
+    "pricing": {
+      "pricing_url": "file://@DIR@/datasheet.json",
+      "model_parameters_url": "file://@DIR@/model-parameters.json",
+      "pricing_sync_interval": 86400,
+      "mcp_library_sync_interval": 0,
+      "live_models_sync_interval": 0
+    }
+  },
+  "config_store": {"enabled": true, "type": "sqlite", "config": {"path": "@APP@/config.db"}},
+  "logs_store": {"enabled": false},
+  "providers": {
+    "mockl0": {
+      "keys": [{"name": "mock", "value": "sk-bench-upstream", "models": ["*"], "weight": 1}],
+      "network_config": {"base_url": "http://@MOCK@/L0", "allow_private_network": true, "default_request_timeout_in_seconds": 60},
+      "concurrency_and_buffer_size": {"concurrency": @CONC@, "buffer_size": @BUFFER@},
+      "custom_provider_config": {"base_provider_type": "openai"}
+    },
+    "mockls": {
+      "keys": [{"name": "mock", "value": "sk-bench-upstream", "models": ["*"], "weight": 1}],
+      "network_config": {"base_url": "http://@MOCK@/LS", "allow_private_network": true, "default_request_timeout_in_seconds": 60},
+      "concurrency_and_buffer_size": {"concurrency": @CONC@, "buffer_size": @BUFFER@},
+      "custom_provider_config": {"base_provider_type": "openai"}
+    },
+    "mockl1500": {
+      "keys": [{"name": "mock", "value": "sk-bench-upstream", "models": ["*"], "weight": 1}],
+      "network_config": {"base_url": "http://@MOCK@/L1500", "allow_private_network": true, "default_request_timeout_in_seconds": 60},
+      "concurrency_and_buffer_size": {"concurrency": @CONC@, "buffer_size": @BUFFER@},
+      "custom_provider_config": {"base_provider_type": "openai"}
+    },
+    "mockant": {
+      "keys": [{"name": "mock", "value": "sk-bench-upstream", "models": ["*"], "weight": 1}],
+      "network_config": {"base_url": "http://@MOCK@/L0", "allow_private_network": true, "default_request_timeout_in_seconds": 60},
+      "concurrency_and_buffer_size": {"concurrency": @CONC@, "buffer_size": @BUFFER@},
+      "custom_provider_config": {"base_provider_type": "anthropic"}
+    }
+  },
+  "governance": {
+    "virtual_keys": [
+      {
+        "id": "bench",
+        "name": "bench",
+        "value": "sk-bf-bench-0123456789abcdef0123",
+        "is_active": true,
+        "allow_all_providers": false,
+        "provider_configs": [
+          {"provider": "mockl0", "allowed_models": ["bench-upstream"], "key_ids": ["*"]},
+          {"provider": "mockls", "allowed_models": ["bench-upstream"], "key_ids": ["*"]},
+          {"provider": "mockl1500", "allowed_models": ["bench-upstream"], "key_ids": ["*"]},
+          {"provider": "mockant", "allowed_models": ["bench-upstream"], "key_ids": ["*"]}
+        ]
+      }
+    ]
+  }
+}

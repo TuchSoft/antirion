@@ -1,0 +1,24 @@
+# LiteLLM proxy (the version in VERSION): the mock's latency profiles as models, the master key as the only key,
+# no database (so no spend logs), no callbacks.
+model_list:
+  - model_name: bench-chat
+    litellm_params: {model: openai/bench-upstream, api_base: "http://@MOCK@/L0/v1", api_key: sk-bench-upstream}
+  - model_name: bench-chat-ls
+    litellm_params: {model: openai/bench-upstream, api_base: "http://@MOCK@/LS/v1", api_key: sk-bench-upstream}
+  - model_name: bench-chat-l1500
+    litellm_params: {model: openai/bench-upstream, api_base: "http://@MOCK@/L1500/v1", api_key: sk-bench-upstream}
+  - model_name: bench-embed
+    litellm_params: {model: openai/bench-upstream, api_base: "http://@MOCK@/L0/v1", api_key: sk-bench-upstream}
+  - model_name: bench-messages
+    litellm_params: {model: anthropic/bench-upstream, api_base: "http://@MOCK@/L0", api_key: sk-bench-upstream}
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  json_logs: true
+  request_timeout: 60
+  num_retries: 0
+general_settings:
+  master_key: sk-bench-litellm-master-0123456789
+  disable_spend_logs: true
+  disable_error_logs: true
+  proxy_batch_write_at: 60

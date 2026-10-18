@@ -1,0 +1,21 @@
+# Bifrost's entry in an interleaved targets file (antirion-bench cell --interleave). The AWS run's
+# vm/targets.sh fills @GW@ (the gateway machine's address), @AGENT@ (the agent's host), @MOCK@ (the
+# mock's host:port), @DIR@ (this directory on the machine) and @VERSION@ (VERSION).
+- name: bifrost
+  version: "@VERSION@"
+  nodes: ["@GW@:18080"]
+  agent: "@AGENT@:19500"
+  key: sk-bf-bench-0123456789abcdef0123
+  command: ["@DIR@/start.sh"]
+  env: {MOCK: "@MOCK@", PORT: "18080"}
+  ready: /health
+  ready_timeout_s: 120
+  settle_s: 2
+  models:
+    bench-chat: mockl0/bench-upstream
+    bench-chat@LS: mockls/bench-upstream
+    bench-chat@L1500: mockl1500/bench-upstream
+    bench-messages: mockant/bench-upstream
+    bench-embed: mockl0/bench-upstream
+  # With a model allow-list on its virtual key, it answers an unknown model with 400.
+  statuses: {S8-404: 400}

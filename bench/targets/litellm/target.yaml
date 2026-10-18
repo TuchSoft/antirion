@@ -1,0 +1,19 @@
+# LiteLLM's entry in an interleaved targets file (antirion-bench cell --interleave). The AWS run's
+# vm/targets.sh fills @GW@ (the gateway machine's address), @AGENT@ (the agent's host), @MOCK@ (the
+# mock's host:port), @DIR@ (this directory on the machine) and @VERSION@ (VERSION).
+- name: litellm
+  version: "@VERSION@"
+  nodes: ["@GW@:18090"]
+  agent: "@AGENT@:19500"
+  key: sk-bench-litellm-master-0123456789
+  command: ["@DIR@/start.sh"]
+  env: {MOCK: "@MOCK@", PORT: "18090"}
+  ready: /health/liveliness
+  ready_timeout_s: 240
+  settle_s: 3
+  # bench-chat, bench-messages and bench-embed keep their names; the latency profiles are models.
+  models:
+    bench-chat@LS: bench-chat-ls
+    bench-chat@L1500: bench-chat-l1500
+  # It answers an unknown key and an unknown model with 400.
+  statuses: {S8: 400, S8-404: 400}
