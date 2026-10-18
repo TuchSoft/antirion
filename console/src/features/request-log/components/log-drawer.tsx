@@ -25,7 +25,7 @@ import { useShell } from '@/stores/shell';
 
 import { useLogs } from '../store';
 import { requestMessages, responseView, storedBody } from '../transcript';
-import { cacheStatus, costUsd, flags, latencyMs, ttftMs } from '../types';
+import { cacheStatus, costUsd, flags, latencyMs, protocolCall, ttftMs } from '../types';
 import { CodeBlock as Json, MessagesTab, RequestTab, ResponseTab } from './drawer-content';
 import { ReplayDialog } from './replay-dialog';
 import { EraseEndUserButton } from './erase-end-user';
@@ -372,6 +372,7 @@ export function LogDrawer({
   const flagged = r ? flags(r).length > 0 : false;
   const cost: Record<string, unknown> | undefined = r?.cost;
   const scopes = useKeyScopes(r?.key ?? null);
+  const call = r ? protocolCall(r) : null;
   const messageCount =
     r && canReadContent
       ? requestMessages(storedBody(r.content?.request)?.body).length +
@@ -419,8 +420,12 @@ export function LogDrawer({
             </span>
             <span className="flex flex-wrap items-center gap-1.5">
               <Badge mono>
-                <ModelMark model={r.model ?? r.requested_model} upstream={r.upstream_model} size="xs" />
-                {r.model ?? r.requested_model ?? '—'}
+                {call ? (
+                  <Icon name={call.kind === 'mcp' ? 'tools' : 'robot'} size={12} />
+                ) : (
+                  <ModelMark model={r.model ?? r.requested_model} upstream={r.upstream_model} size="xs" />
+                )}
+                {call ? call.label : (r.model ?? r.requested_model ?? '—')}
               </Badge>
               {r.key ? <Badge mono>{r.key}</Badge> : null}
               <Badge mono>{formatMoney(costUsd(r))}</Badge>
@@ -525,6 +530,11 @@ export function LogDrawer({
                     </div>
                   ) : null}
                 </Section>
+                {call ? (
+                  <Section title={call.kind === 'mcp' ? 'MCP' : 'A2A'}>
+                    <Facts items={call.facts} />
+                  </Section>
+                ) : null}
                 <Section title="Usage">
                   <Facts
                     items={[

@@ -159,6 +159,57 @@ export function promptPreview(r: LogRecord): string | null {
   return text ? (text.split('\n')[0]?.slice(0, 200) ?? null) : null;
 }
 
+/** What an MCP or A2A request did, from the record's `mcp` or `a2a` member. */
+export interface ProtocolCall {
+  kind: 'mcp' | 'a2a';
+  /** `crm · search_customers`, `docs · tools/list`, `billing · message/send`. */
+  label: string;
+  facts: { label: string; value: string }[];
+}
+
+function nonEmpty(v: unknown): string | null {
+  return typeof v === 'string' && v !== '' ? v : null;
+}
+
+/** The record's MCP or A2A call, or null for a model request. */
+export function protocolCall(r: LogRecord): ProtocolCall | null {
+  if (r.mcp) {
+    const server = nonEmpty(r.mcp.server);
+    const method = nonEmpty(r.mcp.method);
+    const tool = nonEmpty(r.mcp.tool);
+    const session = nonEmpty(r.mcp.session_id);
+    const code = typeof r.mcp.jsonrpc_error_code === 'number' ? String(r.mcp.jsonrpc_error_code) : null;
+    const what = tool ?? method ?? 'MCP';
+    return {
+      kind: 'mcp',
+      label: server ? `${server} · ${what}` : what,
+      facts: [
+        { label: 'Server', value: server ?? '—' },
+        { label: 'Method', value: method ?? '—' },
+        ...(tool ? [{ label: 'Tool', value: tool }] : []),
+        { label: 'Session', value: session ? `${session.slice(0, 18)}…` : '—' },
+        ...(code ? [{ label: 'JSON-RPC error', value: code }] : []),
+      ],
+    };
+  }
+  if (r.a2a) {
+    const agent = nonEmpty(r.a2a.agent);
+    const method = nonEmpty(r.a2a.method);
+    const task = nonEmpty(r.a2a.task_id);
+    const what = method ?? 'A2A';
+    return {
+      kind: 'a2a',
+      label: agent ? `${agent} · ${what}` : what,
+      facts: [
+        { label: 'Agent', value: agent ?? '—' },
+        { label: 'Method', value: method ?? '—' },
+        { label: 'Task', value: task ?? '—' },
+      ],
+    };
+  }
+  return null;
+}
+
 /** A typed amount as a number, or null when it is blank or not a number. */
 function amount(text: string): number | null {
   if (text.trim() === '') return null;

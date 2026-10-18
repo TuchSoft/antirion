@@ -2,6 +2,7 @@
 
 import { movesPageList } from '@/components/ui/list-detail';
 import { Badge, StatusCode } from '@/components/ui/badge';
+import { Icon } from '@/components/ui/icon';
 import { Mark, useModelFace } from '@/components/ui/marks';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Table, Td, Th, Tr, Truncate } from '@/components/ui/table';
@@ -25,6 +26,7 @@ import {
   latencyMs,
   type LogSort,
   promptPreview,
+  protocolCall,
   ttftMs,
 } from '../types';
 
@@ -211,15 +213,26 @@ export function LogTable(props: LogTableProps) {
             <StatusCode code={r.status_code} />
           </Td>
         );
-      case 'model':
+      case 'model': {
+        // An MCP or A2A request has no model: the server and tool (or the agent) it called stand in.
+        const call = protocolCall(r);
         return (
           <Td key={id}>
             <span className="mono flex items-center gap-1.5">
-              <RecordModelMark r={r} />
-              {r.model ?? r.requested_model ?? '—'}
+              {call ? (
+                <Tooltip content={call.kind === 'mcp' ? 'MCP server · tool' : 'A2A agent · method'}>
+                  <span className="flex text-muted">
+                    <Icon name={call.kind === 'mcp' ? 'tools' : 'robot'} size={14} />
+                  </span>
+                </Tooltip>
+              ) : (
+                <RecordModelMark r={r} />
+              )}
+              {call ? call.label : (r.model ?? r.requested_model ?? '—')}
             </span>
           </Td>
         );
+      }
       case 'team':
         return (
           <Td key={id} className="max-w-[240px]">
