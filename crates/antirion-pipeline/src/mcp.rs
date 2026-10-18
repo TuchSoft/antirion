@@ -228,9 +228,15 @@ pub(crate) async fn serve(
             Ok(authed) => {
                 let span = (auth_start, std::time::Instant::now());
                 let snap = Arc::clone(&cx.snap);
-                crate::trace::scope(cx, &crate::policy::Levels::new(&snap, &authed.key, "", None));
+                let levels = crate::policy::Levels::new(&snap, &authed.key, "", None);
+                crate::trace::scope(cx, &levels);
                 cx.log
                     .begin(reqlog::Record::start(cx, parts, endpoint, &authed, span));
+                // Content logging follows the same policy as model requests: the key's levels, the
+                // request's header and zero data retention.
+                if let Err(e) = crate::observe::content(cx, &levels, authed.controls.log_content) {
+                    return reqlog::finish(cx, cx.error(&e));
+                }
                 let caller = caller(cx, &authed);
                 if authed.claims.is_some() {
                     env.egress.subject = parts
@@ -277,6 +283,10 @@ pub(crate) async fn serve(
     } else {
         Bytes::new()
     };
+    if !body.is_empty() {
+        let doc: Option<Value> = serde_json::from_slice(&body).ok();
+        cx.log.request_content(&body, doc.as_ref());
+    }
 
     let token = matches!(path, McpPath::Gateway(_))
         .then(|| parts.headers.get("mcp-session-id"))
@@ -306,5 +316,30 @@ pub(crate) async fn serve(
     }
     report_definition_changes(cx);
     record(cx, &path, &log);
+    let resp = json_content(cx, resp).await;
     finish(cx, resp)
+}
+
+/// Records a JSON answer as the request's content, when content logging applies. A streamed
+/// (`text/event-stream`) answer is relayed as it comes and is not recorded.
+async fn json_content(cx: &Ctx, resp: Response<Body>) -> Response<Body> {
+    use http_body_util::BodyExt;
+    let json = resp
+        .headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("application/json"));
+    if !json || cx.log.read(|r| r.content.enabled) != Some(true) {
+        return resp;
+    }
+    let (parts, body) = resp.into_parts();
+    match body.collect().await {
+        Ok(collected) => {
+            let bytes = collected.to_bytes();
+            cx.log.response_content(&bytes);
+            Response::from_parts(parts, crate::ctx::full(bytes))
+        }
+        // The answer broke off while it was read: the client gets what the server sent, nothing.
+        Err(_) => Response::from_parts(parts, crate::ctx::full(Bytes::new())),
+    }
 }

@@ -732,7 +732,9 @@ names one that accepts TLS, with its `sslmode` and `sslrootcert`.
   `security.client_ip.trusted_proxies` (`ClientIpRt::trusts_peer`) and is `https` on a TLS listener.
 - Each authenticated MCP or A2A request writes one request-log record (`operation` and `dialect`
   `mcp` or `a2a`); the MCP crate gathers its `mcp` or `a2a` member and the error the client received
-  in `Env::log` (`CallLog`).
+  in `Env::log` (`CallLog`). Content logging follows the key's `policies.observability` like a
+  model request (`observe::content`): the call is recorded from the body, a JSON answer from the
+  response (`mcp::json_content`), both scrubbed by `content.redact_pii` when it is on.
 - `POST /test/reset` scope `cache` drops the list, discovery and card caches; `sessions` closes held
   HTTP+SSE upstream streams and forgets revocations and session counters.
 
@@ -1732,7 +1734,9 @@ What the Cache screen reads and changes beyond the cache's own rules.
 - The client-facing HTTP+SSE stream and its handle live on one node; closing it does not end the
   upstream sessions the stream's `initialize` opened (they expire upstream).
 - The request-log record holds what is known when the response head is ready: a JSON-RPC error
-  inside a relayed SSE answer, the tool-level outcome and cost are not recorded.
+  inside a relayed SSE answer, the tool-level outcome and cost are not recorded. With content
+  logging on, the JSON-RPC call and a JSON answer are kept as content; a streamed
+  (`text/event-stream`) answer is relayed as it comes and is not.
 
 ## Known gaps in observability
 
