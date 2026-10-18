@@ -346,7 +346,7 @@ impl Accounts {
     fn hold_of(&self, b: &NamedBudget<'_>, now: UtcMicros) -> Hold {
         Hold {
             counter: b.counter,
-            group: 0,
+            group: b.group,
             rule: b
                 .budget
                 .rule(b.quota.saturating_add(self.overlay.extra(b.identity, now)), now),

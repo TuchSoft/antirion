@@ -1,5 +1,6 @@
 //! Three cluster nodes under concurrent load charge one budget exactly, leave nothing held, and
-//! each comes to hold every node's ledger lines. Run when both
+//! each comes to hold every node's ledger lines; the Admin API of any node reads, adjusts, resets
+//! and rebuilds the budget counter requests charge. Run when both
 //! `ANTIRION_TEST_POSTGRES_URL` names a PostgreSQL server the tests may create databases on and
 //! `ANTIRION_TEST_VALKEY_URL` names a Valkey (or Redis) server:
 //!
@@ -188,6 +189,55 @@ async fn budget(valkey: &str, prefix: &str) -> (u128, u128) {
     (num(spent), num(reserved))
 }
 
+/// A node's startup file and the node started from it: (data, admin) addresses and its shutdown.
+async fn node(
+    dir: &ScratchDir,
+    i: usize,
+    store: &str,
+    valkey: &str,
+    prefix: &str,
+    mock: SocketAddr,
+    tasks: &mut JoinSet<()>,
+) -> ((SocketAddr, SocketAddr), Arc<antirion_runtime::Runtime>) {
+    let file = config(dir, i, store, valkey, prefix, mock);
+    let node = start(ServeOptions {
+        config: Some(file),
+        test_mode: false,
+    })
+    .await
+    .unwrap();
+    let addrs = (node.data_addr().unwrap(), node.admin_addr().unwrap());
+    let rt = Arc::clone(&node.rt);
+    tasks.spawn(async move {
+        let _ = node.run().await;
+    });
+    (addrs, rt)
+}
+
+/// A USD amount as the Admin API writes it, in the counter's units (nano-dollars).
+fn usd_units(text: &str) -> u128 {
+    let (int, frac) = text.split_once('.').unwrap_or((text, ""));
+    let frac = format!("{frac:0<9}");
+    int.parse::<u128>().unwrap() * 1_000_000_000 + frac.parse::<u128>().unwrap()
+}
+
+/// The project budget's settled spend and outstanding holds, as a node's Admin API reads them.
+async fn budget_via_admin(admin: SocketAddr) -> (u128, u128) {
+    let (status, _, body) = call(
+        admin,
+        "GET",
+        "/admin/v1/runtime/budgets/project/p/monthly",
+        TOKEN,
+        "",
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    (
+        usd_units(body["spent"].as_str().unwrap()),
+        usd_units(body["reserved"].as_str().unwrap()),
+    )
+}
+
 /// Requests in the ledger lines a node holds in memory.
 async fn ledger_requests(admin: SocketAddr) -> u64 {
     let (_, _, summary) = call(admin, "GET", "/admin/v1/reports/spend/summary", TOKEN, "").await;
@@ -214,19 +264,7 @@ async fn three_nodes_under_concurrent_load_charge_one_budget_exactly_and_share_t
 
     let mut nodes = Vec::new();
     for i in 0..NODES {
-        let file = config(&dir, i, &store, &valkey, &prefix, mock_addr);
-        let node = start(ServeOptions {
-            config: Some(file),
-            test_mode: false,
-        })
-        .await
-        .unwrap();
-        let addrs = (node.data_addr().unwrap(), node.admin_addr().unwrap());
-        let shutdown = node.rt.shutdown.clone();
-        tasks.spawn(async move {
-            let _ = node.run().await;
-        });
-        nodes.push((addrs, shutdown));
+        nodes.push(node(&dir, i, &store, &valkey, &prefix, mock_addr, &mut tasks).await);
     }
     let admin = nodes[0].0.1;
     let limits = json!({
@@ -296,8 +334,97 @@ async fn three_nodes_under_concurrent_load_charge_one_budget_exactly_and_share_t
         assert_eq!(seen, answered, "the ledger of the node at {admin}");
     }
 
-    for (_, shutdown) in &nodes {
-        shutdown.cancel();
+    for (_, rt) in &nodes {
+        rt.shutdown.cancel();
+    }
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
+}
+
+/// A tenant's budget is grouped under its organization in the counter store. The Admin API names
+/// the budget by its owner and must reach that same counter: reads show the spend requests
+/// charged, `:adjust` and `:reset` change it, and a node rebuilding the counter from the ledger
+/// writes it where requests will look.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_admin_api_reads_adjusts_resets_and_rebuilds_the_counter_requests_charge() {
+    const SPENT: usize = 4;
+    let mut drivers = JoinSet::new();
+    let (Some(store), Ok(valkey)) = (
+        fresh_database(&mut drivers).await,
+        std::env::var("ANTIRION_TEST_VALKEY_URL"),
+    ) else {
+        return;
+    };
+    let dir = ScratchDir::new("cluster-budgets");
+    let prefix = format!("bud{:x}:", antirion_core::ResourceUid::random().0);
+    let mock = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mock_addr = mock.local_addr().unwrap();
+    let mut tasks = JoinSet::new();
+    tasks.spawn(upstream(mock));
+    let mut nodes = Vec::new();
+    for i in 0..2 {
+        nodes.push(node(&dir, i, &store, &valkey, &prefix, mock_addr, &mut tasks).await);
+    }
+    let (data, admin) = (nodes[1].0.0, nodes[0].0.1);
+    let spec = json!({"name": "k", "spec": {"project": "p"}});
+    let (status, _, key) = call(admin, "POST", "/admin/v1/keys?wait=10s", TOKEN, &spec.to_string()).await;
+    assert_eq!(status, 201, "{key}");
+    let secret = key["secret"].as_str().unwrap().to_owned();
+    let chat = r#"{"model":"m","messages":[{"role":"user","content":"hello"}]}"#;
+    for _ in 0..SPENT {
+        let (status, _, body) = call(data, "POST", "/v1/chat/completions", &secret, chat).await;
+        assert_eq!(status, 200, "{body}");
+    }
+    let (spent, held) = budget(&valkey, &prefix).await;
+    assert!(spent > 0 && held == 0, "spent {spent}, reserved {held}");
+
+    // Another node's Admin API reads what the requests charged, not an empty counter beside it.
+    assert_eq!(budget_via_admin(admin).await, (spent, 0));
+    assert_eq!(budget(&valkey, &prefix).await, (spent, 0), "one budget counter");
+
+    // A node that rebuilds the counter (here: the store lost it) writes it where requests charge.
+    let mut seen = 0;
+    for _ in 0..100 {
+        seen = ledger_requests(admin).await;
+        if seen == SPENT as u64 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(seen, SPENT as u64, "the lines reached the store");
+    let client = redis::Client::open(valkey.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let (_, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+        .arg(0)
+        .arg("MATCH")
+        .arg(format!("{prefix}b:*"))
+        .arg("COUNT")
+        .arg(100_000)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let _: () = redis::cmd("DEL").arg(&keys).query_async(&mut conn).await.unwrap();
+    nodes.push(node(&dir, 2, &store, &valkey, &prefix, mock_addr, &mut tasks).await);
+    let fresh = nodes[2].0.1;
+    assert_eq!(budget_via_admin(fresh).await, (spent, 0));
+    assert_eq!(budget(&valkey, &prefix).await, (spent, 0));
+
+    // `:adjust` and `:reset` act on that counter, and every node reads the result.
+    let adjust = json!({"amount": "2.5", "reason": "credit check"}).to_string();
+    let path = "/admin/v1/runtime/budgets/project/p/monthly:adjust";
+    let (status, _, body) = call(admin, "POST", path, TOKEN, &adjust).await;
+    assert!(status == 200, "{status}: {body}");
+    let adjusted = spent + 2_500_000_000;
+    assert_eq!(budget(&valkey, &prefix).await, (adjusted, 0));
+    assert_eq!(budget_via_admin(nodes[1].0.1).await, (adjusted, 0));
+    let path = "/admin/v1/runtime/budgets/project/p/monthly:reset";
+    let (status, _, body) = call(fresh, "POST", path, TOKEN, "").await;
+    assert!(status == 200, "{status}: {body}");
+    assert_eq!(budget(&valkey, &prefix).await, (0, 0));
+    assert_eq!(budget_via_admin(admin).await, (0, 0));
+
+    for (_, rt) in &nodes {
+        rt.shutdown.cancel();
     }
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}

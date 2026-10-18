@@ -343,6 +343,9 @@ pub struct NamedBudget<'p> {
     pub identity: CounterId,
     /// The quota for this partition: an override, or the declared amount.
     pub quota: u128,
+    /// The organization incarnation for tenant-level budgets, zero otherwise: the store groups the
+    /// counter under it, as it does for requests.
+    pub group: u128,
     /// The partition values in declaration order (absent ones as the shared value).
     pub partition: Vec<(String, String)>,
 }
@@ -408,6 +411,7 @@ pub fn named_budget<'p>(
         counter,
         identity,
         quota,
+        group: p.group_of(level, owner),
         partition,
     })
 }
@@ -613,6 +617,39 @@ mod tests {
             json!({"keys": {"k": {"policies": {"budgets": {"b": {"unit": "tokens", "amount": 10,
             "partition_by": ["end_user"], "overrides": {"vip": 5}}}}}}}),
         )
+    }
+
+    /// A budget named by its owner (the Admin API, alerting, forecasts) is the counter requests
+    /// charge: the same id under the same organization grouping, at every tenancy level.
+    #[test]
+    fn named_budgets_share_the_group_of_the_requests_that_charge_them() {
+        let budget = json!({"budgets": {"b": {"unit": "usd", "amount": "1.00"}}});
+        let p = policies(json!({
+            "policies": budget,
+            "organizations": {"o": {"policies": budget}},
+            "teams": {"t": {"organization": "o", "policies": budget}},
+            "projects": {"p": {"team": "t", "policies": budget}},
+            "keys": {"k": {"project": "p", "policies": budget}, "loose": {"policies": budget}}
+        }));
+        let none: Vec<String> = vec![];
+        let mut a = attrs("k", "m", &none);
+        (a.organization, a.team, a.project) = ("o", "t", "p");
+        let charged = applicable(&p, &a, Scope::Request).unwrap();
+        assert_eq!(charged.len(), 5);
+        assert_ne!(p.organization_uid("o"), 0);
+        for c in &charged {
+            let named = named_budget(&p, c.decl.level, &c.decl.owner, "b", &[], Some("p")).unwrap();
+            assert_eq!(
+                (named.counter, named.group),
+                (c.counter, c.group),
+                "{:?}",
+                c.decl.level
+            );
+        }
+        // A key whose tenancy the document leaves out belongs to the default organization.
+        let loose = named_budget(&p, Level::Key, "loose", "b", &[], None).unwrap();
+        assert_eq!(loose.group, p.organization_uid("default"));
+        assert_eq!(p.group_of(Level::Gateway, "-"), 0);
     }
 
     #[test]

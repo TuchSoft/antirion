@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use antirion_config::model::DEFAULT_TENANT;
 use antirion_core::ResourceUid;
 use serde_json::Value;
 
@@ -54,6 +55,9 @@ pub struct Policies {
     decls: Vec<Declared>,
     by_owner: HashMap<(Level, String), Vec<usize>>,
     organizations: HashMap<String, ResourceUid>,
+    /// The parent of each team (its organization), project (its team) and key (its project) the
+    /// document names.
+    parents: HashMap<(Level, String), String>,
     /// Some budget declares a downgrade.
     downgrades: bool,
 }
@@ -75,6 +79,7 @@ impl Default for Policies {
             decls: Vec::new(),
             by_owner: HashMap::new(),
             organizations: HashMap::new(),
+            parents: HashMap::new(),
             downgrades: false,
         }
     }
@@ -300,6 +305,15 @@ impl Policies {
                 if level == Level::Organization {
                     b.p.organizations.insert(owner.clone(), uid);
                 }
+                let parent = match level {
+                    Level::Team => Some("organization"),
+                    Level::Project => Some("team"),
+                    Level::Key => Some("project"),
+                    _ => None,
+                };
+                if let Some(p) = parent.and_then(|f| spec.get(f)).and_then(Value::as_str) {
+                    b.p.parents.insert((level, owner.clone()), p.to_owned());
+                }
                 let path = format!("{}.{owner}", level.collection());
                 b.policies(
                     level,
@@ -377,6 +391,31 @@ impl Policies {
     #[must_use]
     pub fn organization_uid(&self, name: &str) -> u128 {
         self.organizations.get(name).map_or(0, |u| u.0)
+    }
+
+    /// The store grouping of the counters `(level, owner)` declares: the incarnation of the
+    /// organization a tenant level belongs to (a parent the document leaves out is the default
+    /// tenant, as for requests), zero for levels shared across tenants. The same value requests
+    /// carry, so a counter named by its owner is the one requests charge.
+    #[must_use]
+    pub fn group_of(&self, level: Level, owner: &str) -> u128 {
+        let parent = |level: Level, owner: &str| {
+            self.parents
+                .get(&(level, owner.to_owned()))
+                .map_or(DEFAULT_TENANT, String::as_str)
+                .to_owned()
+        };
+        let organization = match level {
+            Level::Organization => owner.to_owned(),
+            Level::Team => parent(Level::Team, owner),
+            Level::Project => parent(Level::Team, &parent(Level::Project, owner)),
+            Level::Key => {
+                let project = parent(Level::Key, owner);
+                parent(Level::Team, &parent(Level::Project, &project))
+            }
+            _ => return 0,
+        };
+        self.organization_uid(&organization)
     }
 
     /// Whether any declaration exists at all (no declarations: no counter-store round trip).
