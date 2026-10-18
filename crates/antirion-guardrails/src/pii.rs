@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::pattern::Span;
+use crate::pattern::{Span, Validate};
 
 /// A PII entity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +154,47 @@ impl Entity {
     }
 }
 
+/// A kind of personal data a `pii` guardrail defines itself (`pii.custom`): a pattern, an optional
+/// checksum, and the label its replacements and tokens carry. Like the built-in entities, a match
+/// never touches an ASCII letter or digit.
+#[derive(Clone, Debug)]
+pub struct CustomEntity {
+    pub name: String,
+    /// The uppercase label: `[CPF]`, `[CPF_1]`.
+    pub label: String,
+    pub(crate) re: Regex,
+    pub(crate) validate: Validate,
+    /// The longest match in code points; `None` when unbounded.
+    pub(crate) max: Option<usize>,
+}
+
+impl PartialEq for CustomEntity {
+    fn eq(&self, other: &CustomEntity) -> bool {
+        self.name == other.name
+            && self.label == other.label
+            && self.re.as_str() == other.re.as_str()
+            && self.validate == other.validate
+    }
+}
+
+impl Eq for CustomEntity {}
+
+impl CustomEntity {
+    /// Every confirmed occurrence in `text`.
+    pub(crate) fn spans(&self, text: &str) -> Vec<Span> {
+        self.re
+            .find_iter(text)
+            .filter(|m| m.end() > m.start() && bounded(text, m.start(), m.end()))
+            .filter(|m| self.validate.holds(m.as_str()))
+            .map(|m| Span {
+                start: m.start(),
+                end: m.end(),
+                label: self.label.clone(),
+            })
+            .collect()
+    }
+}
+
 /// The match is not preceded or followed by an ASCII letter or digit.
 fn bounded(text: &str, start: usize, end: usize) -> bool {
     let before = text.get(..start).and_then(|s| s.chars().next_back());
@@ -176,6 +217,34 @@ pub(crate) fn luhn(digits: &[u32]) -> bool {
         })
         .sum();
     sum.is_multiple_of(10)
+}
+
+/// The two mod-11 check digits that end `digits`, each over the digits before it with `weights`
+/// read from the right end of the list.
+fn mod11_ok(digits: &[u32], weights: &[u32]) -> bool {
+    let n = digits.len();
+    (n - 2..n).all(|at| {
+        let body = digits.get(..at).unwrap_or_default();
+        let w = weights.get(weights.len() - at..).unwrap_or_default();
+        let sum: u32 = body.iter().zip(w).map(|(d, w)| d * w).sum();
+        let r = sum % 11;
+        let check = if r < 2 { 0 } else { 11 - r };
+        digits.get(at) == Some(&check)
+    })
+}
+
+/// A Brazilian CPF: 11 digits, not all the same, whose two check digits hold.
+pub(crate) fn cpf_ok(digits: &[u32]) -> bool {
+    digits.len() == 11
+        && digits.iter().any(|d| Some(d) != digits.first())
+        && mod11_ok(digits, &[11, 10, 9, 8, 7, 6, 5, 4, 3, 2])
+}
+
+/// A Brazilian CNPJ: 14 digits, not all the same, whose two check digits hold.
+pub(crate) fn cnpj_ok(digits: &[u32]) -> bool {
+    digits.len() == 14
+        && digits.iter().any(|d| Some(d) != digits.first())
+        && mod11_ok(digits, &[6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2])
 }
 
 pub(crate) fn iban_ok(m: &str) -> bool {
@@ -240,6 +309,19 @@ mod tests {
                 assert!(e.spans(&text).is_empty(), "{e:?} must not detect {s}");
             }
         }
+    }
+
+    #[test]
+    fn brazilian_check_digits() {
+        let d = |s: &str| s.chars().filter_map(|c| c.to_digit(10)).collect::<Vec<u32>>();
+        assert!(cpf_ok(&d("529.982.247-25")));
+        assert!(cpf_ok(&d("11144477735")));
+        assert!(!cpf_ok(&d("529.982.247-24")));
+        assert!(!cpf_ok(&d("111.111.111-11")));
+        assert!(!cpf_ok(&d("5299822472")));
+        assert!(cnpj_ok(&d("11.222.333/0001-81")));
+        assert!(!cnpj_ok(&d("11.222.333/0001-82")));
+        assert!(!cnpj_ok(&d("00000000000000")));
     }
 
     #[test]

@@ -514,6 +514,47 @@
       "description": "Guardrail name.",
       "pattern": "^[a-z][a-z0-9_]{0,62}$"
     },
+    "PatternCheck": {
+      "enum": [
+        "none",
+        "luhn",
+        "iban_mod97",
+        "cpf",
+        "cnpj"
+      ],
+      "description": "The checksum a match must pass to count: Luhn, the IBAN mod-97 check, or the mod-11 check digits of a Brazilian CPF or CNPJ.",
+      "default": "none"
+    },
+    "PiiCustomEntity": {
+      "type": "object",
+      "description": "A kind of personal data defined by a pattern. Like the built-in entities, a match never touches an ASCII letter or digit.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique in the rule and not a built-in entity name.",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$"
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "A regular expression, under the limits of regex rules."
+        },
+        "validate": {
+          "$ref": "#/$defs/PatternCheck"
+        },
+        "label": {
+          "type": "string",
+          "description": "The label replacements and tokens name ([LABEL], [LABEL_1]); the name in upper case when absent.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,62}$"
+        }
+      },
+      "required": [
+        "name",
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
     "McpName": {
       "type": "string",
       "description": "MCP server or A2A agent name.",
@@ -9579,16 +9620,11 @@
               "default": "REDACTED"
             },
             "validate": {
-              "enum": [
-                "none",
-                "luhn",
-                "iban_mod97"
-              ],
-              "default": "none"
+              "$ref": "#/$defs/PatternCheck"
             },
             "reversible": {
               "type": "boolean",
-              "description": "Input matches become numbered tokens ([LABEL_1]) that the response gets back wherever the model repeats them; needs action redact, replacement label and no allow patterns.",
+              "description": "Input matches become numbered tokens ([LABEL_1]) that the output stage puts back; needs action redact, replacement label and no allow patterns.",
               "default": false
             }
           },
@@ -9636,8 +9672,8 @@
                   "ca_sin"
                 ]
               },
-              "minItems": 1,
               "uniqueItems": true,
+              "description": "The built-in entities; empty when only custom entities apply.",
               "default": [
                 "email",
                 "phone",
@@ -9647,6 +9683,15 @@
                 "ip_address",
                 "ca_sin"
               ]
+            },
+            "custom": {
+              "type": "array",
+              "description": "The rule's own kinds of personal data, found beside the built-in entities.",
+              "items": {
+                "$ref": "#/$defs/PiiCustomEntity"
+              },
+              "maxItems": 64,
+              "default": []
             },
             "preserve": {
               "type": "array",
@@ -9663,7 +9708,7 @@
             },
             "reversible": {
               "type": "boolean",
-              "description": "Input values become numbered tokens ([EMAIL_1]) that the response gets back wherever the model repeats them; needs action redact, replacement label and no preserve.",
+              "description": "Input values become numbered tokens ([EMAIL_1], [CPF_1]) that the response gets back wherever the model repeats them; needs action redact, replacement label and no preserve.",
               "default": false
             }
           },

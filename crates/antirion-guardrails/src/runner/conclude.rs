@@ -34,7 +34,12 @@ pub fn spans_in(def: &Def, text: &str) -> Vec<Span> {
     match &def.check {
         Check::Regex(r) => r.deny_spans(text),
         Check::Keywords(k) => k.spans(text),
-        Check::Pii(p) => p.entities.iter().flat_map(|e| e.spans(text)).collect(),
+        Check::Pii(p) => p
+            .entities
+            .iter()
+            .flat_map(|e| e.spans(text))
+            .chain(p.custom.iter().flat_map(|c| c.spans(text)))
+            .collect(),
         Check::Secrets(r) => r.spans(text),
         _ => Vec::new(),
     }

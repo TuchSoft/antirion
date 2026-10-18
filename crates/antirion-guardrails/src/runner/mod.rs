@@ -805,6 +805,35 @@ mod tests {
         assert_eq!(verdicts, [Verdict::Pass, Verdict::Pass, Verdict::Pass]);
     }
 
+    #[tokio::test]
+    async fn custom_entities_get_numbered_restorable_tokens_beside_the_built_in_ones() {
+        let doc = json!({"guardrails": {"definitions": {
+            "p": {"type": "pii", "pii": {"entities": ["phone"], "reversible": true, "custom": [
+                {"name": "cpf", "pattern": "[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}", "validate": "cpf"}]}},
+            "masked": {"type": "pii", "pii": {"entities": [], "custom": [
+                {"name": "member", "pattern": "M-[0-9]{4}", "label": "member_id"}]}}
+        }}});
+        let list = defs(&doc, &["p", "masked"]);
+        let facts = CallFacts::default();
+        let tokens = Tokenizer::default();
+        let cx = cx(&list, GuardStage::Input, &facts, Some(&tokens));
+        let text = "cpf 529.982.247-25 or 11144477735, not 529.982.247-24 nor x52998224725; \
+                    call +5511978399280; member M-0042";
+        let mut body = json!({"messages": [{"role": "user", "content": text}]});
+        let out = run_stage(&cx, &mut body, Dialect::Chat).await;
+        assert_eq!(
+            body["messages"][0]["content"],
+            "cpf [CPF_1] or [CPF_2], not 529.982.247-24 nor x52998224725; call [PHONE_1]; member [MEMBER_ID]"
+        );
+        let entities: Vec<&str> = out.evals[0].spans.iter().map(|s| s.entity.as_str()).collect();
+        assert_eq!(entities, ["CPF", "CPF", "PHONE"]);
+        let back = tokens.finish().unwrap();
+        assert_eq!(
+            back.restore("\"[CPF_2]\" and [[CPF_1]]").as_deref(),
+            Some("\"11144477735\" and [529.982.247-25]")
+        );
+    }
+
     fn cx_of<'a>(list: &'a [Arc<Def>], stage: GuardStage, facts: &'a CallFacts) -> StageCx<'a, NoNet> {
         cx(list, stage, facts, None)
     }

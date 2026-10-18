@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 use std::net::Ipv6Addr;
 
-use crate::pii::Entity;
+use crate::pii::{CustomEntity, Entity};
 
 /// A part of a value that a redaction keeps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +35,8 @@ impl Preserve {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PiiRules {
     pub entities: Vec<Entity>,
+    /// The rule's own kinds of personal data (`pii.custom`), found beside the built-in ones.
+    pub custom: Vec<CustomEntity>,
     pub preserve: Vec<Preserve>,
     /// Input values become numbered tokens that the output stage turns back into the values.
     pub reversible: bool,

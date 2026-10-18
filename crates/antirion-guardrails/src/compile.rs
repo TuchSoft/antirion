@@ -112,6 +112,7 @@ fn definition(
                 pii::Entity::parse,
                 &pii::ALL,
             ),
+            custom: custom_entities(d.get("pii"), &at.key("pii"), errors),
             preserve: list(d.get("pii").and_then(|p| p.get("preserve")), Preserve::parse, &[]),
             reversible: d.pointer("/pii/reversible").and_then(Value::as_bool) == Some(true),
         }),
@@ -222,6 +223,16 @@ fn definition(
                 "action divert needs divert_to",
             )),
         }
+    }
+    if let Check::Pii(p) = &check
+        && p.entities.is_empty()
+        && p.custom.is_empty()
+    {
+        conflict(
+            errors,
+            &at.key("pii").key("entities"),
+            "name at least one kind of personal data, built in or custom",
+        );
     }
     let mut check = check;
     if let Check::Regex(r) = &mut check
@@ -408,6 +419,61 @@ fn definition(
         stages
     };
     Some(def)
+}
+
+/// The `pii.custom` entities: each pattern compiled under the regex limits, names unique and apart
+/// from the built-in entities, the label the written one or the name in upper case.
+fn custom_entities(
+    block: Option<&Value>,
+    at: &DocPath,
+    errors: &mut Vec<ConfigError>,
+) -> Vec<pii::CustomEntity> {
+    let mut out: Vec<pii::CustomEntity> = Vec::new();
+    for (i, c) in block
+        .and_then(|b| b.get("custom"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let here = at.key("custom").index(i);
+        let (Some(name), Some(pattern)) = (s(c, "name"), s(c, "pattern")) else {
+            continue;
+        };
+        if pii::Entity::parse(name).is_some() {
+            conflict(
+                errors,
+                &here.key("name"),
+                "a built-in entity has this name: list it in entities instead",
+            );
+            continue;
+        }
+        if out.iter().any(|e| e.name == name) {
+            conflict(errors, &here.key("name"), "another custom entity has this name");
+            continue;
+        }
+        let (re, max) = match crate::pattern::compile_pattern(pattern) {
+            Ok(x) => x,
+            Err(why) => {
+                errors.push(ConfigError::new(
+                    &here.key("pattern"),
+                    DetailCode::InvalidFormat,
+                    why,
+                ));
+                continue;
+            }
+        };
+        out.push(pii::CustomEntity {
+            name: name.to_owned(),
+            label: s(c, "label").unwrap_or(name).to_uppercase(),
+            re,
+            validate: s(c, "validate")
+                .and_then(crate::pattern::Validate::parse)
+                .unwrap_or(crate::pattern::Validate::None),
+            max,
+        });
+    }
+    out
 }
 
 fn moderation(
@@ -655,6 +721,42 @@ mod tests {
         };
         assert_eq!(r.label, "member");
         assert!(g.defs["named"].reversible() && !g.defs["named"].enforcing());
+    }
+
+    #[test]
+    fn custom_entities_are_checked_and_labelled() {
+        let doc = json!({"guardrails": {"definitions": {
+            "a": {"type": "pii", "pii": {"entities": [], "custom": [
+                {"name": "cpf", "pattern": "[0-9]{11}"},
+                {"name": "cpf", "pattern": "[0-9]{3}"},
+                {"name": "email", "pattern": "x"},
+                {"name": "bad", "pattern": "(unclosed"}]}},
+            "b": {"type": "pii", "pii": {"entities": []}}
+        }}});
+        assert_eq!(
+            paths(&doc),
+            [
+                "guardrails.definitions.a.pii.custom[1].name",
+                "guardrails.definitions.a.pii.custom[2].name",
+                "guardrails.definitions.a.pii.custom[3].pattern",
+                "guardrails.definitions.b.pii.entities",
+            ]
+        );
+        let doc = json!({"guardrails": {"definitions": {
+            "p": {"type": "pii", "pii": {"custom": [
+                {"name": "cpf", "pattern": "[0-9]{11}", "label": "tax_id"},
+                {"name": "rg", "pattern": "[0-9]{9}"}]}},
+            "only": {"type": "pii", "pii": {"entities": [], "custom": [{"name": "rg", "pattern": "[0-9]+"}]}}
+        }}});
+        let g = compile(&doc).unwrap();
+        let Check::Pii(p) = &g.defs["p"].check else {
+            panic!()
+        };
+        let labels: Vec<&str> = p.custom.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["TAX_ID", "RG"]);
+        assert_eq!(p.entities.len(), pii::ALL.len());
+        assert_eq!(g.defs["p"].window_len(), Some(254));
+        assert_eq!(g.defs["only"].window_len(), None);
     }
 
     #[test]

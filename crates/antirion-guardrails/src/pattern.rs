@@ -28,17 +28,36 @@ pub enum Validate {
     Luhn,
     /// The match is an IBAN whose ISO 13616 mod-97 remainder is 1.
     IbanMod97,
+    /// The match's 11 digits are a Brazilian CPF whose two mod-11 check digits hold.
+    Cpf,
+    /// The match's 14 digits are a Brazilian CNPJ whose two mod-11 check digits hold.
+    Cnpj,
 }
 
 impl Validate {
-    fn holds(self, matched: &str) -> bool {
+    /// The checksum named `s` (`none`, `luhn`, `iban_mod97`, `cpf`, `cnpj`).
+    pub(crate) fn parse(s: &str) -> Option<Validate> {
+        Some(match s {
+            "none" => Validate::None,
+            "luhn" => Validate::Luhn,
+            "iban_mod97" => Validate::IbanMod97,
+            "cpf" => Validate::Cpf,
+            "cnpj" => Validate::Cnpj,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn holds(self, matched: &str) -> bool {
+        let digits = || -> Vec<u32> { matched.chars().filter_map(|c| c.to_digit(10)).collect() };
         match self {
             Validate::None => true,
             Validate::Luhn => {
-                let digits: Vec<u32> = matched.chars().filter_map(|c| c.to_digit(10)).collect();
+                let digits = digits();
                 digits.len() >= 2 && crate::pii::luhn(&digits)
             }
             Validate::IbanMod97 => crate::pii::iban_ok(matched),
+            Validate::Cpf => crate::pii::cpf_ok(&digits()),
+            Validate::Cnpj => crate::pii::cnpj_ok(&digits()),
         }
     }
 }
@@ -80,7 +99,7 @@ fn max_chars(h: &Hir) -> Option<usize> {
 }
 
 /// Compiles one pattern, reporting why it cannot be used.
-fn compile_pattern(p: &str) -> Result<(Regex, Option<usize>), String> {
+pub(crate) fn compile_pattern(p: &str) -> Result<(Regex, Option<usize>), String> {
     let re = RegexBuilder::new(p)
         .size_limit(PATTERN_SIZE_LIMIT)
         .build()
@@ -143,11 +162,11 @@ impl RegexCheck {
         let written = block.and_then(|b| b.get("label")).and_then(Value::as_str);
         let label = written.unwrap_or("REDACTED").to_owned();
         let max = if allow.is_empty() { bounded } else { None };
-        let validate = match block.and_then(|b| b.get("validate")).and_then(Value::as_str) {
-            Some("luhn") => Validate::Luhn,
-            Some("iban_mod97") => Validate::IbanMod97,
-            _ => Validate::None,
-        };
+        let validate = block
+            .and_then(|b| b.get("validate"))
+            .and_then(Value::as_str)
+            .and_then(Validate::parse)
+            .unwrap_or(Validate::None);
         RegexCheck {
             deny,
             allow,

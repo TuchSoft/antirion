@@ -1,6 +1,7 @@
 //! Reversible tokens: the provider sees `[PHONE_1]`, the client gets its number back, on Chat,
 //! Messages and Responses, streamed and not, translated and passthrough, with the token cut across
-//! stream chunks and wrapped in quotes and brackets; for built-in entities and pattern rules alike.
+//! stream chunks and wrapped in quotes and brackets; for built-in entities, a pii rule's custom
+//! entities and pattern rules alike.
 //! The request log keeps the answer the client received, with the restored values masked as its
 //! redaction says.
 
@@ -20,6 +21,7 @@ const VALUES: &[(&str, &str)] = &[
     ("+5511978399280", "PHONE"),
     ("ana@acme.example", "EMAIL"),
     ("ACCT-1234", "ACCOUNT"),
+    ("529.982.247-25", "CPF"),
 ];
 
 fn prompt() -> String {
@@ -434,7 +436,8 @@ async fn restored_values_reach_the_client_on_every_path_and_stay_masked_in_the_l
         },
         "guardrails": {"definitions": {
             "personal": {"type": "pii", "action": "redact",
-                "pii": {"entities": ["phone", "email"], "reversible": true}},
+                "pii": {"entities": ["phone", "email"], "reversible": true, "custom": [
+                    {"name": "cpf", "pattern": "[0-9]{3}\\.?[0-9]{3}\\.?[0-9]{3}-?[0-9]{2}", "validate": "cpf"}]}},
             "account": {"type": "regex", "action": "redact",
                 "regex": {"deny": ["ACCT-[0-9]{4}"], "reversible": true}}
         }},

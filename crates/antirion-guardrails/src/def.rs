@@ -437,7 +437,10 @@ impl Def {
         match &self.check {
             Check::Regex(r) => r.max_len(),
             Check::Keywords(k) => Some(k.max_len()),
-            Check::Pii(p) => p.entities.iter().map(|e| e.max_len()).max(),
+            Check::Pii(p) => {
+                let custom: Option<Vec<usize>> = p.custom.iter().map(|c| c.max).collect();
+                p.entities.iter().map(|e| e.max_len()).chain(custom?).max()
+            }
             Check::Secrets(r) => r.max_len(),
             _ => None,
         }
