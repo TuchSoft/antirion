@@ -159,10 +159,10 @@ impl PgStore {
         .await
     }
 
-    pub(crate) async fn rollup_rows(&self, q: &RollupQuery) -> Result<Vec<RollupRow>, StoreError> {
+    pub(crate) async fn rollup_rows(&self, q: &RollupQuery) -> Result<rollup::RollupPage, StoreError> {
         let s = rollup::query(true, q);
         let values = params(&s.args);
         let rows = self.rows(&s.text, &refs(&values)).await?;
-        rows.iter().map(rollup::pg_row).collect()
+        rollup::pg_page(&rows)
     }
 }

@@ -95,6 +95,34 @@ pub struct RollupQuery {
     pub any_of: Vec<(usize, Vec<String>)>,
     pub status_classes: Vec<u8>,
     pub scopes: Option<Vec<ScopeRef>>,
+    /// Rows after this one, in the order of the rows' key (start, node, dimensions).
+    pub after: Option<RollupPos>,
+    /// At most this many rows, in key order; `None` for every row, unordered.
+    pub limit: Option<usize>,
+}
+
+/// A rollup row's key within its grain: where the next page of a query starts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RollupPos {
+    pub start_us: i64,
+    pub node_id: String,
+    pub dims_key: String,
+}
+
+/// One page of rollup rows, with where the next page starts (the stored key of its last row,
+/// which a row written by an older version may have computed over fewer dimensions).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RollupPage {
+    pub rows: Vec<RollupRow>,
+    pub next: Option<RollupPos>,
+}
+
+fn pos(start_us: i64, node_id: &str, dims_key: String) -> RollupPos {
+    RollupPos {
+        start_us,
+        node_id: node_id.to_owned(),
+        dims_key,
+    }
 }
 
 /// Merges two encoded sketches.
@@ -136,6 +164,18 @@ pub(crate) fn query(pg: bool, q: &RollupQuery) -> Sql {
     }
     if let Some(scopes) = &q.scopes {
         scope_clause(&mut s, scopes, "organization", "team", "project");
+    }
+    if let Some(a) = &q.after {
+        let start = s.bind(Arg::Int(a.start_us));
+        let node = s.bind(Arg::Text(a.node_id.clone()));
+        let key = s.bind(Arg::Text(a.dims_key.clone()));
+        s.push(&format!(
+            " AND (start_us, node_id, dims_key) > ({start}, {node}, {key})"
+        ));
+    }
+    if let Some(n) = q.limit {
+        let n = s.bind(Arg::Int(i64::try_from(n).unwrap_or(i64::MAX)));
+        s.push(&format!(" ORDER BY start_us, node_id, dims_key LIMIT {n}"));
     }
     s
 }
@@ -182,6 +222,17 @@ fn sqlite_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RollupRow> {
         counts,
         sketches,
     })
+}
+
+/// A row read by a query, with the next page's position after it.
+pub(crate) fn pg_page(rows: &[tokio_postgres::Row]) -> Result<RollupPage, StoreError> {
+    let mut page = RollupPage::default();
+    for r in rows {
+        let row = pg_row(r)?;
+        page.next = Some(pos(row.start_us, &row.node_id, r.try_get::<_, String>(3)?));
+        page.rows.push(row);
+    }
+    Ok(page)
 }
 
 pub(crate) fn pg_row(r: &tokio_postgres::Row) -> Result<RollupRow, StoreError> {
@@ -259,12 +310,22 @@ fn sqlite_merge(c: &mut Connection, rows: &[RollupRow], merge: SketchMerge) -> R
     Ok(())
 }
 
-fn sqlite_query(c: &mut Connection, q: &RollupQuery) -> Result<Vec<RollupRow>, StoreError> {
+fn sqlite_query(c: &mut Connection, q: &RollupQuery) -> Result<RollupPage, StoreError> {
     let s = query(false, q);
     let mut stmt = c.prepare(&s.text)?;
     let args: Vec<rusqlite::types::Value> = s.args.iter().map(Arg::sqlite).collect();
-    let rows = stmt.query_map(rusqlite::params_from_iter(args), sqlite_row)?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
+        Ok((sqlite_row(r)?, r.get::<_, String>(3)?))
+    })?;
+    let mut page = RollupPage::default();
+    let mut last = None;
+    for row in rows {
+        let (row, key) = row?;
+        last = Some(pos(row.start_us, &row.node_id, key));
+        page.rows.push(row);
+    }
+    page.next = last;
+    Ok(page)
 }
 
 pub(crate) fn sqlite_schema() -> String {
@@ -295,7 +356,14 @@ impl Store {
         }
     }
 
+    /// The rows `q` selects; with a limit, one page of them in key order.
     pub async fn rollups(&self, q: RollupQuery) -> Result<Vec<RollupRow>, StoreError> {
+        Ok(self.rollup_page(q).await?.rows)
+    }
+
+    /// The rows `q` selects and where the next page starts: with a limit, the next page is the
+    /// same query `after` [`RollupPage::next`].
+    pub async fn rollup_page(&self, q: RollupQuery) -> Result<RollupPage, StoreError> {
         match self {
             Store::Sqlite(s) => s.logs().call(move |c| sqlite_query(c, &q)).await,
             Store::Postgres(p) => p.rollup_rows(&q).await,

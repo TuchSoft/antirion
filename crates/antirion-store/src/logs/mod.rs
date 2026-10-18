@@ -12,7 +12,10 @@ pub(crate) mod sql;
 use crate::{Store, StoreError};
 
 pub use feedback::FeedbackRow;
-pub use rollup::{CACHE_PREFIX_FROM, MEASURES, ROLLUP_DIMS, RollupQuery, RollupRow, SKETCHES, SketchMerge};
+pub use rollup::{
+    CACHE_PREFIX_FROM, MEASURES, ROLLUP_DIMS, RollupPage, RollupPos, RollupQuery, RollupRow, SKETCHES,
+    SketchMerge,
+};
 pub use sql::Arg;
 
 /// The statements that create `logs.db`.

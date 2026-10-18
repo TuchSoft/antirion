@@ -18,6 +18,8 @@ use crate::Runtime;
 
 /// Records read per store call when a range is aggregated from records.
 const SCAN_BATCH: usize = 2_000;
+/// Rollup rows read per store call: a long range at a fine grain holds about a row per request.
+const ROLLUP_BATCH: usize = 5_000;
 
 /// A dimension analytics group by.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -385,19 +387,28 @@ impl Runtime {
         for (grain, from, to) in pieces {
             match (grain, rollups) {
                 (Some(grain_s), Some(r)) => {
-                    let rows = self
-                        .store
-                        .rollups(RollupQuery {
-                            grain_s,
-                            from_us: from,
-                            to_us: to,
-                            any_of: r.any_of.clone(),
-                            status_classes: r.status_classes.clone(),
-                            scopes: r.scopes.clone(),
-                        })
-                        .await?;
-                    for row in &rows {
-                        g.add_row(row);
+                    let mut after = None;
+                    loop {
+                        let page = self
+                            .store
+                            .rollup_page(RollupQuery {
+                                grain_s,
+                                from_us: from,
+                                to_us: to,
+                                any_of: r.any_of.clone(),
+                                status_classes: r.status_classes.clone(),
+                                scopes: r.scopes.clone(),
+                                after: after.take(),
+                                limit: Some(ROLLUP_BATCH),
+                            })
+                            .await?;
+                        for row in &page.rows {
+                            g.add_row(row);
+                        }
+                        if page.rows.len() < ROLLUP_BATCH {
+                            break;
+                        }
+                        after = page.next;
                     }
                 }
                 _ => self.scan(q, from, to, &mut |f| g.add_facts(f)).await?,

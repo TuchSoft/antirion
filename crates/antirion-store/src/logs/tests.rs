@@ -235,3 +235,84 @@ pub(crate) async fn rollups(store: &Store) {
     };
     assert!(store.rollups(later).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn rollups_are_read_a_page_at_a_time_in_key_order() {
+    let dir = temp_dir("rollup-pages");
+    let store = Store::open_embedded(&dir).unwrap();
+    rollup_pages(&store).await;
+    // A row an older version wrote keys fewer dimensions than a row read back computes: paging
+    // goes on from the stored key.
+    let Store::Sqlite(s) = &store else { unreachable!() };
+    s.logs()
+        .call(|c| {
+            c.execute(
+                "UPDATE log_rollups SET dims_key = 'a' || dims_key WHERE grain_s = 3600 AND model = 'b'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    rollup_pages_read_every_row(&store, 18).await;
+    store.close();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Paged rollup reads, on any backend.
+pub(crate) async fn rollup_pages(store: &Store) {
+    let mut rows = Vec::new();
+    for hour in 0..4i64 {
+        for model in ["c", "a", "b"] {
+            for node in ["n2", "n1"] {
+                let mut dims = vec![None; ROLLUP_DIMS.len()];
+                dims[5] = Some(model.into());
+                rows.push(RollupRow {
+                    grain_s: 3_600,
+                    start_us: hour * 3_600_000_000,
+                    node_id: node.into(),
+                    dims,
+                    counts: vec![1; MEASURES.len()],
+                    sketches: vec![vec![1]; SKETCHES.len()],
+                });
+            }
+        }
+    }
+    store.merge_rollups(rows, concat).await.unwrap();
+    rollup_pages_read_every_row(store, 18).await;
+}
+
+async fn rollup_pages_read_every_row(store: &Store, n: usize) {
+    let q = RollupQuery {
+        grain_s: 3_600,
+        from_us: 3_600_000_000,
+        to_us: 4 * 3_600_000_000,
+        ..RollupQuery::default()
+    };
+    let key = |r: &RollupRow| (r.start_us, r.node_id.clone(), r.dims_key());
+    let mut all: Vec<_> = store.rollups(q.clone()).await.unwrap().iter().map(key).collect();
+    all.sort();
+    all.dedup();
+    assert_eq!(all.len(), n);
+    for limit in [1, 4, 18, 50] {
+        let mut read = Vec::new();
+        let mut after = None;
+        loop {
+            let page = store
+                .rollup_page(RollupQuery {
+                    after: after.clone(),
+                    limit: Some(limit),
+                    ..q.clone()
+                })
+                .await
+                .unwrap();
+            after = page.next.clone();
+            read.extend(page.rows.iter().map(key));
+            if page.rows.len() < limit {
+                break;
+            }
+        }
+        read.sort();
+        assert_eq!(read, all, "{limit} a page");
+    }
+}

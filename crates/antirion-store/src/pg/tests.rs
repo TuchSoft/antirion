@@ -247,5 +247,6 @@ async fn the_request_log_and_rollups() {
     let store = crate::Store::open_postgres(&s).await.unwrap();
     crate::logs::tests::records(&store).await;
     crate::logs::tests::rollups(&store).await;
+    crate::logs::tests::rollup_pages(&store).await;
     store.close();
 }
