@@ -15,7 +15,7 @@ function panel() {
 }
 
 describe('the Personal data tab', () => {
-  it('without a rule, creates one with the balanced preset on every prompt in one step', async () => {
+  it('without a rule, creates one with the balanced preset on every prompt and answer in one step', async () => {
     signInAs(WRITER);
     seed([]);
     const box = writes();
@@ -35,11 +35,13 @@ describe('the Personal data tab', () => {
         description: 'Replaces personal data with labels before a provider sees it.',
         pii: {
           entities: ['email', 'phone', 'credit_card', 'us_ssn', 'iban', 'ca_sin'],
-          preserve: ['last4'],
+          preserve: [],
         },
       },
     });
-    expect(box.attached).toEqual({ spec: { guardrails: { input: ['personal_data'], output: [] } } });
+    expect(box.attached).toEqual({
+      spec: { guardrails: { input: ['personal_data'], output: ['personal_data'] } },
+    });
   });
 
   it('with one rule, says what it does and which kinds it checks, its own kinds included', () => {

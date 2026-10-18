@@ -49,7 +49,7 @@ function policies(input: string[] = ['pii-gateway']) {
 }
 
 describe('safety rules', () => {
-  it('creates a pattern rule with a checksum and runs it on every prompt', async () => {
+  it('creates a pattern rule with a checksum and runs it on every prompt and answer', async () => {
     reset('?view=rules');
     signInAs(WRITER);
     const pol = policies();
@@ -80,7 +80,7 @@ describe('safety rules', () => {
     });
     await waitFor(() =>
       expect(pol.patched()).toEqual({
-        spec: { guardrails: { input: ['pii-gateway', 'iban_numbers'], output: [] } },
+        spec: { guardrails: { input: ['pii-gateway', 'iban_numbers'], output: ['iban_numbers'] } },
       }),
     );
     expect(pol.ifMatch()).toBe('"p1"');

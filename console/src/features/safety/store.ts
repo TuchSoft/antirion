@@ -245,7 +245,7 @@ export const useSafety = create<SafetyState>()((set, get) => ({
       name,
       spec: defaultPiiSpec(),
       original: null,
-      attach: attach ? { input: true, output: false } : null,
+      attach: attach ? { input: true, output: true } : null,
     });
     return name;
   },

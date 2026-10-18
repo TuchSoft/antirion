@@ -731,7 +731,8 @@ export function emptyDraft(method: Method = 'regex'): RuleDraft {
     signingSecret: { value: '', stored: false },
     run: null,
     onInput: !['json_schema', 'json_repair'].includes(method),
-    onOutput: ['json_schema', 'json_repair'].includes(method),
+    // New rules check answers too; methods that only run on prompts drop it through `stagesFor`.
+    onOutput: true,
   };
 }
 
@@ -1447,9 +1448,9 @@ export const STRICTNESS: Record<
   balanced: {
     label: 'Balanced',
     entities: ['email', 'phone', 'credit_card', 'us_ssn', 'iban', 'ca_sin'],
-    preserve: ['last4'],
+    preserve: [],
     replacement: 'label',
-    summary: 'Every identifier but IP addresses; values become labels, last four digits stay readable.',
+    summary: 'Every identifier but IP addresses; values become labels, nothing of a value is kept.',
   },
   strict: {
     label: 'Strict',
