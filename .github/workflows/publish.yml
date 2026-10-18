@@ -1,0 +1,172 @@
+# After a release is published: copies its image from ghcr.io to Docker Hub as
+# antirion/antirion:<version> (and :latest when it is the latest release), and publishes the npm
+# package `antirion` at the release's version, with npm provenance. Each part runs only when its
+# secrets are set (DOCKERHUB_USERNAME and DOCKERHUB_TOKEN; NPM_TOKEN) and is skipped with a notice
+# otherwise.
+#
+# The release workflow starts this one once it has published a release, since a release published
+# with a workflow's token starts no other workflow. Run it by hand to publish an existing tag again;
+# both parts skip what is already published.
+name: publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, such as v1.2.3
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      latest: ${{ steps.release.outputs.latest }}
+    steps:
+      - id: release
+        name: The release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a release tag (vX.Y.Z)"
+            exit 1
+          fi
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" != false ]; then
+            echo "::error::$TAG is not a published release"
+            exit 1
+          fi
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "latest=$([ "$latest" = "$TAG" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+  dockerhub:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    env:
+      HAS_SECRETS: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      SOURCE: ghcr.io/${{ github.repository }}:${{ needs.release.outputs.tag }}
+      TARGET: docker.io/antirion/antirion
+      VERSION: ${{ needs.release.outputs.version }}
+      LATEST: ${{ needs.release.outputs.latest }}
+    steps:
+      - name: Docker Hub credentials
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice title=Docker Hub skipped::DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are not set, so the image was not pushed to Docker Hub."
+      - if: env.HAS_SECRETS == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - if: env.HAS_SECRETS == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - if: env.HAS_SECRETS == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      # The release's multi-arch index, with its SBOM and provenance attestations, copied as it is:
+      # the digest stays the one the release signed on ghcr.io.
+      - id: copy
+        name: Copy the image
+        if: env.HAS_SECRETS == 'true'
+        run: |
+          tags=(--tag "$TARGET:$VERSION")
+          if [ "$LATEST" = true ]; then tags+=(--tag "$TARGET:latest"); fi
+          docker buildx imagetools create "${tags[@]}" "$SOURCE"
+          digest=$(docker buildx imagetools inspect "$TARGET:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Docker Hub::pushed $TARGET:$VERSION$([ "$LATEST" = true ] && echo ' and :latest') ($digest)"
+      - if: env.HAS_SECRETS == 'true'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+      - name: Sign the image on Docker Hub by digest
+        if: env.HAS_SECRETS == 'true'
+        env:
+          DIGEST: ${{ steps.copy.outputs.digest }}
+        run: cosign sign --yes "$TARGET@$DIGEST"
+
+  npm:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      HAS_SECRETS: ${{ secrets.NPM_TOKEN != '' }}
+      TAG: ${{ needs.release.outputs.tag }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: npm credentials
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice title=npm skipped::NPM_TOKEN is not set, so the npm package was not published."
+      - if: env.HAS_SECRETS == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          persist-credentials: false
+      - if: env.HAS_SECRETS == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - if: env.HAS_SECRETS == 'true'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+      - name: Test the launcher
+        if: env.HAS_SECRETS == 'true'
+        working-directory: npm
+        run: node --test
+      # The package carries the release's checksums, checked against the release workflow's
+      # signature, so the launcher verifies its download against what was published with it.
+      - name: The release's checksums
+        if: env.HAS_SECRETS == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sums="antirion-$TAG-sha256sums.txt"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$sums" --pattern "$sums.sigstore.json"
+          cosign verify-blob --bundle "$sums.sigstore.json" \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$TAG" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com "$sums"
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            grep -q " antirion-$TAG-$platform.tar.gz\$" "$sums" || { echo "::error::$sums lists no $platform archive"; exit 1; }
+          done
+          cp "$sums" npm/checksums.txt
+          cp LICENSE npm/LICENSE
+      - name: Set the version
+        if: env.HAS_SECRETS == 'true'
+        working-directory: npm
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+      - name: Publish
+        if: env.HAS_SECRETS == 'true'
+        working-directory: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "$(npm view "antirion@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "::notice title=npm::antirion@$VERSION is already published"
+            exit 0
+          fi
+          npm publish --provenance --access public
+          echo "::notice title=npm::published antirion@$VERSION"
