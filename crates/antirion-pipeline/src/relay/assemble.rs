@@ -1,9 +1,20 @@
-//! The non-streaming equivalent of a Chat stream, for content logging: text deltas concatenated per
-//! choice, tool-call fragments joined, finish reasons and usage attached.
+//! The non-streaming equivalent of a stream, for content logging and the response cache. This
+//! module assembles Chat streams: text deltas concatenated per choice, tool-call fragments joined,
+//! finish reasons and usage attached; its submodules the other dialects a client reads.
+
+mod converse;
+mod gemini;
+mod messages;
+mod responses;
 
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
+
+pub(crate) use self::converse::ConverseAssembler;
+pub(crate) use self::gemini::GeminiAssembler;
+pub(crate) use self::messages::MessageAssembler;
+pub(crate) use self::responses::ResponsesAssembler;
 
 #[derive(Debug, Default)]
 struct ToolCall {

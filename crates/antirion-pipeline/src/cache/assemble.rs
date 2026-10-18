@@ -2,9 +2,9 @@
 //! the storability checks.
 
 use antirion_cache::StoredEvent;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-use crate::relay::assemble::Assembler;
+use crate::relay::assemble::{Assembler, MessageAssembler};
 
 /// A tool call whose arguments are not JSON: the stream is not storable.
 #[derive(Debug, PartialEq, Eq)]
@@ -35,107 +35,11 @@ pub(super) fn assemble(endpoint_id: &str, events: &[StoredEvent]) -> Result<Opti
 
 /// An Anthropic message from its events.
 fn anthropic(payloads: impl Iterator<Item = Value>) -> Result<Value, BrokenToolCall> {
-    let mut message = Map::new();
-    let mut blocks: Vec<Value> = Vec::new();
-    let mut partial: Vec<String> = Vec::new();
+    let mut a = MessageAssembler::default();
     for p in payloads {
-        let index = p
-            .get("index")
-            .and_then(Value::as_u64)
-            .and_then(|i| usize::try_from(i).ok());
-        match p.get("type").and_then(Value::as_str) {
-            Some("message_start") => {
-                if let Some(m) = p.get("message").and_then(Value::as_object) {
-                    message = m.clone();
-                }
-            }
-            Some("content_block_start") => {
-                if let (Some(i), Some(b)) = (index, p.get("content_block")) {
-                    if blocks.len() <= i {
-                        blocks.resize(i + 1, Value::Null);
-                        partial.resize(i + 1, String::new());
-                    }
-                    if let Some(slot) = blocks.get_mut(i) {
-                        *slot = b.clone();
-                    }
-                }
-            }
-            Some("content_block_delta") => {
-                let (Some(i), Some(d)) = (index, p.get("delta")) else {
-                    continue;
-                };
-                let Some(block) = blocks.get_mut(i).and_then(Value::as_object_mut) else {
-                    continue;
-                };
-                let append = |block: &mut Map<String, Value>, field: &str, text: &str| {
-                    let current = block.get(field).and_then(Value::as_str).unwrap_or_default();
-                    let joined = format!("{current}{text}");
-                    block.insert(field.into(), Value::from(joined));
-                };
-                match d.get("type").and_then(Value::as_str) {
-                    Some("text_delta") => {
-                        append(
-                            block,
-                            "text",
-                            d.get("text").and_then(Value::as_str).unwrap_or_default(),
-                        );
-                    }
-                    Some("thinking_delta") => append(
-                        block,
-                        "thinking",
-                        d.get("thinking").and_then(Value::as_str).unwrap_or_default(),
-                    ),
-                    Some("signature_delta") => {
-                        block.insert(
-                            "signature".into(),
-                            d.get("signature").cloned().unwrap_or(Value::Null),
-                        );
-                    }
-                    Some("input_json_delta") => {
-                        if let Some(s) = partial.get_mut(i) {
-                            s.push_str(d.get("partial_json").and_then(Value::as_str).unwrap_or_default());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Some("content_block_stop") => {
-                let Some(i) = index else { continue };
-                let text = partial.get(i).cloned().unwrap_or_default();
-                if let Some(block) = blocks.get_mut(i).and_then(Value::as_object_mut)
-                    && block.get("type").and_then(Value::as_str) == Some("tool_use")
-                    && !text.is_empty()
-                {
-                    let input = serde_json::from_str::<Value>(&text).map_err(|_| BrokenToolCall)?;
-                    block.insert("input".into(), input);
-                }
-            }
-            Some("message_delta") => {
-                if let Some(d) = p.get("delta").and_then(Value::as_object) {
-                    for (k, v) in d {
-                        message.insert(k.clone(), v.clone());
-                    }
-                }
-                if let Some(u) = p.get("usage").and_then(Value::as_object) {
-                    let mut usage = message
-                        .get("usage")
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default();
-                    for (k, v) in u {
-                        usage.insert(k.clone(), v.clone());
-                    }
-                    message.insert("usage".into(), Value::Object(usage));
-                }
-            }
-            _ => {}
-        }
+        a.push(&p);
     }
-    message.insert(
-        "content".into(),
-        Value::Array(blocks.into_iter().filter(|b| !b.is_null()).collect()),
-    );
-    Ok(Value::Object(message))
+    a.finish().map_err(|_| BrokenToolCall)
 }
 
 /// The usage member of an assembled response, or the one a stream reported.

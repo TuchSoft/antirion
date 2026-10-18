@@ -9,6 +9,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
 use super::forward::Ending;
+use super::sent::Sent;
 use super::{Setup, array, body, invoke};
 
 /// How the relay's frames are re-framed for the client.
@@ -37,10 +38,15 @@ pub(super) struct Writer<'a> {
     pub(super) frames: Option<Reframe>,
     /// The client left and the stream completes without it: nothing more is written.
     pub(super) detached: bool,
+    /// What the client is sent, read back for content logging.
+    pub(super) sent: Option<Sent>,
 }
 
 impl Writer<'_> {
     pub(super) async fn send(&mut self, bytes: Bytes) -> Result<(), SendEnd> {
+        if let Some(s) = self.sent.as_mut().filter(|_| !self.detached) {
+            s.push(&bytes);
+        }
         let bytes = match self.frames.as_mut() {
             Some(Reframe::Invoke(f)) => f.reframe(&bytes),
             Some(Reframe::Array(f)) => f.reframe(&bytes),

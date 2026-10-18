@@ -15,6 +15,7 @@ mod invoke;
 pub(crate) mod native;
 mod pump;
 mod render;
+mod sent;
 mod shape;
 pub(crate) mod synth;
 mod writer;
@@ -43,6 +44,7 @@ use self::forward::relay;
 pub(crate) use self::guard::OutGuard;
 pub(crate) use self::pump::{End, Framing, Pulled, Pump};
 pub(crate) use self::render::synthesize;
+use self::sent::Sent;
 pub(crate) use self::shape::Shaper;
 use self::writer::Writer;
 use crate::account::{End as Ended, StreamEnd};
@@ -250,7 +252,9 @@ pub(crate) async fn hold(
     let mut held_events = 0usize;
     let mut held_bytes = 0usize;
     let mut transform = shaper.transforms(setup);
-    let mut assembler = (setup.assemble && setup.dialect == StreamDialect::Chat).then(Assembler::default);
+    let mut assembler =
+        (setup.assemble && setup.dialect == StreamDialect::Chat && shaper.translator.is_none())
+            .then(Assembler::default);
     let headers_at = Instant::now();
     let hold_until = headers_at + setup.policy.max_hold;
     let far = headers_at + Duration::from_secs(86_400 * 365);
@@ -601,6 +605,8 @@ pub(crate) fn spawn(
                 None
             },
             detached: false,
+            sent: (setup.assemble && committed.assembler.is_none())
+                .then(|| Sent::new(setup.client, setup.invoke_frames)),
         };
         let mut facts = StreamFacts::default();
         let mut completed = None;
@@ -717,6 +723,7 @@ pub(crate) fn spawn(
             let _ = w.send_trailers(t).await;
         }
         let tee = w.tee.take();
+        let sent = w.sent.take();
         drop(w);
         if let Some(tee) = tee.filter(|_| outcome == StreamEnd::Completed) {
             tee.finish(&rt2, &log, facts.usage_raw.as_ref()).await;
@@ -732,6 +739,8 @@ pub(crate) fn spawn(
         }
         if let Some(a) = obs.assembler.take() {
             log.response_value(a.finish());
+        } else if let Some(v) = sent.and_then(Sent::finish) {
+            log.response_value(v);
         } else if let Some(object) = completed {
             log.response_value(object);
         }

@@ -371,7 +371,10 @@ crate can use its strict parser.
   decisions (counted per plan position in `route.rs`); `outcome/`: one
   `AttemptFact` per attempt with its span id, key, wait, transition label and timer, recorded by
   the attempt loop's sender; `relay/`: stream instants, relay time and the
-  assembled body). `reqlog::finish` adds the headers that depend on the record (log id, overhead,
+  assembled body, which is the response the client received in its own dialect: `relay/sent.rs`
+  reads back the frames written to the client (after translation, guardrails and extensions) and
+  `relay/assemble/` turns them into the non-streaming body; a passthrough Chat stream is assembled
+  from the upstream's chunks). `reqlog::finish` adds the headers that depend on the record (log id, overhead,
   `observability` in `x-antirion-degraded`) and the request is settled (`settle.rs`) once the head
   is built and any committed stream has ended, whichever is last: timing, cost, the record
   (`json.rs`), metrics and spans (`emit.rs`), then the store and the sinks. Requests without a record
