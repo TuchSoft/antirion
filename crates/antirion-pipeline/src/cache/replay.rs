@@ -131,6 +131,22 @@ fn synthesize(f: Framing, body: &str, wants_usage: bool) -> Option<Bytes> {
     Some(out.freeze())
 }
 
+/// Records the answer a hit served as the request's response content, in the client dialect's
+/// non-streaming shape: the stored body, also for a streamed hit, whose stream it was assembled
+/// from or synthesized into.
+fn log_content(cx: &Ctx, inp: &Inputs<'_>, entry: &Entry) {
+    let Some(body) = entry.body.as_deref() else {
+        return;
+    };
+    if inp.stream {
+        if let Ok(v) = serde_json::from_str::<Value>(body) {
+            cx.log.response_value(v);
+        }
+    } else {
+        cx.log.response_content(body.as_bytes());
+    }
+}
+
 /// The response of a hit (a semantic one with its `similarity`), or `None` when the entry cannot
 /// answer this request (a stream-written entry with no assembled body, asked for JSON).
 pub(super) fn respond(
@@ -201,6 +217,7 @@ pub(super) fn respond(
         r.response_id = response_id;
         r.cache.origin = Some(entry.deployment.clone());
     });
+    log_content(cx, inp, entry);
     cx.finish(&mut resp, false);
     Some(resp)
 }
