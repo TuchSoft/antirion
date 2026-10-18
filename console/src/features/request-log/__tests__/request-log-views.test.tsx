@@ -273,6 +273,18 @@ describe('request drawer', () => {
     expect(opened).toBe('b');
   });
 
+  it('offers no replay for an endpoint the gateway cannot send again', async () => {
+    signInAs(['logs:read', 'logs:read_content', 'playground:send']);
+    server.use(
+      http.get('*/admin/v1/logs/:id', () =>
+        HttpResponse.json({ ...record('a'), endpoint: '/v1beta/models/{model}:generateContent' }),
+      ),
+    );
+    render(<LogDrawer id="a" onClose={() => undefined} onOpen={() => undefined} />);
+    await screen.findByText(/Lisbon, PT/);
+    expect(screen.getByRole('button', { name: 'Replay' })).toBeDisabled();
+  });
+
   it('hides replay from readers who may not send', async () => {
     signInAs(['logs:read', 'logs:read_content']);
     render(<LogDrawer id="a" onClose={() => undefined} onOpen={() => undefined} />);

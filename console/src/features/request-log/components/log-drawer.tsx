@@ -30,6 +30,7 @@ import { CodeBlock as Json, MessagesTab, RequestTab, ResponseTab } from './drawe
 import { ReplayDialog } from './replay-dialog';
 import { EraseEndUserButton } from './erase-end-user';
 import { RequestLedger } from '@/features/ledger/components/request-ledger';
+import { endpointOfPath } from '@/features/playground/body';
 
 type Tab = 'overview' | 'messages' | 'request' | 'response' | 'trace' | 'guardrails';
 const TABS: Tab[] = ['overview', 'messages', 'request', 'response', 'trace', 'guardrails'];
@@ -303,21 +304,25 @@ function ReplayButton({ record, onOpenRecord }: { record: LogRecord; onOpenRecor
     !Array.isArray(stored.body)
       ? (stored.body as Record<string, unknown>)
       : null;
-  const reason = body
-    ? null
-    : stored?.truncated
-      ? 'The stored body was cut at the logging limit, so it cannot be sent again.'
-      : 'The request body was not stored, so it cannot be sent again.';
+  // The gateway sends again only what the playground speaks.
+  const sendable = endpointOfPath(record.endpoint) !== null;
+  const reason = !sendable
+    ? 'Only Chat, Responses, Messages and Embeddings requests can be sent again.'
+    : body
+      ? null
+      : stored?.truncated
+        ? 'The stored body was cut at the logging limit, so it cannot be sent again.'
+        : 'The request body was not stored, so it cannot be sent again.';
   return (
     <>
       <Tooltip content={reason ?? 'Send this request again through the gateway'} side="bottom">
         <span className="inline-flex [&>button:disabled]:pointer-events-none">
-          <Button size="sm" icon="refresh" disabled={!body} onClick={() => setOpen(true)}>
+          <Button size="sm" icon="refresh" disabled={!body || !sendable} onClick={() => setOpen(true)}>
             Replay
           </Button>
         </span>
       </Tooltip>
-      {body ? (
+      {body && sendable ? (
         <ReplayDialog
           record={record}
           body={body}
