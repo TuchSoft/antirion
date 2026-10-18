@@ -185,10 +185,19 @@ test('single sign-on providers are added, tested, counted and removed; SAML show
   const row = sso.getByRole('row').filter({ hasText: 'E2E OIDC' });
   await expect(row).toContainText('https://login.e2e.example');
   await expect(row.getByRole('cell').nth(1)).toHaveText('0');
+  // The test sign-in opens the provider's login in test mode; the identity provider here can't be
+  // reached, so the gateway sends the tab back to the sign-in settings, which say why.
+  const login = new RegExp(`/admin/v1/auth/oidc/${oidc}/login/?\\?test=true`);
+  const opened = page.context().waitForEvent('request', (r) => login.test(r.url()));
   const popup = page.waitForEvent('popup');
   await row.getByRole('button', { name: 'Test sign-in' }).click();
-  expect((await popup).url()).toMatch(new RegExp(`/admin/v1/auth/oidc/${oidc}/login/?\\?test=true`));
-  await (await popup).close();
+  await opened;
+  const tab = await popup;
+  const settingsTab = tab.getByRole('dialog', { name: 'Gateway settings' });
+  await expect(settingsTab.getByRole('alert')).toContainText('The test sign-in failed.');
+  // The outcome leaves the address, so a reload doesn't show it again.
+  await expect(tab).not.toHaveURL(/error=/);
+  await tab.close();
 
   // Editing keeps the secret when the field is left blank.
   await row.click();
