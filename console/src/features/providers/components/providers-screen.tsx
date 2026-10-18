@@ -29,7 +29,7 @@ import { notify } from '@/stores/ui';
 import { providersApi, type ProviderStatus } from '../api';
 import { AUTH_LABELS, type AuthMethod, specWithKey } from '../form';
 import { useProviders } from '../store';
-import { ageText, type KeyTest, latestTest, providerKeyStatus, rotation } from '../keys';
+import { ageText, type KeyTest, latestTest, providerKeyStatus, rotation, servedRequests } from '../keys';
 import { testFailure, testSummary } from '../test-result';
 import { AddProviderDrawer } from './add-provider-drawer';
 import { ProviderDrawer } from './provider-drawer';
@@ -177,18 +177,23 @@ export function ProvidersScreen() {
   const providers = useProviders((s) => s.providers);
   const status = useProviders((s) => s.status);
   const deployments = useProviders((s) => s.deployments);
+  const health = useProviders((s) => s.health);
   const load = useProviders((s) => s.load);
   const tests = useProviders((s) => s.tests);
   const runTest = useProviders((s) => s.test);
   const timeZone = usePreferences((s) => s.timeZone);
-  /** From the latest test, stored by the gateway or run here; until one, "Not tested yet". */
+  /** From the latest test, stored by the gateway or run here; else real traffic; else "Not tested yet". */
   const latest = (p: ProviderResource) =>
     latestTest(
       status.data?.find((x) => x.name === p.name),
       tests[p.name],
     );
   const keyStatus = (p: ProviderResource) =>
-    providerKeyStatus(status.data?.find((x) => x.name === p.name)?.credential.state, latest(p));
+    providerKeyStatus(
+      status.data?.find((x) => x.name === p.name)?.credential.state,
+      latest(p),
+      servedRequests(p.name, deployments.data, health.data),
+    );
   const setEnabled = useProviders((s) => s.setEnabled);
   const remove = useProviders((s) => s.remove);
   const canEdit = useCan('patchProvider');

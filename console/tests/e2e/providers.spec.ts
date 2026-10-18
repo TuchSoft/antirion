@@ -133,8 +133,8 @@ test('a provider opens with its tier, key ages and limits, and a refused key is 
   const main = drawer.getByRole('listitem').filter({ hasText: 'main' });
   await expect(main).toContainText('replace every 30 days');
   await expect(main).toContainText('120 of 500 left');
-  // A key's status comes from its tests: untested until one runs, Working once it passes.
-  await expect(main).toContainText('Not tested yet');
+  // The key has answered the requests above, so it already reads Working; a passing test keeps it so.
+  await expect(main).toContainText('Working');
   await main.getByRole('button', { name: 'Test key' }).click();
   await expect(page.getByText('main answered')).toBeVisible();
   await expect(main).toContainText('Working');

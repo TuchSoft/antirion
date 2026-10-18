@@ -91,18 +91,29 @@ export function latestTest(status: ProviderStatus | undefined, session: KeyTest 
 }
 
 /**
- * The provider's key status for its table row, from its latest test: Working or Failed, and "Not
- * tested yet" only while no key has a test. A credential the gateway reports failing, refreshing
- * or not needed says so.
+ * The provider's key status for its table row, from its latest test: Working or Failed. Without a
+ * test, a key that has answered real requests is Working too; "Not tested yet" only while there
+ * is neither. A credential the gateway reports failing, refreshing or not needed says so.
  */
 export function providerKeyStatus(
   credentialState: string | undefined,
   latest: KeyTest | null,
+  servedRequests = false,
 ): string | undefined {
   if (credentialState === undefined) return undefined;
   if (credentialState !== 'valid') return credentialState;
-  if (!latest) return 'untested';
+  if (!latest) return servedRequests ? 'valid' : 'untested';
   return latest.ok ? 'valid' : 'failed';
+}
+
+/** Whether any key of the provider has answered a real request on one of its deployments. */
+export function servedRequests(
+  provider: string,
+  deployments: DeploymentResource[] | null,
+  health: DeploymentHealth[] | null,
+): boolean {
+  const mine = new Set((deployments ?? []).filter((d) => d.spec.provider === provider).map((d) => d.name));
+  return (health ?? []).some((h) => mine.has(h.name) && h.keys.some((k) => k.last_success_at));
 }
 
 /** Each key's latest test: the gateway's stored one or this session's, whichever is newer. */
@@ -122,7 +133,8 @@ function keyTest(
 
 /**
  * A key's state: set aside or cooling down on a deployment (the runtime's word), else its latest
- * test (working, or not working when it failed), else not tested yet.
+ * test (working, or not working when it failed), else working when it has answered real
+ * requests, else not tested yet.
  */
 function stateOf(health: KeyState, test: KeyTest | null): KeyState {
   if (health.state === 'not_working' || health.state === 'resting') return health;
@@ -130,6 +142,7 @@ function stateOf(health: KeyState, test: KeyTest | null): KeyState {
     return test.ok
       ? { state: 'working', reason: null, until: null }
       : { state: 'not_working', reason: 'test', until: null };
+  if (health.state === 'working') return health;
   return { state: 'untested', reason: null, until: null };
 }
 

@@ -370,6 +370,9 @@ describe('provider keys', () => {
       method: 'list_models' as const,
     });
     expect(providerKeyStatus('valid', null)).toBe('untested');
+    // A key that answered real requests works, even before anyone tests it.
+    expect(providerKeyStatus('valid', null, true)).toBe('valid');
+    expect(providerKeyStatus('valid', t(false, '10:00'), true)).toBe('failed');
     expect(providerKeyStatus('valid', t(true, '10:00'))).toBe('valid');
     expect(providerKeyStatus('valid', t(false, '10:00'))).toBe('failed');
     expect(providerKeyStatus('failed', t(true, '10:00'))).toBe('failed');
