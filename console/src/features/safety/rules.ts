@@ -182,6 +182,27 @@ export function withKind(spec: GuardrailSpec, id: string, on: boolean): Guardrai
   return withPii(spec, entities, custom);
 }
 
+/** The kinds of secret a secrets rule looks for: the ones it lists, every one when it lists none. */
+export function checkedSecrets(spec: Pick<GuardrailSpec, 'secrets'>): SecretDetector[] {
+  return spec.secrets?.detectors ?? [...SECRET_DETECTORS];
+}
+
+/**
+ * The secrets rule with one kind looked for or not, its kinds kept in the catalogue's order; null
+ * when it would look for nothing (a rule lists at least one).
+ */
+export function withSecret(spec: GuardrailSpec, id: string, on: boolean): GuardrailSpec | null {
+  const checked = checkedSecrets(spec);
+  const detectors = SECRET_DETECTORS.filter((d) => (d === id ? on : checked.includes(d)));
+  if (detectors.length === 0) return null;
+  return { ...spec, secrets: { ...spec.secrets, detectors } };
+}
+
+/** The kinds a rule looks for, a personal data rule's or a secrets rule's. */
+export function kindsOf(spec: GuardrailSpec): string[] {
+  return spec.type === 'secrets' ? checkedSecrets(spec) : checkedKinds(spec);
+}
+
 /** The rule with one more kind of its own (or one replaced, by name). */
 export function withCustomKind(spec: GuardrailSpec, kind: CustomKind): GuardrailSpec {
   const builtIns = PII_ENTITIES.filter((e) => checkedKinds(spec).includes(e));

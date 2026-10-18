@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { Dot } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,6 @@ import { notify } from '@/stores/ui';
 
 import {
   applyStrictness,
-  checkedKinds,
   type CustomKind,
   customKindErrors,
   type CustomKindErrors,
@@ -27,15 +26,16 @@ import {
   ENTITY_NAME,
   kindEntity,
   kindInText,
+  kindsOf,
   maskedSample,
   patternPlaceholder,
+  type PiiPreserve,
   PII_ENTITIES,
   SECRET_DETECTORS,
   type Strictness,
   STRICTNESS,
   strictnessChanges,
   strictnessOf,
-  withKind,
 } from '../rules';
 import { defaultPiiSpec, useSafety } from '../store';
 import { blankKind, CustomKindFields, type EditorTarget, useAttachment } from './rule-editor';
@@ -67,8 +67,11 @@ function whenFound(rule: Rule): string {
   return WHEN_FOUND[rule.spec.replacement ?? 'label'] ?? 'Replaced';
 }
 
-/** The chosen rule in a few facts: on or off, where it runs, what it does, whether values come back. */
-function RuleFacts({ rule }: { rule: Rule }) {
+/**
+ * The chosen rule in a few facts: on or off, where it runs, what it does and, for a rule that can
+ * put values back (`values`), whether it does.
+ */
+function RuleFacts({ rule, values = false }: { rule: Rule; values?: boolean }) {
   const attached = useAttachment(rule.name);
   const runs =
     attached.input && attached.output
@@ -81,15 +84,19 @@ function RuleFacts({ rule }: { rule: Rule }) {
   const redacts = (rule.spec.action ?? 'redact') === 'redact';
   return (
     <DefinitionGrid
-      columns={4}
+      columns={values ? 4 : 3}
       items={[
         { label: 'Status', value: on(rule) ? 'On' : 'Turned off' },
         { label: 'Checks', value: runs },
         { label: 'When found', value: whenFound(rule) },
-        {
-          label: 'Values in the answer',
-          value: !redacts ? '—' : rule.spec.pii?.reversible ? 'Put back' : 'Stay replaced',
-        },
+        ...(values
+          ? [
+              {
+                label: 'Values in the answer',
+                value: !redacts ? '—' : rule.spec.pii?.reversible ? 'Put back' : 'Stay replaced',
+              },
+            ]
+          : []),
       ]}
     />
   );
@@ -156,21 +163,23 @@ function Presets({ rule }: { rule: Rule }) {
   );
 }
 
-/** No personal data rule yet: one step creates one with the balanced preset on every prompt. */
-function NoRule({ onEdit }: { onEdit: (t: EditorTarget) => void }) {
-  const createPiiRule = useSafety((s) => s.createPiiRule);
+/**
+ * No rule of a family yet: one step creates the rule it starts from and runs it on every prompt and
+ * answer; "Set it up yourself" opens the rule editor on its method.
+ */
+function NoRule({ family, onEdit }: { family: Family; onEdit: (t: EditorTarget) => void }) {
+  const create = useSafety((s) => (family.method === 'secrets' ? s.createSecretsRule : s.createPiiRule));
   const policies = useSafety((s) => s.policies.data);
   const canCreate = useCan('createGuardrail');
   const canAttach = useCan('patchPoliciesSettings') && policies !== null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const kinds = defaultPiiSpec().pii?.entities ?? [];
   return (
     <>
       <EmptyState
         size="sm"
-        title="No rule checks personal data"
-        description={`One step adds a rule that replaces ${kinds.length} kinds, such as emails and card numbers, with labels${canAttach ? ' on every prompt' : ''}.`}
+        title={`No rule checks ${family.noun}`}
+        description={family.offer(canAttach)}
         action={
           canCreate ? (
             <EmptyAction
@@ -178,25 +187,19 @@ function NoRule({ onEdit }: { onEdit: (t: EditorTarget) => void }) {
               onClick={() => {
                 setBusy(true);
                 setError(null);
-                createPiiRule(canAttach)
-                  .then((name) =>
-                    notify(
-                      'success',
-                      canAttach ? 'Personal data is checked on every prompt' : 'Personal data rule created',
-                      name,
-                    ),
-                  )
+                create(canAttach)
+                  .then((name) => notify('success', family.done(canAttach), name))
                   .catch((e: unknown) => setError(e))
                   .finally(() => setBusy(false));
               }}
             >
-              Turn on personal data checks
+              {`Turn on ${family.short} checks`}
             </EmptyAction>
           ) : undefined
         }
         secondaryAction={
           canCreate ? (
-            <EmptyAction onClick={() => onEdit({ kind: 'new', method: 'pii' })}>
+            <EmptyAction onClick={() => onEdit({ kind: 'new', method: family.method })}>
               Set it up yourself
             </EmptyAction>
           ) : undefined
@@ -323,8 +326,8 @@ function entityRules(guardrails: Rule[]): Rule[] {
 
 /** Who checks a kind, in words: the chosen rule first, then the others that are on. */
 function checkedBy(id: string, chosen: Rule | null, rules: Rule[]): { text: string; checked: boolean } {
-  const by = rules.filter((r) => on(r) && checkedKinds(r.spec).includes(id)).map((r) => r.name);
-  if (chosen && checkedKinds(chosen.spec).includes(id) && !on(chosen))
+  const by = rules.filter((r) => on(r) && kindsOf(r.spec).includes(id)).map((r) => r.name);
+  if (chosen && kindsOf(chosen.spec).includes(id) && !on(chosen))
     return {
       text: by.length > 0 ? `Checked by ${by.join(', ')}` : `${chosen.name} is turned off`,
       checked: by.length > 0,
@@ -399,20 +402,98 @@ function Card({
 
 const GRID = 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4';
 
+/** A family of kinds a rule looks for, personal data or secrets, in the words its section uses. */
+interface Family {
+  /** The rule editor's method for it. */
+  method: 'pii' | 'secrets';
+  /** In running text: "personal data", "secrets". */
+  noun: string;
+  /** The rule panel's title, for one rule and for several. */
+  title: [string, string];
+  /** In "Turn on … checks". */
+  short: string;
+  /** What choosing one of several rules changes. */
+  chosen: string;
+  /** What the one step adds, in words; `attach` when it can also run the rule everywhere. */
+  offer: (attach: boolean) => string;
+  /** What the one step did. */
+  done: (attach: boolean) => string;
+}
+
+const EVERYWHERE = ' on every prompt and answer';
+
+const PERSONAL_DATA: Family = {
+  method: 'pii',
+  noun: 'personal data',
+  title: ['Personal data rule', 'Personal data rules'],
+  short: 'personal data',
+  chosen: 'the preset and the cards change the one chosen',
+  offer: (attach) =>
+    `One step adds a rule that replaces ${defaultPiiSpec().pii?.entities?.length ?? 0} kinds, such as emails and card numbers, with labels${attach ? EVERYWHERE : ''}.`,
+  done: (attach) => (attach ? `Personal data is checked${EVERYWHERE}` : 'Personal data rule created'),
+};
+
+const SECRETS: Family = {
+  method: 'secrets',
+  noun: 'secrets',
+  title: ['Secrets rule', 'Secrets rules'],
+  short: 'secret',
+  chosen: 'the cards change the one chosen',
+  offer: (attach) =>
+    `One step adds a rule that replaces all ${SECRET_DETECTORS.length} kinds, such as API keys and private keys, with labels${attach ? EVERYWHERE : ''}. Replacing, not refusing, lets a request through without the key.`,
+  done: (attach) => (attach ? `Secrets are checked${EVERYWHERE}` : 'Secrets rule created'),
+};
+
+/** How a value looks once the rule acts on it: its placeholder, or what happens instead. */
+function sampleOf(rule: Rule | null, entity: string, preserve: PiiPreserve[], numbered: boolean): string {
+  if (rule && (rule.spec.action ?? 'redact') !== 'redact') return whenFound(rule);
+  return maskedSample(entity, rule?.spec.replacement ?? 'label', preserve, numbered);
+}
+
+/** "Add a kind" and its drawer, for the chosen personal data rule. */
+function AddKind({ rule }: { rule: Rule }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      <Button size="sm" icon="plus" onClick={() => setAdding(true)}>
+        Add a kind
+      </Button>
+      <AddKindDrawer rule={rule} open={adding} onClose={() => setAdding(false)} />
+    </>
+  );
+}
+
+/** A kind a card's switch looks for: its id, its name in running text, its definition if its own. */
+interface SwitchKind {
+  id: string;
+  what: string;
+  own?: CustomKind | null;
+}
+
+type CardToggle = NonNullable<Parameters<typeof Card>[0]['toggle']>;
+
 /**
- * The Personal data tab: which rule or rules find personal data, the chosen rule's facts and
- * presets, then a card per kind (built-in or a rule's own) and per secret with its matches over
- * 24 hours, how a value looks and who checks it. A card's switch looks for its kind with the
- * chosen rule or stops; choosing a card filters the events to it.
+ * One family's section: which rule or rules look for it (a picker when there are several) with the
+ * chosen rule's facts, or the one step that adds a rule; then a card per kind. A card's switch
+ * looks for its kind with the chosen rule or stops, with Undo.
  */
-export function PiiPanel({
-  onFilter,
+function KindsSection({
+  family,
+  rules,
   onEdit,
+  details,
+  actions,
+  cards,
 }: {
-  onFilter: (entity: string) => void;
+  family: Family;
+  rules: Rule[];
   onEdit: (t: EditorTarget) => void;
+  /** Below the facts, for the chosen rule. */
+  details?: (rule: Rule) => ReactNode;
+  /** Beside the kinds' title, for the chosen rule. */
+  actions?: (rule: Rule) => ReactNode;
+  cards: (rule: Rule | null, toggle: (kind: SwitchKind) => CardToggle | undefined) => ReactNode;
 }) {
-  const byEntity = useSafety((s) => s.byEntity.data);
   const guardrails = useSafety((s) => s.guardrails.data);
   const input = useSafety((s) => s.policies.data?.spec.guardrails?.input);
   const setKind = useSafety((s) => s.setKind);
@@ -420,26 +501,16 @@ export function PiiPanel({
   const canWrite = useCan('replaceGuardrail');
   const switches = useSwitchChanges();
   const [chosenName, setChosenName] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const rules = (guardrails ?? []).filter((g) => g.spec.type === 'pii');
   const rule = rules.find((r) => r.name === chosenName) ?? startingRule(rules, input ?? []);
-  const secrets = (guardrails ?? []).find((g) => g.spec.type === 'secrets' && on(g)) ?? null;
-  const replacement = rule?.spec.replacement ?? 'label';
-  const preserve = rule?.spec.pii?.preserve ?? [];
-  const numbered = rule?.spec.pii?.reversible === true;
-  const count = (id: string, checked: boolean) =>
-    byEntity && (checked || (byEntity[id] ?? 0) > 0) ? formatCount(byEntity[id] ?? 0) : '—';
 
-  const toggleFor = (card: KindCard) => {
+  const toggleFor = ({ id, what, own }: SwitchKind): CardToggle | undefined => {
     if (!rule || !canWrite) return undefined;
-    const looked = checkedKinds(rule.spec).includes(card.id);
-    const last = looked && withKind(rule.spec, card.id, false) === null;
-    const what = card.own ? card.name : kindInText(card.id);
-    const own = card.own;
+    const kinds = kindsOf(rule.spec);
+    const looked = kinds.includes(id);
+    const last = looked && kinds.length === 1;
     // A kind of a rule's own is its definition: turning it on adds it (from whichever rule has
     // it), turning it off removes it, so that asks first and Undo puts it back.
-    const turn = (next: boolean) =>
-      own && next ? addKind(rule.name, own) : setKind(rule.name, card.id, next);
+    const turn = (next: boolean) => (own && next ? addKind(rule.name, own) : setKind(rule.name, id, next));
     return {
       checked: looked,
       label: `Look for ${what} with ${rule.name}`,
@@ -464,18 +535,18 @@ export function PiiPanel({
   };
 
   return (
-    <div className="flex flex-col">
+    <>
       {switches.dialog}
       <Panel
-        title={rules.length > 1 ? 'Personal data rules' : 'Personal data rule'}
+        title={rules.length > 1 ? family.title[1] : family.title[0]}
         subtitle={
           !guardrails
             ? undefined
             : rules.length === 0
-              ? 'Nothing looks for personal data yet'
+              ? `Nothing looks for ${family.noun} yet`
               : rules.length === 1
-                ? 'The rule that finds personal data in requests'
-                : `${rules.length} rules find personal data · the preset and the cards change the one chosen`
+                ? `The rule that finds ${family.noun} in requests`
+                : `${rules.length} rules find ${family.noun} · ${family.chosen}`
         }
         actions={
           rule ? (
@@ -505,108 +576,139 @@ export function PiiPanel({
           ) : undefined
         }
       >
-        {guardrails && !rule ? <NoRule onEdit={onEdit} /> : null}
+        {guardrails && !rule ? <NoRule family={family} onEdit={onEdit} /> : null}
         {rule ? (
           <div className="flex flex-col gap-4">
-            <RuleFacts rule={rule} />
-            <Presets rule={rule} />
+            <RuleFacts rule={rule} values={family.method === 'pii'} />
+            {details?.(rule)}
           </div>
         ) : null}
       </Panel>
       <Panel
-        title="Kinds of personal data"
+        title={`Kinds of ${family.noun}`}
         subtitle={
           rule
             ? `Matches in the last 24 hours · a switch changes what ${rule.name} looks for · choose a card to see its events`
             : 'Matches in the last 24 hours · choose a card to see its events'
         }
-        actions={
-          rule && canWrite ? (
-            <Button size="sm" icon="plus" onClick={() => setAdding(true)}>
-              Add a kind
-            </Button>
-          ) : undefined
-        }
+        actions={rule && canWrite && actions ? actions(rule) : undefined}
         bodyClassName="pb-5"
       >
-        <ul className={GRID} aria-label="Kinds of personal data">
-          {kindCards(rules, rule).map((c) => {
-            const status = checkedBy(c.id, rule, rules);
-            return (
-              <Card
-                key={c.id}
-                name={c.name}
-                mono={c.own !== null}
-                matches={count(c.entity, status.checked)}
-                sample={maskedSample(c.entity, replacement, c.own ? [] : preserve, numbered)}
-                status={status}
-                method={c.method}
-                onFilter={() => onFilter(c.entity)}
-                toggle={toggleFor(c)}
-              />
-            );
-          })}
-          {entityRules(guardrails ?? []).map((g) => {
-            const label = g.spec.regex?.label ?? '';
-            const entity = (label || 'redacted').toLowerCase();
-            const reversible = g.spec.regex?.reversible === true;
-            const action = g.spec.action ?? 'block';
-            return (
-              <Card
-                key={g.name}
-                name={label || g.name}
-                mono
-                matches={count(entity, on(g))}
-                sample={
-                  action === 'redact'
-                    ? patternPlaceholder(label, g.name, reversible)
-                    : action === 'flag'
-                      ? 'Flagged only'
-                      : 'Request blocked'
-                }
-                status={{
-                  text: on(g) ? `Checked by ${g.name}` : `${g.name} is turned off`,
-                  checked: on(g),
-                }}
-                method="Pattern rule, from Settings › Data & privacy"
-                onFilter={() => onFilter(entity)}
-              />
-            );
-          })}
+        <ul className={GRID} aria-label={`Kinds of ${family.noun}`}>
+          {cards(rule, toggleFor)}
         </ul>
       </Panel>
-      <Panel
-        title="Secrets"
-        subtitle="Matches in the last 24 hours · choose a card to see its events"
-        bodyClassName="pb-5"
-      >
-        <ul className={GRID} aria-label="Kinds of secrets">
-          {SECRET_DETECTORS.map((d) => {
-            const checked =
-              secrets !== null && (secrets.spec.secrets?.detectors ?? SECRET_DETECTORS).includes(d);
+    </>
+  );
+}
+
+/**
+ * The Personal data tab: a section for personal data and one for secrets, each with which rule or
+ * rules look for it, the chosen rule's facts (and, for personal data, its presets), then a card per
+ * kind with its matches over 24 hours, how a value looks and who checks it. A card's switch looks
+ * for its kind with the chosen rule or stops; choosing a card filters the events to it.
+ */
+export function PiiPanel({
+  onFilter,
+  onEdit,
+}: {
+  onFilter: (entity: string) => void;
+  onEdit: (t: EditorTarget) => void;
+}) {
+  const byEntity = useSafety((s) => s.byEntity.data);
+  const guardrails = useSafety((s) => s.guardrails.data);
+  const all = guardrails ?? [];
+  const piiRules = all.filter((g) => g.spec.type === 'pii');
+  const secretsRules = all.filter((g) => g.spec.type === 'secrets');
+  const count = (id: string, checked: boolean) =>
+    byEntity && (checked || (byEntity[id] ?? 0) > 0) ? formatCount(byEntity[id] ?? 0) : '—';
+
+  return (
+    <div className="flex flex-col">
+      <KindsSection
+        family={PERSONAL_DATA}
+        rules={piiRules}
+        onEdit={onEdit}
+        details={(rule) => <Presets rule={rule} />}
+        actions={(rule) => <AddKind key={rule.name} rule={rule} />}
+        cards={(rule, toggle) => {
+          const preserve = rule?.spec.pii?.preserve ?? [];
+          const numbered = rule?.spec.pii?.reversible === true;
+          return (
+            <>
+              {kindCards(piiRules, rule).map((c) => {
+                const status = checkedBy(c.id, rule, piiRules);
+                return (
+                  <Card
+                    key={c.id}
+                    name={c.name}
+                    mono={c.own !== null}
+                    matches={count(c.entity, status.checked)}
+                    sample={sampleOf(rule, c.entity, c.own ? [] : preserve, numbered)}
+                    status={status}
+                    method={c.method}
+                    onFilter={() => onFilter(c.entity)}
+                    toggle={toggle({
+                      id: c.id,
+                      what: c.own ? c.name : kindInText(c.id),
+                      own: c.own,
+                    })}
+                  />
+                );
+              })}
+              {entityRules(all).map((g) => {
+                const label = g.spec.regex?.label ?? '';
+                const entity = (label || 'redacted').toLowerCase();
+                const reversible = g.spec.regex?.reversible === true;
+                const action = g.spec.action ?? 'block';
+                return (
+                  <Card
+                    key={g.name}
+                    name={label || g.name}
+                    mono
+                    matches={count(entity, on(g))}
+                    sample={
+                      action === 'redact'
+                        ? patternPlaceholder(label, g.name, reversible)
+                        : action === 'flag'
+                          ? 'Flagged only'
+                          : 'Request blocked'
+                    }
+                    status={{
+                      text: on(g) ? `Checked by ${g.name}` : `${g.name} is turned off`,
+                      checked: on(g),
+                    }}
+                    method="Pattern rule, from Settings › Data & privacy"
+                    onFilter={() => onFilter(entity)}
+                  />
+                );
+              })}
+            </>
+          );
+        }}
+      />
+      <KindsSection
+        family={SECRETS}
+        rules={secretsRules}
+        onEdit={onEdit}
+        cards={(rule, toggle) =>
+          SECRET_DETECTORS.map((d) => {
+            const status = checkedBy(d, rule, secretsRules);
             return (
               <Card
                 key={d}
                 name={ENTITY_NAME[d] ?? d}
-                matches={count(d, checked)}
-                sample={
-                  !checked
-                    ? '—'
-                    : secrets.spec.action === 'redact'
-                      ? `[${d.toUpperCase()}]`
-                      : 'Request blocked'
-                }
-                status={{ text: checked ? `Checked by ${secrets.name}` : 'Not checked', checked }}
-                method={detectionMethod(d, secrets?.spec.secrets?.min_entropy)}
+                matches={count(d, status.checked)}
+                sample={sampleOf(rule, d, [], false)}
+                status={status}
+                method={detectionMethod(d, rule?.spec.secrets?.min_entropy)}
                 onFilter={() => onFilter(d)}
+                toggle={toggle({ id: d, what: kindInText(d) })}
               />
             );
-          })}
-        </ul>
-      </Panel>
-      {rule ? (
-        <AddKindDrawer key={rule.name} rule={rule} open={adding} onClose={() => setAdding(false)} />
-      ) : null}
+          })
+        }
+      />
     </div>
   );
 }
