@@ -6,7 +6,7 @@
 
 **The fastest open-source AI gateway.**
 
-Sub-millisecond overhead at 5,000 requests per second on 4 vCPUs: **0.53 ms at p50 and 0.96 ms
+Sub-millisecond overhead at 5,000 requests per second on 4 vCPUs: **0.53 ms at p50 and 0.95 ms
 at p99**, with 247 µs of CPU and 215 MiB of memory at peak. One Rust binary, with the admin console
 built in, between your apps and every model provider.
 
@@ -25,7 +25,7 @@ built in, between your apps and every model provider.
 
 > [!TIP]
 > **Faster than Bifrost and LiteLLM.** On the same dedicated c7i.xlarge at 5,000 RPS, Antirion's
-> p99 overhead is 0.96 ms against Bifrost's 95 ms, with a third of the CPU per request and a sixth
+> p99 overhead is 0.95 ms against Bifrost's 95 ms, with a third of the CPU per request and a sixth
 > of the memory; LiteLLM fails every request at that rate. [The numbers](#performance).
 
 <p align="center">
@@ -68,24 +68,25 @@ request logging, no cache. Every figure is the median of the repetitions.
 
 | Gateway             | Overhead p50 | Overhead p99 | Errors | CPU per request | Peak memory | Idle memory |
 | ------------------- | -----------: | -----------: | -----: | --------------: | ----------: | ----------: |
-| **Antirion**        |  **0.53 ms** |  **0.96 ms** | **0%** |      **247 µs** | **215 MiB** |  **41 MiB** |
-| Bifrost 2.2.4       |      19.7 ms |        95 ms |     0% |          717 µs |   1,389 MiB |     498 MiB |
+| **Antirion**        |  **0.53 ms** |  **0.95 ms** | **0%** |      **247 µs** | **215 MiB** |  **41 MiB** |
+| Bifrost 2.2.4       |      19.7 ms |      95.2 ms |     0% |          717 µs |   1,389 MiB |     498 MiB |
 | LiteLLM 1.103.1     |            — |            — |   100% |               — |   1,851 MiB |   1,653 MiB |
 
 <p align="center">
-  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.96 ms, Bifrost 19.7 and 95 ms" width="32%">
+  <img src="docs/images/bench-overhead.svg" alt="Gateway overhead at p50 and p99 at 5,000 RPS: Antirion 0.53 and 0.95 ms, Bifrost 19.7 and 95.2 ms" width="32%">
   <img src="docs/images/bench-resources.svg" alt="CPU per request and memory at 5,000 RPS for Antirion, Bifrost and LiteLLM" width="32%">
   <img src="docs/images/bench-throughput.svg" alt="Throughput over 64 connections: Antirion 21,512 requests per second, Bifrost 6,568, LiteLLM 424" width="32%">
 </p>
 
 **More scenarios, same machine**
 
-| Scenario                                           | Antirion                       | Bifrost 2.2.4                  | LiteLLM 1.103.1 |
-| -------------------------------------------------- | ------------------------------ | ------------------------------ | --------------- |
-| Throughput over 64 concurrent connections          | **21,512 req/s**               | 6,568 req/s                    | 424 req/s       |
-| Highest rate sustained on 4 vCPUs (saturation)     | **14,000 RPS**                 | 3,500 RPS                      | —               |
-| Simple chat at 10,000 RPS, overhead p50 / p99      | **0.61 ms / 1.5 ms**           | p50 12 s                       | fails           |
-| Unknown model rejected at 20,000 RPS, latency p50  | **0.57 ms**                    | 17.6 s                         | —               |
+| Scenario                                          | Antirion             | Bifrost 2.2.4 | LiteLLM 1.103.1   |
+| ------------------------------------------------- | -------------------- | ------------- | ----------------- |
+| Throughput over 64 concurrent connections         | **21,512 req/s**     | 6,568 req/s   | 424 req/s         |
+| Highest rate sustained on 4 vCPUs (saturation)    | **14,000 RPS**       | 3,500 RPS     | under 500 RPS     |
+| Simple chat at 10,000 RPS, overhead p50 / p99     | **0.61 ms / 1.50 ms** | 12.1 s / 19.1 s | 100% errors     |
+| Invalid key rejected at 20,000 RPS, p50 / p99     | **0.30 ms / 0.75 ms** | 1.86 s / 2.49 s | 100% errors     |
+| Unknown model rejected at 20,000 RPS, p50 / p99   | **0.57 ms / 1.27 ms** | 17.7 s / 27.4 s | 100% errors     |
 
 **How it is measured.** The load generator and the upstream each run on their own c7i.4xlarge in
 the same cluster placement group, so only the gateway is under test. Load is open loop: every
@@ -195,14 +196,14 @@ publishes the same ports, so stop the standalone node first (`docker compose dow
 
 ### Kubernetes
 
-The Helm chart is `deploy/helm/antirion`. It generates the bootstrap token and the encryption key
-into the Secret `<release>-keys` once and keeps them across upgrades (`secrets.existingSecret`
-names your own).
+The Helm chart is `deploy/helm/antirion`. It pulls the release image matching its version from
+`ghcr.io/eliasbiondo/antirion` (`image.repository`, `image.tag`), and generates the bootstrap token
+and the encryption key into the Secret `<release>-keys` once, keeping them across upgrades
+(`secrets.existingSecret` names your own).
 
 ```bash
 # Standalone: one replica, the embedded store on a persistent volume.
 helm install antirion deploy/helm/antirion \
-  --set image.repository=ghcr.io/eliasbiondo/antirion --set image.tag=v0.1.0 \
   --set persistence.size=8Gi \
   --set console.publicOrigin=https://antirion.example.com
 
@@ -210,7 +211,6 @@ helm install antirion deploy/helm/antirion \
 kubectl create secret generic antirion-postgres --from-literal=url='postgres://user:password@host:5432/antirion'
 kubectl create secret generic antirion-valkey --from-literal=url='redis://host:6379/0'
 helm install antirion deploy/helm/antirion \
-  --set image.repository=ghcr.io/eliasbiondo/antirion --set image.tag=v0.1.0 \
   --set mode=cluster --set replicaCount=3 \
   --set postgresql.bundled.enabled=false --set postgresql.external.existingSecret=antirion-postgres \
   --set valkey.bundled.enabled=false --set valkey.external.existingSecret=antirion-valkey \
