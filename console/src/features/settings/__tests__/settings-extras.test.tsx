@@ -20,6 +20,7 @@ import { AlertTimingCard, RequestDetailsCard } from '../components/observability
 import { PrometheusDrawer } from '../components/prometheus-drawer';
 import { CallPricesCard, checkCallPrice, checkMarkup, MarkupsCard } from '../components/pricing-tables';
 import { RecordFieldsCard } from '../components/record-fields';
+import { FailureHandlingCard, RetryPolicyCard } from '../components/retry-policy-cards';
 import { SmtpCard } from '../components/smtp-card';
 import { useLinks, useOrgSettings } from '../store';
 import { useTraffic } from '../traffic-store';
@@ -354,5 +355,68 @@ describe('Model catalog', () => {
       version: null,
       remote: { enabled: false, url: 'https://models.dev/api.json', refresh: '24h' },
     });
+  });
+});
+
+describe('Retry and timeout policy', () => {
+  beforeEach(() => {
+    signInAs(['policies:read', 'policies:write']);
+    useTraffic.setState({ policies: emptySlot(), resilience: emptySlot() });
+  });
+
+  it('sets a stream limit, a fallback for long prompts and what follows a timeout', async () => {
+    const patches = settingsKey('policies', {});
+    await useTraffic.getState().load(['policies']);
+    render(<RetryPolicyCard />);
+    const c = card('Retries and timeouts');
+    expect(within(c).getByRole('combobox', { name: 'A streamed answer may last up to' })).toHaveTextContent(
+      'No limit',
+    );
+    await pickOption(
+      within(c).getByRole('combobox', { name: 'A streamed answer may last up to' }),
+      '15 minutes',
+    );
+    await userEvent.type(within(c).getByLabelText(/Too long: send it to/), 'long-context');
+    await userEvent.click(within(c).getByText('What to try after each kind of failure'));
+    await userEvent.click(within(c).getByRole('button', { name: 'Add failure' }));
+    await pickOption(within(c).getByRole('combobox', { name: 'After' }), 'Timed out');
+    await userEvent.click(within(c).getByRole('checkbox', { name: 'Try the next deployment' }));
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(patches).toEqual([
+        {
+          resilience: {
+            timeouts: { stream_total: '15m' },
+            retry: {
+              class_fallbacks: { context_length: 'long-context' },
+              classes: { timeout: { actions: ['next_deployment'] } },
+            },
+          },
+        },
+      ]),
+    );
+  });
+
+  it('reads a 529 as overloaded and refuses a 400 read as a provider failure', async () => {
+    const patches = settingsKey('resilience', {
+      health_overrides: { 'openai-east': { max_cooldown: '60s' } },
+    });
+    await useTraffic.getState().load(['resilience']);
+    render(<FailureHandlingCard />);
+    const c = card('Failures and retry budget');
+    expect(within(c).getByLabelText('Share of first attempts (%)')).toHaveValue('20');
+    await userEvent.click(within(c).getByText('How provider statuses are read'));
+    expect(within(c).getByText('openai-east')).toBeInTheDocument();
+    await userEvent.click(within(c).getByRole('button', { name: 'Add status' }));
+    await userEvent.type(within(c).getByLabelText('Status'), '400');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    expect(await within(c).findByText(/400 can only be read as/)).toBeInTheDocument();
+    const status = within(c).getByLabelText('Status');
+    await userEvent.clear(status);
+    await userEvent.type(status, '529');
+    await userEvent.click(within(c).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(patches).toEqual([{ classification: { status_overrides: { '529': 'overloaded' } } }]),
+    );
   });
 });

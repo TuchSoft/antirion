@@ -12,6 +12,7 @@ import { SETTINGS_DEFAULTS } from '@/lib/settings-defaults';
 import { durationOptions, rangeError } from '../choices';
 import { useTraffic } from '../traffic-store';
 import { Card } from './parts';
+import { FailureHandlingCard, RetryPolicyCard } from './retry-policy-cards';
 import { Choice, Advanced, Hint, lock, SettingsForm } from './settings-form';
 
 type S = components['schemas'];
@@ -803,6 +804,8 @@ export function RoutingResilienceSection() {
   return (
     <>
       {canResilience ? <HealthCard /> : null}
+      {canResilience ? <FailureHandlingCard /> : null}
+      {canPolicies ? <RetryPolicyCard /> : null}
       {canRouting ? <RoutingCard /> : null}
       {canPolicies ? <PassCard /> : null}
       {canServer ? <AdmissionCard /> : null}
