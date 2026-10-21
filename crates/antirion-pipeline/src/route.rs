@@ -159,20 +159,10 @@ pub(crate) struct Filters<'a> {
 impl Filters<'_> {
     /// The deployment of a leaf.
     pub(crate) fn deployment(&mut self, name: &str) -> Option<Arc<DeploymentRt>> {
-        if let Some(d) = self.snap.providers.deployments.get(name) {
-            return Some(Arc::clone(d));
-        }
         if let Some(d) = self.synthetic.get(name) {
             return Some(Arc::clone(d));
         }
-        let (provider, model) = name.split_once('/')?;
-        let p = self.snap.providers.providers.get(provider)?;
-        let caps = self
-            .snap
-            .config
-            .doc
-            .pointer(&format!("/providers/{provider}/capabilities"));
-        let d = Arc::new(DeploymentRt::direct(p, name, model, caps));
+        let d = super::authorize::deployment_for(self.snap, name)?;
         self.synthetic.insert(name.to_owned(), Arc::clone(&d));
         Some(d)
     }

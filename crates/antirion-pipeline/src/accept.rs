@@ -305,6 +305,7 @@ fn switch(e: &Endpoint) -> &'static str {
     match e.id {
         "gemini_generate" => "gemini",
         "bedrock_converse" | "bedrock_invoke" => "bedrock",
+        "model_info" => "models",
         id => id,
     }
 }
@@ -371,7 +372,11 @@ mod tests {
         ("count_tokens", &[(Method::POST, "/v1/messages/count_tokens")]),
         (
             "models",
-            &[(Method::GET, "/v1/models"), (Method::GET, "/v1/models/m")],
+            &[
+                (Method::GET, "/v1/models"),
+                (Method::GET, "/v1/models/m"),
+                (Method::GET, "/v1/model/info"),
+            ],
         ),
         (
             "gemini",
