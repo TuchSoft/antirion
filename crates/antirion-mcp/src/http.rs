@@ -21,6 +21,7 @@ use crate::log::CallLog;
 use crate::rpc::{Fail, Msg, classify};
 use crate::state::McpState;
 use crate::token::Keyring;
+use crate::toolsearch::ToolIndexBackend;
 use crate::upstream::{self, MODERN};
 use crate::{Body, a2a, legacy, modern, reasons, respond};
 
@@ -39,6 +40,10 @@ pub struct Env {
     pub hooks: Hooks,
     /// The facts the request's log record carries.
     pub log: Arc<CallLog>,
+    /// The embeddings a semantic tool search needs; no search embeds without one.
+    pub tool_index: Option<Arc<dyn ToolIndexBackend>>,
+    /// Cancelled when the caller goes away, so a search stops instead of answering nobody.
+    pub gone: CancellationToken,
 }
 
 /// Which MCP or A2A endpoint a request addressed.

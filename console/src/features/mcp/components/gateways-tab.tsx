@@ -33,7 +33,10 @@ export const GATEWAY_CSV: CsvColumn<McpGatewayResource>[] = [
   { header: 'session_mode', value: (g) => g.spec.session_mode ?? 'stateful' },
   { header: 'prefix_mode', value: (g) => g.spec.prefix_mode ?? 'auto' },
   { header: 'on_server_failure', value: (g) => g.spec.on_server_failure ?? 'partial' },
-  { header: 'tool_search', value: (g) => (g.spec.tool_search ? 'true' : 'false') },
+  {
+    header: 'tool_search',
+    value: (g) => (g.spec.tool_search === true ? 'true' : g.spec.tool_search ? 'semantic' : 'false'),
+  },
   { header: 'oauth', value: (g) => (g.spec.oauth ? 'true' : 'false') },
   { header: 'enabled', value: (g) => (g.spec.enabled === false ? 'false' : 'true') },
 ];
@@ -114,6 +117,7 @@ export function GatewaysTab({
             <tbody>
               {visible.map((g) => {
                 const stats = sessions?.find((x) => x.gateway === g.name);
+                const search = g.spec.tool_search;
                 return (
                   <Tr
                     key={g.name}
@@ -162,10 +166,16 @@ export function GatewaysTab({
                     </Td>
                     <Td className="max-lg:hidden">
                       <span className="flex flex-wrap gap-1">
-                        {g.spec.tool_search ? <Badge tone="info">Tool search</Badge> : null}
+                        {search === true ? (
+                          <Badge tone="info">Tool search</Badge>
+                        ) : search ? (
+                          <Badge tone="info" title={`Ranked by meaning with ${search.embedding_model}`}>
+                            Semantic tool search
+                          </Badge>
+                        ) : null}
                         {g.spec.oauth ? <Badge>OAuth</Badge> : null}
                         {g.spec.on_server_failure === 'fail' ? <Badge>Fails as a whole</Badge> : null}
-                        {!g.spec.tool_search && !g.spec.oauth && g.spec.on_server_failure !== 'fail' ? (
+                        {!search && !g.spec.oauth && g.spec.on_server_failure !== 'fail' ? (
                           <span className="text-muted">—</span>
                         ) : null}
                       </span>

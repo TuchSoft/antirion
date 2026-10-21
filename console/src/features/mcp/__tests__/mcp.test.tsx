@@ -11,6 +11,7 @@ import type { McpGatewayResource, McpServerResource, McpServerStatus } from '../
 import { McpScreen } from '../components/mcp-screen';
 import { REDACTED } from '../fields';
 import {
+  gatewayErrors,
   gatewaySpec,
   gatewayForm,
   serverForm,
@@ -160,16 +161,87 @@ describe('MCP forms', () => {
 
   it('writes a gateway with its servers in order and only the settings that differ from the defaults', () => {
     const f = gatewayForm(gateway);
-    expect(gatewaySpec({ ...f, servers: ['issues', 'billing'], toolSearch: true }, gateway)).toEqual({
-      servers: ['issues', 'billing'],
-      tool_search: true,
-    });
+    expect(gatewaySpec({ ...f, servers: ['issues', 'billing'], toolSearchMode: 'lexical' }, gateway)).toEqual(
+      {
+        servers: ['issues', 'billing'],
+        tool_search: true,
+      },
+    );
     expect(
       gatewaySpec({ ...f, oauth: true, authorizationServers: ['https://idp.example.com'] }, null),
     ).toEqual({
       servers: ['issues'],
       oauth: { authorization_servers: ['https://idp.example.com'] },
     });
+  });
+
+  it('reads and writes the three tool search modes, keeping only the semantic settings that differ from the defaults', () => {
+    const off = gatewayForm(gateway);
+    expect(off.toolSearchMode).toBe('off');
+    expect(gatewaySpec(off, gateway)).toEqual({ servers: ['issues'] });
+
+    expect(gatewaySpec({ ...off, toolSearchMode: 'lexical' }, gateway)).toEqual({
+      servers: ['issues'],
+      tool_search: true,
+    });
+
+    const semantic = {
+      ...off,
+      toolSearchMode: 'semantic' as const,
+      embeddingModel: ' text-embedding-3-small ',
+    };
+    expect(gatewaySpec(semantic, gateway)).toEqual({
+      servers: ['issues'],
+      tool_search: { embedding_model: 'text-embedding-3-small' },
+    });
+
+    const tunedSpec = {
+      ...gateway.spec,
+      tool_search: {
+        embedding_model: 'text-embedding-3-small',
+        threshold: 0.5,
+        top_k: 5,
+        timeout: '2s',
+        max_text_chars: 1000,
+      },
+    };
+    const tuned = gatewayForm({ ...gateway, spec: tunedSpec });
+    expect(tuned).toMatchObject({
+      toolSearchMode: 'semantic',
+      embeddingModel: 'text-embedding-3-small',
+      threshold: '0.5',
+      topK: '5',
+      timeout: '2s',
+      maxTextChars: '1000',
+    });
+    expect(gatewaySpec(tuned, { ...gateway, spec: tunedSpec })).toEqual({
+      servers: ['issues'],
+      tool_search: tunedSpec.tool_search,
+    });
+    expect(gatewaySpec({ ...tuned, toolSearchMode: 'off' }, { ...gateway, spec: tunedSpec })).toEqual({
+      servers: ['issues'],
+    });
+  });
+
+  it('needs an embedding model and sane bounds when a search ranks by meaning', () => {
+    const f = { ...gatewayForm(gateway), toolSearchMode: 'semantic' as const };
+    expect(gatewayErrors(f, [], false).embeddingModel).toBe('Required');
+    const errors = gatewayErrors(
+      { ...f, threshold: '1.5', topK: '0', maxTextChars: '9000', timeout: 'soon' },
+      [],
+      false,
+    );
+    expect(errors.threshold).toBe('A number from 0 to 1');
+    expect(errors.topK).toBe('A whole number from 1 to 50');
+    expect(errors.maxTextChars).toBe('A whole number from 1 to 8000');
+    expect(errors.timeout).toBeDefined();
+    expect(
+      gatewayErrors(
+        { ...f, embeddingModel: 'embed', threshold: '0', topK: '50', maxTextChars: '1', timeout: '5s' },
+        [],
+        false,
+      ),
+    ).toEqual({});
   });
 });
 
@@ -286,7 +358,23 @@ describe('MCP screen', () => {
     expect(confirm).toHaveTextContent('if the file still defines it');
   });
 
+  it('offers the three tool search modes and asks for a model only when semantic', async () => {
+    serve();
+    signInAs(['mcp:read', 'mcp:write']);
+    window.history.replaceState(null, '', '/mcp/?tab=gateways&gateway=default');
+    render(<McpScreen />);
+    const drawer = await screen.findByRole('dialog', { name: 'default' });
+    await userEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    const trigger = within(drawer).getByLabelText('Tool search');
+    expect(trigger).toHaveTextContent('Off: clients see every tool');
+    expect(within(drawer).queryByLabelText(/^Embedding model/)).not.toBeInTheDocument();
+    await pickOption(trigger, 'Semantic (embeddings)');
+    expect(within(drawer).getByLabelText(/^Embedding model/)).toBeInTheDocument();
+    expect(within(drawer).getByLabelText(/^How similar/)).toBeInTheDocument();
+  });
+
   it('shows the sessions of each gateway with the session lifetime', async () => {
+    serve();
     serve();
     signInAs(['mcp:read']);
     window.history.replaceState(null, '', '/mcp/?tab=sessions');

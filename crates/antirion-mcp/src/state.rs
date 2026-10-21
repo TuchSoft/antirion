@@ -2,7 +2,7 @@
 //! discovery and card caches, the revocation set, held HTTP+SSE sessions, requests in flight, and tool
 //! fingerprints with their approvals. Nothing here is needed to resume a session on another node.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -86,6 +86,41 @@ pub(crate) struct GatewayCounts {
     pub(crate) rejected: u64,
 }
 
+/// The vectors of a bounded number of keys; the ones inserted first are evicted first.
+#[derive(Debug, Default)]
+struct Vectors {
+    items: HashMap<String, Arc<[f32]>>,
+    order: VecDeque<String>,
+}
+
+impl Vectors {
+    fn get(&self, key: &str) -> Option<Arc<[f32]>> {
+        self.items.get(key).cloned()
+    }
+
+    fn put(&mut self, key: String, vector: Arc<[f32]>, max: usize) {
+        if self.items.insert(key.clone(), vector).is_none() {
+            self.order.push_back(key);
+        }
+        while self.items.len() > max {
+            let Some(oldest) = self.order.pop_front() else {
+                return;
+            };
+            self.items.remove(&oldest);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.items.clear();
+        self.order.clear();
+    }
+}
+
+/// How many tool vectors one node keeps in memory.
+const MAX_TOOL_VECTORS: usize = 100_000;
+/// How many query vectors one node keeps in memory.
+const MAX_QUERY_VECTORS: usize = 4096;
+
 /// The MCP state of one node.
 #[derive(Debug, Default)]
 pub struct McpState {
@@ -109,6 +144,13 @@ pub struct McpState {
     pub(crate) issuers: Mutex<HashMap<String, (UtcMicros, Value)>>,
     /// The process pools of `stdio` servers, by server generation.
     stdio: Mutex<HashMap<u64, Arc<crate::stdio::StdioServer>>>,
+    /// Tool vectors, keyed as the pipeline keys them. Content-addressed, so a new generation does
+    /// not disown them.
+    tool_vectors: Mutex<Vectors>,
+    /// The vectors of recent searches' queries; a query is never the key of a stored tool.
+    query_vectors: Mutex<Vectors>,
+    /// Until when an embedding Model is known to fail on this node, by model alias.
+    tool_index_down: Mutex<HashMap<String, UtcMicros>>,
 }
 
 /// The id byte of the node's generated session key.
@@ -144,7 +186,8 @@ impl McpState {
             .unwrap_or_default()
     }
 
-    /// Drops the list, discovery and agent-card caches, and what tool fingerprints were seen and approved.
+    /// Drops the list, discovery and agent-card caches, what tool fingerprints were seen and
+    /// approved, and the tool vectors: every cached vector is re-read or embedded again.
     pub fn clear_caches(&self) {
         self.issuers.lock().clear();
         self.fingerprints.lock().clear();
@@ -153,6 +196,45 @@ impl McpState {
         self.lists.lock().clear();
         self.discovery.lock().clear();
         self.cards.lock().clear();
+        self.tool_vectors.lock().clear();
+        self.query_vectors.lock().clear();
+    }
+
+    /// The vector cached for a tool text under `key`.
+    #[must_use]
+    pub fn tool_vector(&self, key: &str) -> Option<Arc<[f32]>> {
+        self.tool_vectors.lock().get(key)
+    }
+
+    /// Caches vectors of tool texts under the keys the pipeline computed.
+    pub fn put_tool_vectors(&self, items: &[(String, Arc<[f32]>)]) {
+        let mut vectors = self.tool_vectors.lock();
+        for (key, vector) in items {
+            vectors.put(key.clone(), Arc::clone(vector), MAX_TOOL_VECTORS);
+        }
+    }
+
+    /// The vector cached for a query under `key`.
+    #[must_use]
+    pub fn query_vector(&self, key: &str) -> Option<Arc<[f32]>> {
+        self.query_vectors.lock().get(key)
+    }
+
+    /// Caches the vector of a query. Queries are never persisted.
+    pub fn put_query_vector(&self, key: String, vector: Arc<[f32]>) {
+        self.query_vectors.lock().put(key, vector, MAX_QUERY_VECTORS);
+    }
+
+    /// Until when Model `model` is known to fail on this node, when it is.
+    #[must_use]
+    pub fn tool_index_down_until(&self, model: &str) -> Option<UtcMicros> {
+        self.tool_index_down.lock().get(model).copied()
+    }
+
+    /// Records that Model `model` failed to embed until `until`; a broken model must not cost every
+    /// search a timeout.
+    pub fn tool_index_failed(&self, model: &str, until: UtcMicros) {
+        self.tool_index_down.lock().insert(model.to_owned(), until);
     }
 
     /// Closes held HTTP+SSE upstream sessions and forgets revocations and session counters.

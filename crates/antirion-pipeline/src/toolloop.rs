@@ -112,6 +112,8 @@ fn env(cx: &Ctx, auth: &Authenticated) -> Option<Env> {
         shutdown: cx.rt.shutdown.clone(),
         hooks,
         log: Arc::new(antirion_mcp::CallLog::default()),
+        tool_index: None,
+        gone: tokio_util::sync::CancellationToken::new(),
     })
 }
 

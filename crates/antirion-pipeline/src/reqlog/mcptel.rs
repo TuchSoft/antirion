@@ -29,6 +29,8 @@ pub(crate) struct McpTelemetry {
     name: Option<String>,
     attrs: Vec<(&'static str, Attr)>,
     clients: Vec<Client>,
+    /// What the request's semantic tool search did, when it made one.
+    tool_index: Option<antirion_mcp::ToolIndexFacts>,
 }
 
 fn id_text(id: &Value) -> Option<String> {
@@ -123,6 +125,7 @@ impl McpTelemetry {
                 .iter()
                 .map(|c| client(c, request_id.as_deref()))
                 .collect(),
+            tool_index: f.tool_index,
         }
     }
 
@@ -142,6 +145,7 @@ impl McpTelemetry {
             name: None,
             attrs,
             clients: Vec::new(),
+            tool_index: None,
         }
     }
 
@@ -172,7 +176,8 @@ impl McpTelemetry {
             .collect()
     }
 
-    /// `antirion_mcp_requests_total` and `antirion_mcp_request_duration_seconds` per upstream request.
+    /// `antirion_mcp_requests_total` and `antirion_mcp_request_duration_seconds` per upstream request,
+    /// and how a semantic tool search ranked.
     pub(crate) fn metrics(&self, m: &Metrics) {
         for c in &self.clients {
             let outcome = if c.error { "error" } else { "ok" };
@@ -182,6 +187,14 @@ impl McpTelemetry {
                 &[&c.server, &c.method],
                 c.end.saturating_duration_since(c.start).as_secs_f64(),
             );
+        }
+        if let Some(f) = self.tool_index {
+            let outcome = if f.fallback {
+                "lexical_fallback"
+            } else {
+                "semantic"
+            };
+            m.add(Fam::McpToolSearches, &[outcome], 1.0);
         }
     }
 }

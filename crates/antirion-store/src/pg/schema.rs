@@ -246,6 +246,7 @@ const MIGRATIONS: &[(i32, &str, &str, &str)] = &[
         "0.1.0",
         "ALTER TABLE log_rollups ADD COLUMN IF NOT EXISTS cache_prefix text;",
     ),
+    (90, "mcp_tool_vectors", "0.1.1", crate::mcp_index::PG_MIGRATION),
 ];
 
 /// `a < b` for dotted numeric versions; parts that are not numbers compare as 0.

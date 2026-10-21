@@ -13426,9 +13426,52 @@
                 "default": "partial"
               },
               "tool_search": {
-                "type": "boolean",
-                "default": false,
-                "description": "Tools/list answers only search_tools, get_tool_schema and call_tool."
+                "anyOf": [
+                  {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "embedding_model": {
+                        "$ref": "#/$defs/ModelName",
+                        "description": "The embeddings Model that ranks a search by meaning; tool texts and the caller's query are sent to it."
+                      },
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "default": 0.3,
+                        "description": "Cosine similarity a tool needs to be returned; higher keeps fewer, closer tools."
+                      },
+                      "top_k": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "default": 10,
+                        "description": "How many tools a search answers when the caller gives no `limit`."
+                      },
+                      "timeout": {
+                        "$ref": "#/$defs/Duration",
+                        "default": "5s",
+                        "description": "Bounds one whole search, embeddings included; a search that runs out falls back to words."
+                      },
+                      "max_text_chars": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8000,
+                        "default": 2000,
+                        "description": "Each tool's name and description are cut to this many characters before embedding."
+                      }
+                    },
+                    "required": [
+                      "embedding_model"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Tools/list answers only search_tools, get_tool_schema and call_tool. `true` ranks by words of a tool's name or description; an object ranks by meaning."
               },
               "server_info": {
                 "anyOf": [

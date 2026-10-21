@@ -293,6 +293,19 @@ export const HEALTH_TONE: Record<ServerHealth, 'success' | 'warn' | 'error' | 'n
 
 // ---------------------------------------------------------------- gateways
 
+export type ToolSearchMode = 'off' | 'lexical' | 'semantic';
+
+/** The object form of `tool_search`: rank by meaning with an embedding model. */
+export type SemanticSearch = Exclude<NonNullable<McpGatewaySpec['tool_search']>, boolean>;
+
+/** What the schema applies when a semantic field is left out; a blank form field means these. */
+export const SEMANTIC_DEFAULTS = {
+  threshold: 0.3,
+  topK: 10,
+  timeout: '5s',
+  maxTextChars: 2000,
+} as const;
+
 export interface GatewayForm {
   name: string;
   servers: string[];
@@ -300,7 +313,13 @@ export interface GatewayForm {
   prefixMode: 'auto' | 'always' | 'never';
   sessionMode: 'stateful' | 'stateless';
   onServerFailure: 'partial' | 'fail';
-  toolSearch: boolean;
+  toolSearchMode: ToolSearchMode;
+  /** The Model whose embeddings rank a semantic search; required in that mode. */
+  embeddingModel: string;
+  threshold: string;
+  topK: string;
+  timeout: string;
+  maxTextChars: string;
   serverInfo: 'gateway' | 'upstream' | 'custom';
   infoName: string;
   infoVersion: string;
@@ -326,7 +345,12 @@ export const EMPTY_GATEWAY: GatewayForm = {
   prefixMode: 'auto',
   sessionMode: 'stateful',
   onServerFailure: 'partial',
-  toolSearch: false,
+  toolSearchMode: 'off',
+  embeddingModel: '',
+  threshold: '',
+  topK: '',
+  timeout: '',
+  maxTextChars: '',
   serverInfo: 'gateway',
   infoName: '',
   infoVersion: '',
@@ -346,6 +370,7 @@ export const EMPTY_GATEWAY: GatewayForm = {
 export function gatewayForm(r: McpGatewayResource): GatewayForm {
   const s = r.spec;
   const info = s.server_info;
+  const search = s.tool_search;
   return {
     name: r.name,
     servers: s.servers,
@@ -353,7 +378,13 @@ export function gatewayForm(r: McpGatewayResource): GatewayForm {
     prefixMode: s.prefix_mode ?? 'auto',
     sessionMode: s.session_mode ?? 'stateful',
     onServerFailure: s.on_server_failure ?? 'partial',
-    toolSearch: s.tool_search === true,
+    toolSearchMode: search === true ? 'lexical' : search ? 'semantic' : 'off',
+    embeddingModel: typeof search === 'object' ? search.embedding_model : '',
+    threshold: typeof search === 'object' && search.threshold !== undefined ? String(search.threshold) : '',
+    topK: typeof search === 'object' && search.top_k !== undefined ? String(search.top_k) : '',
+    timeout: typeof search === 'object' ? (search.timeout ?? '') : '',
+    maxTextChars:
+      typeof search === 'object' && search.max_text_chars !== undefined ? String(search.max_text_chars) : '',
     serverInfo: info === 'upstream' ? 'upstream' : info ? 'custom' : 'gateway',
     infoName: typeof info === 'object' ? (info.name ?? '') : '',
     infoVersion: typeof info === 'object' ? (info.version ?? '') : '',
@@ -378,7 +409,21 @@ export function gatewaySpec(f: GatewayForm, existing: McpGatewayResource | null)
   put(spec, 'prefix_mode', f.prefixMode === 'auto' ? undefined : f.prefixMode);
   put(spec, 'session_mode', f.sessionMode === 'stateful' ? undefined : f.sessionMode);
   put(spec, 'on_server_failure', f.onServerFailure === 'partial' ? undefined : f.onServerFailure);
-  put(spec, 'tool_search', f.toolSearch ? true : undefined);
+  if (f.toolSearchMode === 'off') delete spec.tool_search;
+  else if (f.toolSearchMode === 'lexical') spec.tool_search = true;
+  else {
+    const search: SemanticSearch = { embedding_model: f.embeddingModel.trim() };
+    const threshold = f.threshold.trim() === '' ? SEMANTIC_DEFAULTS.threshold : Number(f.threshold.trim());
+    put(search, 'threshold', threshold === SEMANTIC_DEFAULTS.threshold ? undefined : threshold);
+    const topK = f.topK.trim() === '' ? SEMANTIC_DEFAULTS.topK : Number(f.topK.trim());
+    put(search, 'top_k', topK === SEMANTIC_DEFAULTS.topK ? undefined : topK);
+    const timeout = f.timeout.trim() || SEMANTIC_DEFAULTS.timeout;
+    put(search, 'timeout', timeout === SEMANTIC_DEFAULTS.timeout ? undefined : timeout);
+    const maxTextChars =
+      f.maxTextChars.trim() === '' ? SEMANTIC_DEFAULTS.maxTextChars : Number(f.maxTextChars.trim());
+    put(search, 'max_text_chars', maxTextChars === SEMANTIC_DEFAULTS.maxTextChars ? undefined : maxTextChars);
+    spec.tool_search = search;
+  }
   if (f.serverInfo === 'upstream') spec.server_info = 'upstream';
   else if (f.serverInfo === 'custom') {
     const info: Exclude<NonNullable<McpGatewaySpec['server_info']>, 'upstream'> = {};
@@ -426,6 +471,25 @@ export function gatewayErrors(f: GatewayForm, taken: string[], creating: boolean
       break;
     }
   if (f.oauth && f.authorizationServers.length === 0) e.authorizationServers = 'Add at least one';
+  if (f.toolSearchMode === 'semantic') {
+    if (!f.embeddingModel.trim()) e.embeddingModel = 'Required';
+    const threshold = f.threshold.trim();
+    if (threshold) {
+      const n = Number(threshold);
+      if (!Number.isFinite(n) || n < 0 || n > 1) e.threshold = 'A number from 0 to 1';
+    }
+    const topK = f.topK.trim();
+    if (topK && !(/^\d+$/.test(topK) && Number(topK) >= 1 && Number(topK) <= 50))
+      e.topK = 'A whole number from 1 to 50';
+    const timeout = durationError(f.timeout);
+    if (timeout) e.timeout = timeout;
+    const maxTextChars = f.maxTextChars.trim();
+    if (
+      maxTextChars &&
+      !(/^\d+$/.test(maxTextChars) && Number(maxTextChars) >= 1 && Number(maxTextChars) <= 8000)
+    )
+      e.maxTextChars = 'A whole number from 1 to 8000';
+  }
   return e;
 }
 

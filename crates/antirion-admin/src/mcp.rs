@@ -50,6 +50,8 @@ pub(crate) async fn approve_tools(call: &Call, name: &str) -> Result<Response, A
         public_base: String::new(),
         hooks: Hooks::default(),
         log: Arc::default(),
+        tool_index: None,
+        gone: Default::default(),
     };
     match antirion_mcp::approve_tools(&env, name).await {
         Ok(approval) => Ok(call.json(StatusCode::OK, &approval.to_json())),

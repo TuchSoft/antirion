@@ -171,9 +171,12 @@ function GatewayView({ gateway, openAccess }: { gateway: McpGatewayResource; ope
             {
               label: 'Tool search',
               mono: false,
-              value: s.tool_search
-                ? 'On: clients see three search tools and find the others through them'
-                : 'Off: clients see every tool',
+              value:
+                s.tool_search === true
+                  ? 'Lexical: clients see three search tools and find the others by words'
+                  : s.tool_search
+                    ? `Semantic: ranked by meaning with ${s.tool_search.embedding_model}`
+                    : 'Off: clients see every tool',
             },
             {
               label: 'Server name shown',
@@ -426,11 +429,93 @@ export function GatewayDrawer({
                 </Field>
               </div>
             ) : null}
-            <Switch
-              label="Tool search: list three search tools instead of every tool, for clients with many tools"
-              checked={values.toolSearch}
-              onChange={(v) => set('toolSearch', v)}
-            />
+            <Field
+              label="Tool search"
+              hint="Lists three search tools instead of every tool, for clients with many tools. Lexical matches the words of a tool's name or description; semantic ranks by meaning with an embedding model."
+            >
+              <Select
+                value={values.toolSearchMode}
+                onChange={(v) => set('toolSearchMode', v as GatewayForm['toolSearchMode'])}
+                options={[
+                  { value: 'off', label: 'Off: clients see every tool' },
+                  { value: 'lexical', label: 'Lexical (words)' },
+                  { value: 'semantic', label: 'Semantic (embeddings)' },
+                ]}
+              />
+            </Field>
+            {values.toolSearchMode === 'semantic' ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Embedding model"
+                  required
+                  error={errors.embeddingModel}
+                  hint="A model of your models list that turns tool texts and searches into vectors, such as text-embedding-3-small."
+                >
+                  <Input
+                    mono
+                    autoComplete="off"
+                    placeholder="text-embedding-3-small"
+                    value={values.embeddingModel}
+                    onChange={(e) => set('embeddingModel', e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="How similar"
+                  optional
+                  error={errors.threshold}
+                  hint="Between 0 and 1 (default 0.3). Higher keeps fewer, closer tools."
+                >
+                  <Input
+                    mono
+                    inputMode="decimal"
+                    placeholder="0.3"
+                    value={values.threshold}
+                    onChange={(e) => set('threshold', e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Tools answered per search"
+                  optional
+                  error={errors.topK}
+                  hint="1 to 50 (default 10), when the client gives no limit."
+                >
+                  <Input
+                    mono
+                    inputMode="numeric"
+                    placeholder="10"
+                    value={values.topK}
+                    onChange={(e) => set('topK', e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Search timeout"
+                  optional
+                  error={errors.timeout}
+                  hint="Bounds one whole search, embeddings included (default 5s). A search that runs out falls back to words."
+                >
+                  <Input
+                    mono
+                    placeholder="5s"
+                    value={values.timeout}
+                    onChange={(e) => set('timeout', e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Text kept per tool"
+                  optional
+                  error={errors.maxTextChars}
+                  hint="1 to 8000 characters of each tool's name and description (default 2000)."
+                >
+                  <Input
+                    mono
+                    inputMode="numeric"
+                    placeholder="2000"
+                    value={values.maxTextChars}
+                    onChange={(e) => set('maxTextChars', e.target.value)}
+                  />
+                </Field>
+              </div>
+            ) : null}
             <FormGroup title="Browsers and limits">
               <Field
                 label="Browser origins allowed"

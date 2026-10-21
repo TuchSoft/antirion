@@ -66,6 +66,8 @@ pub enum Purpose {
     Router,
     Cache,
     CacheEmbedding,
+    /// Embeddings of an MCP gateway's tool texts for its semantic search.
+    McpToolIndex,
     /// An operator's reset or adjustment of a budget.
     Adjustment,
     /// An operator's test of a provider credential, charged to no budget.
@@ -85,6 +87,7 @@ impl Purpose {
             Purpose::Router,
             Purpose::Cache,
             Purpose::CacheEmbedding,
+            Purpose::McpToolIndex,
             Purpose::Adjustment,
             Purpose::Test,
         ]
@@ -104,6 +107,7 @@ impl Purpose {
             Purpose::Router => "router",
             Purpose::Cache => "cache",
             Purpose::CacheEmbedding => "cache_embedding",
+            Purpose::McpToolIndex => "mcp_tool_index",
             Purpose::Adjustment => "adjustment",
             Purpose::Test => "test",
         }
@@ -115,7 +119,11 @@ impl Purpose {
     pub const fn is_auxiliary(self) -> bool {
         matches!(
             self,
-            Purpose::Shadow | Purpose::Guardrail | Purpose::Router | Purpose::CacheEmbedding
+            Purpose::Shadow
+                | Purpose::Guardrail
+                | Purpose::Router
+                | Purpose::CacheEmbedding
+                | Purpose::McpToolIndex
         )
     }
 }
@@ -564,5 +572,27 @@ mod tests {
         assert_eq!(with_budget.to_json_string(), with_budget.to_json().to_string());
         assert_eq!(line.to_json_string(), line.to_json().to_string());
         assert_eq!(LedgerLine::from_json(&with_budget.to_json()), Some(with_budget));
+    }
+
+    #[test]
+    fn purposes_round_trip() {
+        for p in [
+            Purpose::Primary,
+            Purpose::Retry,
+            Purpose::Fallback,
+            Purpose::Hedge,
+            Purpose::Shadow,
+            Purpose::Guardrail,
+            Purpose::Router,
+            Purpose::Cache,
+            Purpose::CacheEmbedding,
+            Purpose::McpToolIndex,
+            Purpose::Adjustment,
+            Purpose::Test,
+        ] {
+            assert_eq!(Purpose::parse(p.as_str()), Some(p), "{:?}", p.as_str());
+        }
+        assert_eq!(Purpose::McpToolIndex.as_str(), "mcp_tool_index");
+        assert!(Purpose::McpToolIndex.is_auxiliary());
     }
 }

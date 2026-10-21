@@ -8947,7 +8947,13 @@ export interface components {
                     prefix_mode?: "auto" | "always" | "never";
                     session_mode?: "stateful" | "stateless";
                     on_server_failure?: "partial" | "fail";
-                    tool_search?: boolean;
+                    tool_search?: boolean | {
+                        embedding_model: components["schemas"]["ModelName"];
+                        threshold?: number;
+                        top_k?: number;
+                        timeout?: components["schemas"]["$defs-Duration"];
+                        max_text_chars?: number;
+                    };
                     server_info?: "upstream" | {
                         name?: string;
                         version?: string;
@@ -11104,7 +11110,13 @@ export interface components {
                             prefix_mode?: "auto" | "always" | "never";
                             session_mode?: "stateful" | "stateless";
                             on_server_failure?: "partial" | "fail";
-                            tool_search?: boolean;
+                            tool_search?: boolean | {
+                                embedding_model: components["schemas"]["ModelName"];
+                                threshold?: number;
+                                top_k?: number;
+                                timeout?: components["schemas"]["$defs-Duration"];
+                                max_text_chars?: number;
+                            };
                             server_info?: "upstream" | {
                                 name?: string;
                                 version?: string;
@@ -11769,7 +11781,13 @@ export interface components {
             prefix_mode?: "auto" | "always" | "never";
             session_mode?: "stateful" | "stateless";
             on_server_failure?: "partial" | "fail";
-            tool_search?: boolean;
+            tool_search?: boolean | {
+                embedding_model: components["schemas"]["ModelName"];
+                threshold?: number;
+                top_k?: number;
+                timeout?: components["schemas"]["$defs-Duration"];
+                max_text_chars?: number;
+            };
             server_info?: "upstream" | {
                 name?: string;
                 version?: string;

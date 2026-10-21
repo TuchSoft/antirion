@@ -105,7 +105,7 @@ impl Planner for Owner<'_> {
     fn attempted(&mut self, _: &Selected) {}
 
     fn select_key(&mut self, _: &Selected, tried: &[String], last: Option<&str>, mode: KeyMode) -> KeyPick {
-        route::pick_key(self.cx, &self.deployment, tried, last, mode)
+        route::pick_key(&self.cx.rt, &self.cx.snap, &self.deployment, tried, last, mode)
     }
 
     fn skip(&mut self, _: &Selected, _: &'static str) {}

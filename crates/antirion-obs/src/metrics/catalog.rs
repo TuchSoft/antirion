@@ -181,6 +181,10 @@ catalogue! {
         ["server", "method"], DUR_LONG;
     McpToolDefinitionChanges = "antirion_mcp_tool_definition_changes_total", Counter,
         "MCP tool definitions added, removed or changed upstream", ["server", "change"], NONE;
+    McpToolIndexEmbeddings = "antirion_mcp_tool_index_embeddings_total", Counter,
+        "Tool texts a semantic tool search embedded, per Model and outcome", ["model", "outcome"], NONE;
+    McpToolSearches = "antirion_mcp_tool_searches_total", Counter,
+        "Semantic tool searches, ranked by meaning or by words after a fallback", ["outcome"], NONE;
 }
 
 /// The family named `name`, if the catalogue has it.

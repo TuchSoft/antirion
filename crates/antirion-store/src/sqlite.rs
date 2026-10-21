@@ -195,6 +195,7 @@ fn migrate_state(tx: &rusqlite::Transaction<'_>) -> Result<(), StoreError> {
         .chain(crate::cache_console::MIGRATIONS)
         .chain(crate::bandits::MIGRATIONS)
         .chain(crate::pressure::MIGRATIONS)
+        .chain(crate::mcp_index::MIGRATIONS)
     {
         tx.execute_batch(m)?;
     }

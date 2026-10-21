@@ -259,18 +259,18 @@ crate can use its strict parser.
 | 2 | `antirion-egress` | `EgressClient` (pools per trust class, TLS profile and egress policy; HTTP/1.1 and h2 via ALPN, or the version a destination's profile requires (`HttpVersion`: `http1`, `h2` that fails without ALPN `h2`, `h2c`); h2 with prior knowledge fanned out over several connections per origin (`h2pool`); one resend when a pooled connection closed before answering; response bodies decoded with `antirion-wire`; a body's streamed `Tail`, sent once; WebSocket upgrades on a connection of their own, `upgrade.rs`), the SSRF catalogue (URL rules on the raw string, address rules on every resolved address, connect to the validated address), TLS profiles, header hygiene (always-deny list, forward/deny/set/response_forward), config checks of `security.egress` and `policies.headers`, typed `TransportError` and `BodyError`, the egress reasons |
 | 2 | `antirion-identity` | key and admin-token format, peppered verifiers, data-plane credential selection, allow-list patterns, the key permission catalogue, end-user identity, admin roles, scopes and the admin permission catalogue, the auth reasons |
 | 2 | `antirion-redis` | connections to a Redis-protocol server or a Redis Cluster (`RedisConn`: lazy, `ConnectionLike`, redirections retried while a slot moves, scans over every primary), the `topology` setting and the one-slot key prefix |
-| 2 | `antirion-store` | `Store` (closed enum: SQLite for standalone, PostgreSQL for cluster mode): config generations, audit log, admin tokens, admin sessions, token role bindings, node values, spend ledger lines and their budget charges, alert instances and kept events (`alerting.rs`), the delivery log, queue reports and audit-sink positions (`deliveries.rs`), use times (`marks.rs`), key anomaly flags and key history (`anomalies.rs`), safety events and guardrail hours (`safety.rs`); `pg/`: the pool, migrations under an advisory lock, the configuration notification listener, the store's own health, and what only a cluster shares (node rows and drain commands, job leases, request-log records, Responses state, logins, cache epochs), provider-scoped objects (`objects.rs`: gateway file and batch ids) |
+| 2 | `antirion-store` | `Store` (closed enum: SQLite for standalone, PostgreSQL for cluster mode): config generations, audit log, admin tokens, admin sessions, token role bindings, node values, spend ledger lines and their budget charges, alert instances and kept events (`alerting.rs`), the delivery log, queue reports and audit-sink positions (`deliveries.rs`), use times (`marks.rs`), key anomaly flags and key history (`anomalies.rs`), safety events and guardrail hours (`safety.rs`), the MCP tool vectors (`mcp_index.rs`: `mcp_tool_vectors`, PostgreSQL migration 90); `pg/`: the pool, migrations under an advisory lock, the configuration notification listener, the store's own health, and what only a cluster shares (node rows and drain commands, job leases, request-log records, Responses state, logins, cache epochs), provider-scoped objects (`objects.rs`: gateway file and batch ids) |
 | 2 | `antirion-obs` | the metrics registry (every family of the catalogue, label truncation, the per-family series cap with `_overflow`, configurable buckets, Prometheus 0.0.4 and OpenMetrics expositions, the process collector), the request-log record's JSON Schema and bounded fields (bodies, metadata, header values), the overhead formula (`timing`), W3C trace context, samplers, spans and their OTLP JSON and protobuf encodings, the batch retry schedule, the `observability` settings |
 | 3 | `antirion-providers` | compiled providers and deployments, resolved capability flags, the provider-type catalog (the supported types, hosted presets); building an upstream request (credential, TLS profile, egress policy, operation path overrides, base-URL queries) and a passthrough mount's request (`passthrough`); the token cache over GCP and Azure AD sources, AWS credentials and STS `AssumeRole` (`creds/`); the BYOK credential mode; each type's model listing call, its parsers and the node's record of credential tests and fetched lists (`listing`) |
 | 3 | `antirion-router` | Models, aliases and wildcards (`resolve`); route trees compiled into an arena with paths, params, policies and config-time validation (`tree`); the lazy attempt plan with transition labels and exclusion reasons (`plan`), each node's children ordered lazily by its algorithm, one pass over them for the first position and no name formatting (`select`); predicates (`predicate`); keyword and regex classifiers and the routing text (`classifier`); what call-out classifiers and cost-quality scorers ask and how their answers are read, the calibration window, continuation turns and the embedding cache (`content`); pool scheduling: metric names and reading, assumed load, prefix chains and indexes, the filters and the score (`pool`, `plan/pool.rs`); tag filtering (`tags`); `upstream_body` edits (`body_edit`); the prompt-prefix key (`prefix_key`); SWRR, PeakEWMA, success and in-flight state, mirror slots, score windows and replayed classes (`state`); session bindings (`affinity`) |
 | 3 | `antirion-resilience` | failure classes and the decision table (`class`), classification of transport failures and upstream answers (`classify`), upstream hints (`hint`), the retry and timeout policy with the backoff (`policy`), health settings and the health registry: breakers, cooldowns, keys, manual disables, records shared with a cluster (`settings`, `health`), the cross-request retry budget (`budget`), the attempt loop generic over `Planner` and `Sender` (`engine`) |
 | 3 | `antirion-limits` | limit and budget declarations of every level, their config checks (`check`), the applicable set, the token estimator, exact counter math (GCRA, sliding window, concurrency, budgets), the reservation engine over `MemoryCounters` or `ValkeyCounters`, degraded mode, pricing, cost, ledger lines, the bounded ledger window (`book`), a node's accounts (`spend`), rate-limit and cost headers (see Limits) |
-| 3 | `antirion-mcp` | the MCP gateway (both eras, multiplexing, namespacing, grants, encrypted session tokens, upstream Streamable HTTP and HTTP+SSE, list caches, discovery, tool fingerprints, OAuth metadata) and the A2A proxy; their egress and request-log facts; hooks for limits and guardrails |
+| 3 | `antirion-mcp` | the MCP gateway (both eras, multiplexing, namespacing, grants, encrypted session tokens, upstream Streamable HTTP and HTTP+SSE, list caches, discovery, tool fingerprints, OAuth metadata) and the A2A proxy; their egress and request-log facts; hooks for limits and guardrails; the tool index trait (`ToolIndexBackend`) a semantic `tool_search` asks for vectors |
 | 3 | `antirion-guardrails` | guardrail definitions and their configuration rules (`compile`, `check_document`), attachment across policy levels (`attach`), segments per dialect with their write-back (`segments`; embeddings, images, rerank and transcriptions in `endpoints`), the regex, keyword, PII and secret checks, `json_schema` (`structured`), `tool_permission` (`tools`), `length`, moderation windows and answers, the webhook contract (segment and body modes), the bound on in-flight external checks (`limiter`), transforms, redaction with format-preserving masks (`preserve`), the stage runner over a `Net` it is generic over (`runner`: the stage, and `conclude`, what each check finds), window mode for streams (`window`), the judge and classifier checks (`services`) and the partner services (`partners`) |
 | 3 | `antirion-ext` | extensions (`plugins`): compilation and configuration rules, attachment (`resolve`), the hook payload, signature and answer contract (`hook`), JSON Patch (`patch`), the stable in-process API (`api`: `Extension`, `Registry`, `install`) and the process registry, the built-ins (`static_response`; `test_script`, registered in test mode), Wasm components (`wasm/`: loading by digest, the component cache, epoch-bounded calls, `oci://` blobs) |
 | 3 | `antirion-cache` | the response cache: the effective `policies.cache` (`policy`), the `x-antirion-cache-control` grammar and its checks (`directive`), the canonical key (`jcs`, RFC 8785; `key`: the key document, the semantic partition key and body normalisation), entries and what they record (`entry`, `meta`), the memory backend and the Valkey backend with their entry indexes, listings (`listing`), cutoffs (`invalidate`), invalidation rules (`rules`), the node's `Cache` (settings, timeouts, epochs and cutoffs, hit and miss counts, console reads), semantic eligibility and polarity tokens (`semantic`), the node's vector store (`vectors`), leaders of identical concurrent misses (`flights`), prompt-cache breakpoints (`prompt`), the cache reasons |
 | 4 | `antirion-runtime` | `ConfigState` (document plus metadata), `Snapshot` and its builder, `Generations`, runtime state, the node's accounts and spend ledger (`Runtime::accounts`, `ledger`: `record_spend`, the store-backed budget rebuilds and spend reports), alert webhooks, the commit pipeline (`Runtime::mutate`), apply merging and change sets, test mode, probes and the liveness watchdog, admission control (`admission`), the drain state (`drain`), encryption of stored secrets (`atrest`), `SecurityRt` (CORS, limits, egress policy, header rules per level, client IP, listener TLS, HSTS), admin authentication and sessions, key usage, the request log store, the response cache (`RuntimeState::cache`, its epochs persisted in the store), the secret-file watcher, the ledger writer and its spool (`spool`), single sign-on logins (`logins`), cluster mode (`cluster/`), alerting, audit sinks, objectives and notifications (`alerting/`), OTLP metric export (`otlp_metrics`) |
-| 5 | `antirion-pipeline` | the data plane: `accept`, `authenticate`, `parse`, `resolve`, `admit` and settlement (`account/`), extensions and input guardrails, the exact cache (`cache/`), `route`, the attempt loop, output guardrails, `respond`, the stream relay, the request-log record; uploads (`upload.rs`), embeddings and rerank cells (`embed.rs`), Files, Batches and Realtime (`files.rs`, `batches.rs`, `realtime.rs`) |
+| 5 | `antirion-pipeline` | the data plane: `accept`, `authenticate`, `parse`, `resolve`, `admit` and settlement (`account/`), extensions and input guardrails, the exact cache (`cache/`), `route`, the attempt loop, output guardrails, `respond`, the stream relay, the request-log record, the tool index of semantic MCP search (`toolindex.rs`); uploads (`upload.rs`), embeddings and rerank cells (`embed.rs`), Files, Batches and Realtime (`files.rs`, `batches.rs`, `realtime.rs`) |
 | 5 | `antirion-admin` | the Admin API: resources, settings, config document operations, audit, status, health, metrics, test endpoints, admin tokens, key rotation, role bindings and roles, sessions, request-log reads and lists, provider types and capabilities, provider and deployment runtime state, budget counters and adjustments (`budgets.rs`), spend reports and effective prices (`spend.rs`), cache entries, epochs and status (`cache.rs`), alert instances, their actions and reports (`alerts.rs`), delivery logs, tests, secret rotation, delivery and audit-sink status, objectives, availability and notifications (`delivery.rs`) |
 | 6 | `antirion-server` | listeners (each attaches `antirion_core::Peer`: address and TLS), TLS on either listener with certificate reload, the first-head framing and header-size checks, HTTP/1.1, h2 and h2c, connection draining, the data-plane request count the drain waits for, response compression (`compress`) |
 | 7 | `antirion` | the CLI, startup, the stop sequence (`lifecycle`), the watched config file |
@@ -722,6 +722,23 @@ names one that accepts TLS, with its `sslmode` and `sslrootcert`.
   `infer::pipeline`, each model call a separate routing run.
 - Telemetry: `CallLog` gathers the upstream calls; `pipeline/src/reqlog/mcptel.rs` turns them into
   the SERVER span's name and attributes, CLIENT spans and the MCP metric families.
+- Semantic tool search (`antirion-pipeline/src/toolindex.rs`,
+  `antirion-store/src/mcp_index.rs`): every tool text is a vector keyed by `(model alias, resolved
+  upstream model, text)`, so an unchanged tool is embedded once and read back after a restart, and
+  a repointed alias cannot reuse another model's vectors. The node caches them in `McpState`
+  (100 000 tool vectors and 4096 query vectors, first in first out); the durable `mcp_tool_vectors`
+  table (`last_used_us`, pruned after 180 days unused) is built lazily on the first search, one
+  batch of 32 texts per embedding call. Grants and visibility are applied before scoring (the
+  catalog is `lists::merge`), so a tool the caller cannot see is never embedded or returned; the
+  query's vector stays in the node's cache and is never written. A Model that failed to embed is
+  skipped for 60 seconds, and a search that cannot embed ranks by words.
+- Operator notes on semantic tool search: the caller's query text and the visible tools' names and
+  descriptions are sent to the configured embedding Model's provider. Every semantic `search_tools`
+  costs one embedding call for the query (a node caches recent query vectors); a cold node adds
+  `ceil(tools / 32)` calls for the tool texts, each an auxiliary `mcp_tool_index` line of the
+  request that triggered it. `mcp_tool_vectors` is derived from configuration, holds no tenant
+  column, and is therefore not covered by tenant erasure (`antirion-store/src/erasure.rs` deletes
+  by tenant).
 - Calls to MCP servers and agents go through `antirion_mcp::Egress` (`Runtime::mcp_egress`): the
   shared `EgressClient` with operator trust, `security.egress` and its TLS profile, `x-request-id`
   set, never re-sent by the transport (the server's `retries` rule decides). Server and agent URLs
@@ -735,8 +752,9 @@ names one that accepts TLS, with its `sslmode` and `sslrootcert`.
   in `Env::log` (`CallLog`). Content logging follows the key's `policies.observability` like a
   model request (`observe::content`): the call is recorded from the body, a JSON answer from the
   response (`mcp::json_content`), both scrubbed by `content.redact_pii` when it is on.
-- `POST /test/reset` scope `cache` drops the list, discovery and card caches; `sessions` closes held
-  HTTP+SSE upstream streams and forgets revocations and session counters.
+- `POST /test/reset` scope `cache` drops the list, discovery and card caches and the tool and
+  query vectors; `sessions` closes held HTTP+SSE upstream streams and forgets revocations and
+  session counters.
 
 ## Resilience
 
@@ -1180,9 +1198,11 @@ from the ledger).
   terminator is forwarded (`relay::settle_now`), or when they end otherwise. The settled cost is the
   metrics' cost and `x-antirion-cost` (a trailer, declared in `Trailer`, on streams whose client sent
   `TE: trailers`). The record's cost adds the auxiliary calls the gateway made on the request's
-  behalf (`internal::ask`: semantic cache embeddings, routing classifiers and scorers): each is
-  priced when it answers (`account::auxiliary_line`), its cost and status go to the record's
-  `auxiliary`, and its line is charged off the request's path (`account::charge_line`). The record's
+  behalf (`internal::ask`: semantic cache embeddings, routing classifiers and scorers, and the
+  tool index's embedding batches): each is priced when it answers (`account::auxiliary_line`), its
+  cost and status go to the record's `auxiliary`, and its line is charged off the request's path
+  (`account::charge_line`). A tool index embeds in batches of 32, each an `mcp_tool_index` line
+  (`Purpose::McpToolIndex`) numbered from `601` (`internal::FIRST_TOOL_INDEX_LINE`). The record's
   `cost.total` then includes `cost.auxiliary` and equals the sum of the request's ledger lines, so
   the request log, its rollups (Overview, Analytics) and the ledger agree; the status is the least
   certain of both. Shadow copies stay out: they end after the record is written and are reported as
@@ -1733,6 +1753,12 @@ What the Cache screen reads and changes beyond the cache's own rules.
   order on the retry.
 - The client-facing HTTP+SSE stream and its handle live on one node; closing it does not end the
   upstream sessions the stream's `initialize` opened (they expire upstream).
+- A semantic tool search's first search on a cold node embeds every visible tool text, in batches
+  of 32, so it waits on the embedding Model; later searches on that node answer from its cache.
+  Tools are indexed per caller-visible list, so a credential's own tool union is embedded only when
+  its list is first fetched. Concurrent cold searches for the same texts each embed them (no
+  in-flight leader, unlike `antirion-cache/src/flights.rs`); in a cluster every node builds its own
+  cache and they converge through `mcp_tool_vectors`.
 - The request-log record holds what is known when the response head is ready: a JSON-RPC error
   inside a relayed SSE answer, the tool-level outcome and cost are not recorded. With content
   logging on, the JSON-RPC call and a JSON answer are kept as content; a streamed
@@ -1812,9 +1838,16 @@ What the Cache screen reads and changes beyond the cache's own rules.
   `device_user_code` by the normalized code), decided with `swap_record` and redeemed with
   `take_record`, so any node serves any step. The token is a personal admin token. The CLI keeps tokens in
   `$XDG_CONFIG_HOME/antirion/credentials.json` (`ANTIRION_CREDENTIALS` overrides it).
-- **MCP tool search** (`antirion-mcp/src/toolsearch.rs`): intercepted before list and item dispatch in both
-  eras; the catalog is the merged, grant-filtered tool list; `call_tool` checks arguments with
-  `UserSchema::first_violation` and forwards a `tools/call` of the target.
+- **MCP tool search** (`antirion-mcp/src/toolsearch.rs`): `tool_search: true` answers `tools/list`
+  with three meta-tools instead (`search_tools`, `get_tool_schema`, `call_tool`), intercepted
+  before list and item dispatch in both eras; the catalog is the merged, grant-filtered tool list.
+  In the lexical mode `search_tools` ranks by words of a tool's name or description; `call_tool`
+  checks arguments with `UserSchema::first_violation` and forwards a `tools/call` of the target.
+  `tool_search: {embedding_model, threshold, top_k, timeout, max_text_chars}` ranks by meaning
+  instead: a Model of `models` embeds each tool's upstream name and description, only hits at
+  least `threshold` close are returned, closest first, each `{name, description, score}`, and the
+  caller's `limit` (1–50) is capped by `top_k`. An embedding failure, a timeout or a caller that
+  went away ranks by words and marks `mcp_tool_search` in `x-antirion-degraded`.
 - **Admin MCP server** (`antirion-admin/src/admin_mcp.rs`): `/admin/mcp` behind `mcp.admin_server.enabled`,
   after the Admin API's authentication; each tool calls the API's own read with a copy of the `Call`.
 - **Reproducible builds** (`ci/reproducible.sh`): builds a package twice in two fresh copies of a commit

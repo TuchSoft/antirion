@@ -112,6 +112,32 @@ pub(crate) struct OauthRt {
     pub(crate) proxy_registration: bool,
 }
 
+/// How a gateway's `tools/list` tool search ranks the tools it offers.
+#[derive(Clone, Debug)]
+pub enum ToolSearchRt {
+    /// The tools themselves are listed.
+    Off,
+    /// `search_tools` ranks by case-insensitive substring of a tool's name or description.
+    Lexical,
+    /// `search_tools` ranks by the cosine similarity of embeddings.
+    Semantic(Arc<SemanticRt>),
+}
+
+/// A gateway's semantic tool search.
+#[derive(Clone, Debug)]
+pub struct SemanticRt {
+    /// The Model whose embeddings rank the tools.
+    pub model: String,
+    /// The least cosine similarity a tool needs to be returned.
+    pub threshold: f64,
+    /// How many tools a search answers when the caller gives no `limit`.
+    pub top_k: usize,
+    /// Bounds one whole search, embeddings included.
+    pub timeout: Duration,
+    /// Tool names and descriptions are cut to this many characters before embedding.
+    pub max_text_chars: usize,
+}
+
 /// One virtual MCP server.
 #[derive(Debug)]
 pub(crate) struct GatewayRt {
@@ -129,8 +155,8 @@ pub(crate) struct GatewayRt {
     pub(crate) oauth: Option<OauthRt>,
     /// Modern requests may reach legacy-only servers through sessions opened for them.
     pub(crate) modern_bridge: bool,
-    /// `tools/list` answers only the tool-search tools.
-    pub(crate) tool_search: bool,
+    /// `tools/list` answers only the tool-search tools, ranked as `tool_search` says.
+    pub(crate) tool_search: ToolSearchRt,
     /// Some grant anywhere in the configuration restricts this gateway's servers or items, so a list
     /// result depends on who asks.
     pub(crate) restricted: bool,
@@ -292,7 +318,7 @@ struct GatewayView {
     max_body: Option<String>,
     oauth: Option<OauthView>,
     modern_bridge: Option<bool>,
-    tool_search: bool,
+    tool_search: Option<Value>,
 }
 
 #[derive(Deserialize, Default)]
@@ -500,8 +526,66 @@ fn compile_server(name: &str, v: &Value, errors: &mut Vec<ConfigError>) -> Optio
     })
 }
 
-fn compile_gateway(name: &str, v: &Value) -> GatewayRt {
+/// A gateway's `tool_search`: absent or `false` is `Off`, `true` is `Lexical`, an object is
+/// `Semantic` with the schema's defaults for what it leaves out.
+fn tool_search(v: Option<&Value>, doc: &Value, at: &DocPath, errors: &mut Vec<ConfigError>) -> ToolSearchRt {
+    let Some(v) = v else {
+        return ToolSearchRt::Off;
+    };
+    if let Some(on) = v.as_bool() {
+        return if on {
+            ToolSearchRt::Lexical
+        } else {
+            ToolSearchRt::Off
+        };
+    }
+    let Some(o) = v.as_object() else {
+        return ToolSearchRt::Off;
+    };
+    let at = at.key("tool_search").key("embedding_model");
+    let model = o
+        .get("embedding_model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|m| !m.is_empty());
+    let Some(model) = model else {
+        errors.push(ConfigError::new(
+            &at,
+            DetailCode::Required,
+            "semantic tool search needs an embedding_model",
+        ));
+        return ToolSearchRt::Off;
+    };
+    if doc.pointer("/models").and_then(|m| m.get(model)).is_none() {
+        errors.push(ConfigError::new(
+            &at,
+            DetailCode::UnresolvedReference,
+            format!("model {model:?} does not exist"),
+        ));
+    }
+    let number = |key: &str| o.get(key).and_then(Value::as_f64);
+    let count = |key: &str| {
+        o.get(key)
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+    };
+    ToolSearchRt::Semantic(Arc::new(SemanticRt {
+        model: model.to_owned(),
+        threshold: number("threshold").unwrap_or(0.3).clamp(0.0, 1.0),
+        top_k: count("top_k").unwrap_or(10).clamp(1, 50),
+        timeout: o
+            .get("timeout")
+            .and_then(Value::as_str)
+            .and_then(parse_duration)
+            .unwrap_or(Duration::from_secs(5)),
+        max_text_chars: count("max_text_chars").unwrap_or(2000).clamp(1, 8000),
+    }))
+}
+
+fn compile_gateway(name: &str, v: &Value, doc: &Value, errors: &mut Vec<ConfigError>) -> GatewayRt {
+    let at = DocPath::root().key("mcp").key("gateways").key(name);
     let g: GatewayView = serde_json::from_value(v.clone()).unwrap_or_default();
+    let tool_search = tool_search(g.tool_search.as_ref(), doc, &at, errors);
     let prefixed = match g.prefix_mode.as_deref() {
         Some("always") => true,
         Some("never") => false,
@@ -552,7 +636,7 @@ fn compile_gateway(name: &str, v: &Value) -> GatewayRt {
         }),
         restricted: false,
         modern_bridge: g.modern_bridge.unwrap_or(false),
-        tool_search: g.tool_search,
+        tool_search,
     }
 }
 
@@ -728,7 +812,7 @@ pub fn compile(resolved: &Value) -> Result<McpSnapshot, Vec<ConfigError>> {
         .into_iter()
         .flatten()
     {
-        let mut g = compile_gateway(name, v);
+        let mut g = compile_gateway(name, v, resolved, &mut errors);
         g.restricted = all_grants.iter().any(|grant| restricts(grant, &g));
         snap.gateways.insert(name.clone(), Arc::new(g));
     }
@@ -740,6 +824,35 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// The `tool_search` a gateway compiles to, with `models.embed` declared; `None` leaves the field
+    /// out of the document.
+    fn mode(tool_search: Option<Value>) -> Result<ToolSearchRt, String> {
+        let mut gateway = json!({"servers": ["a"]});
+        if let Some(t) = tool_search
+            && let Some(o) = gateway.as_object_mut()
+        {
+            o.insert("tool_search".into(), t);
+        }
+        let doc = json!({
+            "models": {"embed": {"target": "d"}},
+            "mcp": {
+                "servers": {"a": {"transport": "streamable_http", "url": "http://h/1"}},
+                "gateways": {"g": gateway},
+            },
+        });
+        let snap = compile(&doc).map_err(|e| format!("{e:?}"))?;
+        snap.gateways
+            .get("g")
+            .map(|g| g.tool_search.clone())
+            .ok_or_else(|| "the gateway did not compile".to_owned())
+    }
+
+    fn errors(doc: &Value) -> Result<Vec<ConfigError>, String> {
+        compile(doc)
+            .err()
+            .ok_or_else(|| "the document compiles".to_owned())
+    }
 
     #[test]
     fn defaults_and_prefix_mode() {
@@ -801,5 +914,111 @@ mod tests {
         let bad = json!({"mcp": {"session": {"keys": [{"id": 1, "secret": "c2hvcnQ="}]}}});
         let errs = compile(&bad).unwrap_err();
         assert_eq!(errs[0].path.to_string(), "mcp.session.keys[0].secret");
+    }
+
+    #[test]
+    fn tool_search_modes() -> Result<(), String> {
+        assert!(matches!(mode(None)?, ToolSearchRt::Off));
+        assert!(matches!(mode(Some(Value::Bool(false)))?, ToolSearchRt::Off));
+        assert!(matches!(mode(Some(Value::Bool(true)))?, ToolSearchRt::Lexical));
+        let ToolSearchRt::Semantic(sem) = mode(Some(json!({
+            "embedding_model": "embed",
+            "threshold": 0.5,
+            "top_k": 3,
+            "timeout": "2s",
+            "max_text_chars": 100
+        })))?
+        else {
+            return Err("an object is a semantic search".to_owned());
+        };
+        assert_eq!(sem.model, "embed");
+        assert_eq!(sem.threshold, 0.5);
+        assert_eq!(sem.top_k, 3);
+        assert_eq!(sem.timeout, Duration::from_secs(2));
+        assert_eq!(sem.max_text_chars, 100);
+        Ok(())
+    }
+
+    #[test]
+    fn tool_search_needs_a_known_model() -> Result<(), String> {
+        let doc = json!({
+            "models": {"embed": {"target": "d"}},
+            "mcp": {"gateways": {"g": {"servers": ["a"], "tool_search": {"embedding_model": "ghost"}}}},
+        });
+        let errs = errors(&doc)?;
+        let err = errs
+            .iter()
+            .find(|e| e.path == "mcp.gateways.g.tool_search.embedding_model")
+            .ok_or_else(|| format!("{errs:?}"))?;
+        assert_eq!(err.code, DetailCode::UnresolvedReference);
+        assert_eq!(err.message, "model \"ghost\" does not exist");
+        Ok(())
+    }
+
+    #[test]
+    fn tool_search_missing_model_is_required() -> Result<(), String> {
+        let doc = json!({"mcp": {"gateways": {"g": {"servers": ["a"], "tool_search": {}}}}});
+        let errs = errors(&doc)?;
+        let err = errs
+            .iter()
+            .find(|e| e.path == "mcp.gateways.g.tool_search.embedding_model")
+            .ok_or_else(|| format!("{errs:?}"))?;
+        assert_eq!(err.code, DetailCode::Required);
+        Ok(())
+    }
+
+    #[test]
+    fn tool_search_wrong_type_keeps_the_gateway() -> Result<(), String> {
+        let doc = json!({
+            "mcp": {
+                "servers": {"a": {"transport": "streamable_http", "url": "http://h/1"}},
+                "gateways": {"g": {"servers": ["a"], "tool_search": "yes"}},
+            },
+        });
+        let snap = compile(&doc).map_err(|e| format!("{e:?}"))?;
+        let gateway = snap
+            .gateways
+            .get("g")
+            .ok_or_else(|| "the gateway did not compile".to_owned())?;
+        assert_eq!(gateway.servers, ["a"]);
+        assert!(matches!(&gateway.tool_search, ToolSearchRt::Off));
+        Ok(())
+    }
+
+    #[test]
+    fn tool_search_defaults_match_the_schema() -> Result<(), String> {
+        fn default<T>(fields: &Value, name: &str, pick: fn(&Value) -> Option<T>) -> Result<T, String> {
+            fields
+                .get(name)
+                .and_then(|f| f.get("default"))
+                .and_then(pick)
+                .ok_or_else(|| format!("the schema has no {name} default"))
+        }
+
+        let schema: Value =
+            serde_json::from_str(antirion_config::schema::JSON_SCHEMA).map_err(|e| e.to_string())?;
+        let fields = schema
+            .pointer(concat!(
+                "/$defs/Mcp/properties/gateways/additionalProperties/properties",
+                "/tool_search/anyOf/1/properties"
+            ))
+            .ok_or_else(|| "the schema has no semantic tool_search".to_owned())?;
+        let ToolSearchRt::Semantic(sem) = mode(Some(json!({"embedding_model": "embed"})))? else {
+            return Err("an object is a semantic search".to_owned());
+        };
+        assert_eq!(sem.threshold, default(fields, "threshold", Value::as_f64)?);
+        assert_eq!(
+            u64::try_from(sem.top_k).unwrap_or(u64::MAX),
+            default(fields, "top_k", Value::as_u64)?
+        );
+        assert_eq!(
+            u64::try_from(sem.max_text_chars).unwrap_or(u64::MAX),
+            default(fields, "max_text_chars", Value::as_u64)?
+        );
+        assert_eq!(
+            sem.timeout,
+            default(fields, "timeout", |v| v.as_str().and_then(parse_duration))?
+        );
+        Ok(())
     }
 }

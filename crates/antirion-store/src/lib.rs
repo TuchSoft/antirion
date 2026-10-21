@@ -19,6 +19,7 @@ mod identity;
 mod ledger;
 pub mod logs;
 mod marks;
+mod mcp_index;
 mod objects;
 mod once;
 pub mod pg;

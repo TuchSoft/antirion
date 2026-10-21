@@ -167,6 +167,16 @@ pub(crate) async fn serve(
         shutdown: cx.rt.shutdown.clone(),
         hooks: Hooks::default(),
         log: Arc::clone(&log),
+        tool_index: Some(Arc::new(crate::toolindex::ToolIndex::new(
+            Arc::clone(&cx.rt),
+            Arc::clone(&cx.snap),
+            cx.request_id.clone(),
+            cx.log.clone(),
+            Arc::clone(&log),
+            cx.account.clone(),
+            cx.gone.clone(),
+        ))),
+        gone: cx.gone.clone(),
     };
     let name = endpoint
         .path_param
@@ -313,6 +323,9 @@ pub(crate) async fn serve(
     }
     if unchecked {
         crate::mark_degraded(&["session_store"], resp.headers_mut());
+    }
+    if log.facts().tool_index.is_some_and(|f| f.fallback) {
+        crate::mark_degraded(&["mcp_tool_search"], resp.headers_mut());
     }
     report_definition_changes(cx);
     record(cx, &path, &log);

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::caller::Caller;
-use crate::compile::{GatewayRt, ServerInfo, SessionKey};
+use crate::compile::{GatewayRt, ServerInfo, SessionKey, ToolSearchRt};
 use crate::http::{Env, Req};
 use crate::lists::{self, Kind, Mode};
 use crate::names;
@@ -118,7 +118,7 @@ impl Toolbox {
             oauth: None,
             restricted: true,
             modern_bridge: false,
-            tool_search: false,
+            tool_search: ToolSearchRt::Off,
         });
         let req = Req {
             env,

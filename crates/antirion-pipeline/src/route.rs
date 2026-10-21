@@ -17,8 +17,8 @@ use antirion_router::plan::PoolDispatch;
 use antirion_router::{
     AttemptPlan, CostOracle, Eligibility, Exclusion, Facts, Leaf, NodeKind, Params, RouteRt, SelectCx, Step,
 };
-use antirion_runtime::Snapshot;
 use antirion_runtime::identity::Access;
+use antirion_runtime::{Runtime, Snapshot};
 use http::HeaderMap;
 use serde_json::{Map, Value};
 
@@ -669,7 +669,7 @@ impl Planner for Tiers<'_> {
         let Some(d) = self.filters.deployment(&s.deployment) else {
             return KeyPick::None;
         };
-        pick_key(self.filters.cx, &d, tried, last, mode)
+        pick_key(&self.filters.cx.rt, &self.filters.cx.snap, &d, tried, last, mode)
     }
 
     fn skip(&mut self, s: &Selected, reason: &'static str) {
@@ -709,9 +709,11 @@ fn node_paths(path: &str) -> Vec<String> {
     out
 }
 
-/// A key of `d` for the attempt loop, from the health registry's key state.
+/// A key of `d` for the attempt loop, from the health registry's key state. The node and the
+/// snapshot stand in for a request's `Ctx`, so an internal call can pick a key without one.
 pub(crate) fn pick_key(
-    cx: &Ctx,
+    rt: &Runtime,
+    snap: &Snapshot,
     d: &DeploymentRt,
     tried: &[String],
     last: Option<&str>,
@@ -721,9 +723,8 @@ pub(crate) fn pick_key(
     if keys.is_empty() {
         return KeyPick::Keyless;
     }
-    let settings = cx.snap.health.for_deployment(&d.name);
-    cx.rt
-        .state
+    let settings = snap.health.for_deployment(&d.name);
+    rt.state
         .health
         .select_key(
             &d.name,
@@ -733,7 +734,7 @@ pub(crate) fn pick_key(
             last,
             mode,
             settings,
-            cx.rt.now(),
+            rt.now(),
         )
         .map_or(KeyPick::None, KeyPick::Key)
 }

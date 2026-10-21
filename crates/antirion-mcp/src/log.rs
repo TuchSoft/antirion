@@ -34,6 +34,21 @@ pub struct LogFacts {
     pub legacy: bool,
     /// The requests made to upstream servers for this one.
     pub upstream: Vec<UpstreamCall>,
+    /// What the request's semantic tool search did, when it made one.
+    pub tool_index: Option<ToolIndexFacts>,
+}
+
+/// What a semantic tool search embedded, how long it took and whether it ranked by words instead.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ToolIndexFacts {
+    /// Tool texts the index had to embed: neither cached nor stored.
+    pub embedded: u32,
+    /// Tool texts that came back without a vector.
+    pub misses: u32,
+    /// The search answered with the lexical ranking, because an embedding failed or timed out.
+    pub fallback: bool,
+    /// How long the search took, embeddings included.
+    pub elapsed: std::time::Duration,
 }
 
 /// One request to an upstream server.
@@ -104,6 +119,12 @@ impl CallLog {
     /// Records one request to an upstream server.
     pub(crate) fn upstream(&self, call: UpstreamCall) {
         self.update(|f| f.upstream.push(call));
+    }
+
+    /// Changes what the request's tool index recorded, creating it on first use. The search fills
+    /// `fallback` and `elapsed`; whoever embeds fills `embedded` and `misses`.
+    pub fn tool_index(&self, f: impl FnOnce(&mut ToolIndexFacts)) {
+        self.update(|r| f(r.tool_index.get_or_insert_with(ToolIndexFacts::default)));
     }
 
     #[must_use]

@@ -53,17 +53,18 @@ mod when;
 pub use admin::{ApproveError, SessionStats, ToolApproval, approve_tools, server_status, session_stats};
 pub use authserver::{Helped, authorization_server, register};
 pub use caller::Caller;
-pub use compile::{McpSnapshot, check_document, compile};
+pub use compile::{McpSnapshot, SemanticRt, ToolSearchRt, check_document, compile};
 pub use egress::Egress;
 pub use hooks::{CallCharge, CallFacts, CallHook, CallLimits, Counted, HookVerdict, Hooks, Pending};
 pub use http::{
     Env, McpPath, a2a_requires_credential, before_body, body_limit, precheck, public_base, serve,
 };
-pub use log::{CallLog, LogFacts, UpstreamCall};
+pub use log::{CallLog, LogFacts, ToolIndexFacts, UpstreamCall};
 pub use oauth::{audiences, challenge, metadata};
 pub use state::{DefinitionChange, McpState};
 pub use token::SessionTokenSample;
 pub use toolbox::{OfferedTool, Toolbox, function_name};
+pub use toolsearch::ToolIndexBackend;
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;

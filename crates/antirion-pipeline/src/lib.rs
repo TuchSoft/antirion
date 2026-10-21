@@ -100,6 +100,7 @@ mod socket;
 mod stored;
 mod streamed;
 mod templating;
+mod toolindex;
 mod toolloop;
 mod trace;
 mod upbody;

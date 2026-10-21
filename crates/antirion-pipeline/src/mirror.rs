@@ -149,7 +149,7 @@ async fn start(up: &Upstream<'_>, job: Job, line: u32, timers: &AttemptTimers) {
         Some(edit) => edited_body(body, edit),
         None => body,
     };
-    let key = match pick_key(cx, d, &[], None, KeyMode::Untried) {
+    let key = match pick_key(&cx.rt, &cx.snap, d, &[], None, KeyMode::Untried) {
         KeyPick::Key(k) => Some(k),
         KeyPick::Keyless => None,
         KeyPick::None => return,
