@@ -33,6 +33,9 @@ pub enum Kind {
     Inference,
     /// `GET /v1/models` and `GET /v1/models/{id}`, answered locally.
     ModelsList,
+    /// `GET /v1/model/info`: each Model with its aggregated capabilities, in the shape LiteLLM's
+    /// endpoint uses, answered locally.
+    ModelInfo,
     /// A stored Responses object (`GET`/`DELETE /v1/responses/{id}`).
     StoredResponse,
     /// An MCP gateway endpoint.
@@ -434,6 +437,7 @@ pub fn match_endpoint(method: &Method, raw_path: &str) -> Matched {
         }
         ["v1" | "v1beta", "models"] => (GET_HEAD, Some(models_endpoint(None))),
         ["v1", "models", rest @ ..] => (GET_HEAD, Some(models_endpoint(Some(&rest.join("/"))))),
+        ["v1", "model", "info"] => (GET_HEAD, Some(model_info_endpoint())),
         ["v1", "moderations"] => (
             POST,
             Some(inference(
@@ -668,6 +672,18 @@ fn models_endpoint(id: Option<&str>) -> Endpoint {
     }
 }
 
+fn model_info_endpoint() -> Endpoint {
+    Endpoint {
+        id: "model_info",
+        family: "models",
+        dialect: Dialect::OpenAiChat,
+        kind: Kind::ModelInfo,
+        upstream_path: None,
+        path_param: None,
+        action: None,
+    }
+}
+
 fn gemini_action(segment: &str) -> Option<(&str, &'static str)> {
     let (model, action) = segment.rsplit_once(':')?;
     let action = match action {
@@ -790,6 +806,17 @@ mod tests {
     fn catalog() {
         assert_eq!(found(Method::POST, "/v1/chat/completions").id, "chat_completions");
         assert_eq!(found(Method::GET, "/v1/models").kind, Kind::ModelsList);
+        assert_eq!(found(Method::GET, "/v1/model/info").kind, Kind::ModelInfo);
+        assert_eq!(found(Method::GET, "/v1/model/info").id, "model_info");
+        assert_eq!(found(Method::GET, "/v1/models/m").kind, Kind::ModelsList);
+        assert_eq!(
+            match_endpoint(&Method::POST, "/v1/model/info"),
+            Matched::MethodNotAllowed(GET_HEAD)
+        );
+        assert_eq!(
+            match_endpoint(&Method::GET, "/v1/model/info/x"),
+            Matched::NotFound
+        );
         let g = found(Method::POST, "/v1beta/models/gemini-x:generateContent");
         assert_eq!(
             (g.id, g.path_param.as_deref()),

@@ -13,7 +13,7 @@ use antirion_identity::access::{ListPair, allowed, region_allowed};
 use antirion_identity::reasons;
 use antirion_providers::{DeploymentRt, ProviderRt, ProviderTable};
 use antirion_router::{
-    Caller, Lifecycle, LifecycleState, ModelRt, Resolved, RoutingSnapshot, deployments_of,
+    Caller, Lifecycle, LifecycleState, ModelRt, NodeKind, Resolved, RoutingSnapshot, deployments_of,
 };
 use antirion_runtime::Snapshot;
 use antirion_runtime::identity::{Access, KeyRt};
@@ -57,6 +57,49 @@ pub(crate) fn candidates<'a>(
     names.sort_unstable();
     names.dedup();
     names.iter().filter_map(|n| table.deployments.get(*n)).collect()
+}
+
+/// The deployment a leaf names: one of the provider table's, or a `provider/model` leaf built on
+/// the fly with the provider's `capabilities` block.
+pub(crate) fn deployment_for(snap: &Snapshot, name: &str) -> Option<Arc<DeploymentRt>> {
+    if let Some(d) = snap.providers.deployments.get(name) {
+        return Some(Arc::clone(d));
+    }
+    let (provider, upstream) = name.split_once('/')?;
+    let p = snap.providers.providers.get(provider)?;
+    let caps = snap
+        .config
+        .doc
+        .pointer(&format!("/providers/{provider}/capabilities"));
+    Some(Arc::new(DeploymentRt::direct(p, name, upstream, caps)))
+}
+
+/// Every deployment a Model's route can reach, `provider/model` leaves included. Unlike
+/// [`candidates`], which only returns deployments that exist in the provider table, this builds the
+/// synthetic ones; a leaf whose template still holds a wildcard placeholder is skipped, because its
+/// upstream model is only known per request.
+pub(crate) fn reachable_deployments(snap: &Snapshot, model: &ModelRt) -> Vec<Arc<DeploymentRt>> {
+    let Some(route) = snap.routing.route_of(model) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = route
+        .tree
+        .leaves()
+        .into_iter()
+        .filter_map(|i| match &route.tree.node(i)?.kind {
+            NodeKind::Deployment(d) => Some(d.clone()),
+            NodeKind::ProviderModel { provider, template } if !template.contains('{') => {
+                Some(format!("{provider}/{template}"))
+            }
+            _ => None,
+        })
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+        .into_iter()
+        .filter_map(|name| deployment_for(snap, &name))
+        .collect()
 }
 
 pub(crate) fn model_not_allowed(requested: &str) -> GatewayError {

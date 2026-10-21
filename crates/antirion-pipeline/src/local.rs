@@ -1,15 +1,23 @@
-//! Endpoints answered without an upstream: the Models list and stored Responses.
+//! Endpoints answered without an upstream: the Models list, the model info metadata and stored
+//! Responses.
+
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use antirion_core::Stage;
 use antirion_dialects::Endpoint;
 use antirion_error::{Code, GatewayError, Message};
+use antirion_providers::{Capabilities, DeploymentRt, Source};
+use antirion_router::ModelRt;
 use antirion_runtime::identity::KeyRt;
 use bytes::Bytes;
 use http::header::CONTENT_TYPE;
 use http::{HeaderValue, Response};
 use serde_json::{Value, json};
 
-use crate::authorize::{candidates, deployment_allowed, model_allowed, model_not_allowed};
+use crate::authorize::{
+    candidates, deployment_allowed, model_allowed, model_not_allowed, reachable_deployments,
+};
 use crate::ctx::{Body, Ctx, full};
 
 /// `GET /v1/models` and `GET /v1/models/{id}`: exactly the Models the key can use, those whose names
@@ -130,17 +138,10 @@ pub(crate) fn models(
     {
         return cx.error(&model_not_allowed(id));
     }
-    let usable = |m: &antirion_router::ModelRt| {
-        let known = candidates(&cx.snap.providers, &cx.snap.routing, m);
-        known.is_empty() || known.iter().any(|d| deployment_allowed(&levels, d))
-    };
     let now = cx.rt.now();
-    let caller = crate::authorize::caller(key);
     let created = now.0 / 1_000_000;
     let object = |name: &str, owned_by: &str| json!({"id": name, "object": "model", "created": created, "owned_by": owned_by});
-    let visible = cx.snap.routing.listed().into_iter().filter(|(name, m)| {
-        model_allowed(&levels, name) && !m.lifecycle.retired(now) && m.admits(caller) && usable(m)
-    });
+    let visible = listed(cx, key);
     let body = match &endpoint.path_param {
         None if shape != Shape::OpenAi => {
             let names: Vec<&str> = visible.map(|(name, _)| name).collect();
@@ -170,6 +171,184 @@ pub(crate) fn models(
         },
     };
     json_response(cx, &body)
+}
+
+/// The names [`models`] and [`model_info`] answer for: every public, enabled, non-wildcard Model
+/// and its aliases that passes the key's model lists, is not retired, admits the caller and has no
+/// known deployment or one the key may use.
+fn listed<'a>(cx: &'a Ctx, key: &'a KeyRt) -> impl Iterator<Item = (&'a str, &'a Arc<ModelRt>)> + 'a {
+    let levels = cx.snap.identity.access_levels(key);
+    let now = cx.rt.now();
+    let caller = crate::authorize::caller(key);
+    cx.snap.routing.listed().into_iter().filter(move |(name, m)| {
+        model_allowed(&levels, name) && !m.lifecycle.retired(now) && m.admits(caller) && {
+            let known = candidates(&cx.snap.providers, &cx.snap.routing, m);
+            known.is_empty() || known.iter().any(|d| deployment_allowed(&levels, d))
+        }
+    })
+}
+
+/// `GET /v1/model/info`: one entry per name [`models`] lists that has an enabled deployment the key
+/// may use, with the capability metadata clients reading LiteLLM's endpoint expect. It is not an
+/// OpenAI standard endpoint; the standard Models API is `/v1/models`.
+pub(crate) fn model_info(cx: &Ctx, key: &KeyRt) -> Response<Body> {
+    let mut by_model: HashMap<&str, Option<Facts>> = HashMap::new();
+    let mut entries: Vec<(String, Value)> = Vec::new();
+    for (name, model) in listed(cx, key) {
+        let computed = by_model.entry(model.name.as_str()).or_insert_with(|| {
+            let deployments = eligible(cx, key, model);
+            (!deployments.is_empty()).then(|| facts(&deployments))
+        });
+        if let Some(facts) = computed {
+            entries.push((name.to_owned(), facts.to_value()));
+        }
+    }
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let data: Vec<Value> = entries
+        .into_iter()
+        .map(|(name, info)| json!({"model_name": name, "model_info": info}))
+        .collect();
+    json_response(cx, &json!({"data": data}))
+}
+
+/// The deployments of a Model's route that can serve and that the key may use, `provider/model`
+/// leaves included.
+fn eligible(cx: &Ctx, key: &KeyRt, model: &ModelRt) -> Vec<Arc<DeploymentRt>> {
+    let levels = cx.snap.identity.access_levels(key);
+    reachable_deployments(&cx.snap, model)
+        .into_iter()
+        .filter(|d| d.usable() && deployment_allowed(&levels, d))
+        .collect()
+}
+
+/// The operation classes a Model's `mode` is read from, by priority, with LiteLLM's names.
+const MODES: [(&str, &str); 7] = [
+    ("generate", "chat"),
+    ("embed", "embedding"),
+    ("image_generate", "image_generation"),
+    ("transcribe", "audio_transcription"),
+    ("speech", "audio_speech"),
+    ("moderate", "moderation"),
+    ("rerank", "rerank"),
+];
+
+/// One Model name's capabilities, aggregated over the deployments that can serve it.
+struct Facts {
+    /// The smallest input bound, when every deployment states one.
+    max_input: Option<u64>,
+    /// Whether every deployment states an input bound.
+    input_complete: bool,
+    /// The smallest output bound, when every deployment states one.
+    max_output: Option<u64>,
+    /// Whether every deployment states an output bound.
+    output_complete: bool,
+    /// Whether any deployment takes images.
+    vision: bool,
+    /// Whether any deployment takes tools.
+    tools: bool,
+    /// Whether any deployment reasons.
+    reasoning: bool,
+    /// The operations any deployment serves, in [`MODES`] order.
+    operations: [bool; MODES.len()],
+}
+
+impl Default for Facts {
+    fn default() -> Facts {
+        Facts {
+            max_input: None,
+            input_complete: true,
+            max_output: None,
+            output_complete: true,
+            vision: false,
+            tools: false,
+            reasoning: false,
+            operations: [false; MODES.len()],
+        }
+    }
+}
+
+impl Facts {
+    /// The name's primary mode: the first operation in [`MODES`] order, `chat` when none.
+    fn mode(&self) -> &'static str {
+        MODES
+            .iter()
+            .zip(self.operations.iter())
+            .find(|(_, on)| **on)
+            .map_or("chat", |((_, mode), _)| *mode)
+    }
+
+    /// The entry's `model_info` object: booleans and the mode always, a limit only when every
+    /// deployment states it.
+    fn to_value(&self) -> Value {
+        let mut info = serde_json::Map::new();
+        if self.input_complete
+            && let Some(n) = self.max_input
+        {
+            info.insert("max_input_tokens".into(), Value::from(n));
+        }
+        if self.output_complete
+            && let Some(n) = self.max_output
+        {
+            info.insert("max_output_tokens".into(), Value::from(n));
+        }
+        info.insert("supports_vision".into(), Value::from(self.vision));
+        info.insert("supports_function_calling".into(), Value::from(self.tools));
+        info.insert("supports_reasoning".into(), Value::from(self.reasoning));
+        info.insert("mode".into(), Value::from(self.mode()));
+        Value::Object(info)
+    }
+}
+
+/// Aggregates the deployments of one name: any for capabilities and the mode, the smallest bound
+/// when every deployment states one.
+fn facts(deployments: &[Arc<DeploymentRt>]) -> Facts {
+    let mut out = Facts::default();
+    for d in deployments {
+        let known =
+            d.provider
+                .catalog
+                .model_info(d.provider.kind.as_str(), &d.base_model, d.provider.kind.generic());
+        let input = number(&d.capabilities, "max_input_tokens")
+            .or_else(|| number(&d.capabilities, "context_window"))
+            .or_else(|| known.as_ref().and_then(|k| k.context_window));
+        out.input_complete &= input.is_some();
+        out.max_input = smallest(out.max_input, input);
+        let output = number(&d.capabilities, "max_output_tokens")
+            .or_else(|| known.as_ref().and_then(|k| k.max_output_tokens));
+        out.output_complete &= output.is_some();
+        out.max_output = smallest(out.max_output, output);
+        let images = known
+            .as_ref()
+            .and_then(|k| k.modalities.as_ref())
+            .map(|m| m.input.iter().any(|s| s == "image"));
+        out.vision |= configured(&d.capabilities, "vision").or(images).unwrap_or(false);
+        out.tools |= configured(&d.capabilities, "tools").unwrap_or(false);
+        out.reasoning |= configured(&d.capabilities, "reasoning").unwrap_or(false);
+        for (i, (class, _)) in MODES.iter().enumerate() {
+            if let Some(on) = out.operations.get_mut(i) {
+                *on |= d.capabilities.operation(class);
+            }
+        }
+    }
+    out
+}
+
+fn number(caps: &Capabilities, name: &str) -> Option<u64> {
+    caps.get(name).0.as_u64()
+}
+
+fn smallest(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// A flag the deployment, its provider or the catalog sets. A provider type's optimistic routing
+/// default is not a capability claim, so it is not reported.
+fn configured(caps: &Capabilities, name: &str) -> Option<bool> {
+    let (value, source) = caps.get(name);
+    (source != Source::TypeDefault).then(|| value.as_bool().unwrap_or(false))
 }
 
 /// `count_tokens` for a model with no native counting API: a local estimate of the input, about four
@@ -206,4 +385,52 @@ pub(crate) fn json_response(cx: &Ctx, body: &Value) -> Response<Body> {
         .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     cx.finish(&mut resp, false);
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use antirion_providers::ProviderType;
+
+    use super::*;
+
+    fn class(name: &str) -> usize {
+        MODES.iter().position(|(c, _)| *c == name).unwrap()
+    }
+
+    #[test]
+    fn the_mode_is_the_first_operation_in_priority_order() {
+        let mut facts = Facts::default();
+        assert_eq!(facts.mode(), "chat", "a name with no operation is a chat Model");
+        if let Some(on) = facts.operations.get_mut(class("speech")) {
+            *on = true;
+        }
+        assert_eq!(facts.mode(), "audio_speech");
+        if let Some(on) = facts.operations.get_mut(class("embed")) {
+            *on = true;
+        }
+        assert_eq!(facts.mode(), "embedding", "an earlier class wins");
+    }
+
+    #[test]
+    fn limits_keep_the_smallest_known_value() {
+        assert_eq!(smallest(None, None), None);
+        assert_eq!(smallest(Some(8), None), Some(8));
+        assert_eq!(smallest(None, Some(8)), Some(8));
+        assert_eq!(smallest(Some(8), Some(4)), Some(4));
+        assert_eq!(smallest(Some(4), Some(8)), Some(4));
+    }
+
+    #[test]
+    fn a_type_default_is_not_a_capability_claim() {
+        let declared = Capabilities::resolve(
+            ProviderType::OpenAiCompatible,
+            None,
+            Some(&json!({"reasoning": false, "vision": true})),
+        );
+        assert_eq!(configured(&declared, "reasoning"), Some(false));
+        assert_eq!(configured(&declared, "vision"), Some(true));
+        let default = Capabilities::resolve(ProviderType::OpenAiCompatible, None, None);
+        assert_eq!(configured(&default, "reasoning"), None);
+        assert_eq!(configured(&default, "tools"), None);
+    }
 }

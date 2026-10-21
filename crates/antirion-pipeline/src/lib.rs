@@ -450,6 +450,7 @@ async fn serve_endpoint(
                         cx.error(&accept::unknown_endpoint(&parts.method, parts.uri.path()))
                     }
                     Kind::ModelsList => local::models(cx, parts, &endpoint, &authed.key),
+                    Kind::ModelInfo => local::model_info(cx, &authed.key),
                     Kind::StoredResponse => respstate::serve_stored(cx, parts, &endpoint, &authed.key).await,
                     Kind::Inference => infer::run(cx, parts, incoming, &endpoint, &authed).await,
                     Kind::Passthrough => passthrough::run(cx, parts, incoming, &endpoint, &authed).await,
