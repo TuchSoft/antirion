@@ -623,6 +623,8 @@
         "images",
         "audio",
         "moderations",
+        "decisions",
+        "systemone",
         "files",
         "batches",
         "realtime",
@@ -644,6 +646,8 @@
         "openai_images",
         "openai_audio",
         "openai_moderations",
+        "openai_decisions",
+        "systemone",
         "openai_files",
         "openai_batches",
         "openai_realtime",
@@ -694,6 +698,7 @@
         "images",
         "audio",
         "moderations",
+        "decisions",
         "rerank",
         "files",
         "batches",
@@ -891,6 +896,12 @@
               "$ref": "#/$defs/EndpointToggle"
             },
             "moderations": {
+              "$ref": "#/$defs/EndpointToggle"
+            },
+            "decisions": {
+              "$ref": "#/$defs/EndpointToggle"
+            },
+            "systemone": {
               "$ref": "#/$defs/EndpointToggle"
             },
             "files": {
@@ -1184,6 +1195,7 @@
           "items": {
             "enum": [
               "generate",
+              "decide",
               "embed",
               "image_generate",
               "transcribe",
@@ -1660,6 +1672,7 @@
           "propertyNames": {
             "enum": [
               "generate",
+              "decide",
               "embed",
               "image_generate",
               "transcribe",

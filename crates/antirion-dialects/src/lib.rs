@@ -10,6 +10,7 @@
     clippy::unreachable
 )]
 
+pub mod decide;
 pub mod embed;
 pub mod endpoints;
 pub mod facts;

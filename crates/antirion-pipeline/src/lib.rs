@@ -49,6 +49,7 @@ mod completions;
 mod controls;
 mod ctx;
 mod decide;
+mod decide_xlate;
 mod decision;
 mod downgrade;
 mod egress;

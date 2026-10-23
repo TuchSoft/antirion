@@ -181,7 +181,14 @@ impl Filters<'_> {
     /// deployment.
     fn translation(&mut self, d: &DeploymentRt, cell: Cell) -> Option<&'static str> {
         let Cell::Translate { .. } = cell else {
-            return None;
+            return match cell {
+                Cell::Decide { .. } => self
+                    .verdicts
+                    .get(&d.name)
+                    .and_then(|v| v.as_ref())
+                    .map(Refusal::reason),
+                _ => None,
+            };
         };
         let Some(x) = self.xlate else {
             return Some("dialects");

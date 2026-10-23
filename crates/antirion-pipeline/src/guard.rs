@@ -227,6 +227,8 @@ pub(crate) fn dialect_of(endpoint: &Endpoint) -> Option<Dialect> {
         }
         "bedrock_converse" => Dialect::Converse,
         "embeddings" => Dialect::Embeddings,
+        "decisions" => Dialect::Responses,
+        "systemone" => Dialect::SystemOne,
         "images" => Dialect::Images,
         "rerank" => Dialect::Rerank,
         "audio"
@@ -248,6 +250,7 @@ fn endpoint_name(endpoint: &Endpoint) -> String {
         "bedrock_converse" => "bedrock.converse".to_owned(),
         "bedrock_invoke" => "bedrock.invoke".to_owned(),
         "rerank" => "rerank".to_owned(),
+        "systemone" => "systemone".to_owned(),
         id => format!("openai.{id}"),
     }
 }

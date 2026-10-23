@@ -27,6 +27,11 @@ pub enum UpstreamOp<'a> {
         class: &'a str,
         path: &'a str,
     },
+    /// TypeSafe System One: a JSON POST at the operation's path.
+    SystemOne {
+        class: &'a str,
+        path: &'a str,
+    },
     /// Anthropic Messages, on whichever transport the provider type has.
     Messages,
     /// Anthropic token counting.
@@ -57,7 +62,7 @@ pub enum UpstreamOp<'a> {
 impl UpstreamOp<'_> {
     fn class(&self) -> &str {
         match self {
-            UpstreamOp::OpenAi { class, .. } => class,
+            UpstreamOp::OpenAi { class, .. } | UpstreamOp::SystemOne { class, .. } => class,
             UpstreamOp::CountTokens | UpstreamOp::GeminiCountTokens => "count_tokens",
             UpstreamOp::GeminiEmbed { .. } | UpstreamOp::VertexPredict | UpstreamOp::CohereEmbed => "embed",
             UpstreamOp::CohereRerank | UpstreamOp::BedrockRerank => "rerank",
@@ -257,6 +262,7 @@ impl DeploymentRt {
         let sse = || vec![("alt", "sse".to_owned())];
         Ok(match (p.kind, op) {
             (ProviderType::AzureOpenAi, UpstreamOp::OpenAi { path, .. }) => match &p.azure_deployments {
+                Some(_) if path == "/decisions" => return Err(BuildError::Unsupported),
                 Some(v) => (
                     format!("/openai/deployments/{model}{path}"),
                     vec![("api-version", v.clone())],
@@ -272,6 +278,7 @@ impl DeploymentRt {
             ) => ("/openai/v1/chat/completions".to_owned(), Vec::new()),
             (ProviderType::Bedrock, UpstreamOp::OpenAi { .. }) => return Err(BuildError::Unsupported),
             (_, UpstreamOp::OpenAi { path, .. }) => (path.to_owned(), Vec::new()),
+            (_, UpstreamOp::SystemOne { path, .. }) => (path.to_owned(), Vec::new()),
             (ProviderType::Cohere, UpstreamOp::CohereChat) => ("/v2/chat".to_owned(), Vec::new()),
             (k, UpstreamOp::Messages) if k.anthropic_api() => ("/v1/messages".to_owned(), Vec::new()),
             (k, UpstreamOp::CountTokens) if k.anthropic_api() => {
@@ -663,6 +670,40 @@ mod tests {
         assert_eq!(r.headers["x-escaped"], "a$b");
         assert_eq!(r.headers["x-dep"], "1");
         assert_eq!(r.headers["x-client-request-id"], rid.as_str());
+    }
+
+    #[test]
+    fn azure_decisions_use_the_v1_path_and_refuse_legacy_deployments() {
+        let t = table(json!({
+            "providers": {
+                "v1": {"type": "azure_openai", "base_url": "https://r.openai.azure.com",
+                       "auth": {"api_key": "k"}},
+                "legacy": {"type": "azure_openai", "base_url": "https://r.openai.azure.com",
+                           "auth": {"api_key": "k"},
+                           "azure": {"api_style": "deployments", "api_version": "2024-10-21"}}
+            },
+            "deployments": {
+                "v1": {"provider": "v1", "model": "gpt-6-luna"},
+                "legacy": {"provider": "legacy", "model": "gpt-6-luna"}
+            }
+        }));
+        let rid = RequestId::generate();
+        let op = UpstreamOp::OpenAi {
+            class: "decide",
+            path: "/decisions",
+        };
+        let uri = t.deployments["v1"]
+            .build_request(call(op, false, b"{}", &rid))
+            .unwrap()
+            .request
+            .uri
+            .to_string();
+        assert_eq!(uri, "https://r.openai.azure.com/openai/v1/decisions");
+        assert!(
+            t.deployments["legacy"]
+                .build_request(call(op, false, b"{}", &rid))
+                .is_err()
+        );
     }
 
     #[test]

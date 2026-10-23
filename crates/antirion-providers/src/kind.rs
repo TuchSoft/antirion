@@ -262,6 +262,7 @@ impl ProviderType {
             "openai_responses",
             "openai_completions",
             "openai_embeddings",
+            "openai_decisions",
         ];
         let compatible: &'static [&'static str] = &["openai_chat", "openai_completions", "openai_embeddings"];
         let (base, dialects, auth): (

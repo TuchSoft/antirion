@@ -56,6 +56,8 @@ pub(crate) struct Plan<'a> {
     pub(crate) turn: Option<crate::respstate::Turn>,
     /// The decoded request, when some candidate is a translated cell.
     pub(crate) xlate: Option<Arc<crate::xlate::Xlate>>,
+    /// The decoded decision, when some candidate is a decision translation.
+    pub(crate) decide: Option<Arc<crate::decide_xlate::DecisionXlate>>,
     /// The request's guardrails, when any applies.
     pub(crate) guard: Option<Arc<crate::guard::RequestGuard>>,
     /// The request's extensions, when any is attached.
@@ -400,6 +402,7 @@ async fn send(
         span: SpanId::random(),
         server: None,
         xlate: None,
+        decide: None,
         refusal_fails,
         byok: None,
         aggregate: crate::aggregate::applies(plan, cell),
@@ -418,8 +421,9 @@ async fn send(
         });
     }
     let (body, content_type) = match upstream_body(cx, plan, parsed, d, cell, edited, a.repair).await {
-        Ok((body, content_type, xlate)) => {
+        Ok((body, content_type, xlate, decide)) => {
             att.xlate = xlate;
+            att.decide = decide;
             let body = if aggregate {
                 crate::aggregate::stream_body(body, crate::apis::upstream_api(plan.endpoint, cell), d)
             } else {

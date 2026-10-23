@@ -112,6 +112,8 @@ fn operation(endpoint: &Endpoint) -> Option<&'static str> {
         "responses" => "openai.responses",
         "messages" => "anthropic.messages",
         "embeddings" => "openai.embeddings",
+        "decisions" => "openai.decisions",
+        "systemone" => "systemone",
         "rerank" => "rerank",
         _ => return None,
     })

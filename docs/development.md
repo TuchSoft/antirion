@@ -255,7 +255,7 @@ crate can use its strict parser.
 | 1 | `antirion-config` | document parsing (strict JSON, YAML 1.2 core with duplicate and tag checks), the embedded schema and its evaluator, semantic rules, secret references and redaction, scalar formats, typed views, YAML output, the document model (collections, singletons, static keys) |
 | 1 | `antirion-wire` | the SSE parser (original event bytes kept for passthrough, size limit, clean-end completion), NDJSON and streamed JSON-array parsers (`jsonstream`), multipart form parsing, field replacement and the incremental `Scanner`, content codings: parsing every `Content-Encoding` field, bounded and incremental decoding (gzip, deflate, br, zstd) |
 | 2 | `antirion-catalog` | the model catalog: the bundled capability values and prices, the document's `catalog` block that extends or replaces them, and the lookup by provider type and base model (exact, then the longest `*` prefix); below them, models.dev's data (`modelsdev`: a bundled snapshot, or a copy `catalog.remote` fetched) for prices nothing else gives and each type's model names, limits and modalities |
-| 2 | `antirion-dialects` | the endpoint catalog, path normalisation, envelope selection, body facts (`model`, `stream`), request validation tables (`validate/`), embeddings and rerank in other providers' shapes (`embed`, `rerank`), cross-dialect translation through an internal representation (`xlate/`: client and upstream codecs for requests, responses and streams, warning entries, refusals, the signature envelope, citations, hosted tool equivalents, what the reasoning replay store keeps) |
+| 2 | `antirion-dialects` | the endpoint catalog, path normalisation, envelope selection, body facts (`model`, `stream`), request validation tables (`validate/`), embeddings and rerank in other providers' shapes (`embed`, `rerank`), cross-dialect translation through an internal representation (`xlate/`: client and upstream codecs for requests, responses and streams, warning entries, refusals, the signature envelope, citations, hosted tool equivalents, what the reasoning replay store keeps), and the decision IR (`decide/`: the OpenAI Decisions and TypeSafe System One codecs) |
 | 2 | `antirion-egress` | `EgressClient` (pools per trust class, TLS profile and egress policy; HTTP/1.1 and h2 via ALPN, or the version a destination's profile requires (`HttpVersion`: `http1`, `h2` that fails without ALPN `h2`, `h2c`); h2 with prior knowledge fanned out over several connections per origin (`h2pool`); one resend when a pooled connection closed before answering; response bodies decoded with `antirion-wire`; a body's streamed `Tail`, sent once; WebSocket upgrades on a connection of their own, `upgrade.rs`), the SSRF catalogue (URL rules on the raw string, address rules on every resolved address, connect to the validated address), TLS profiles, header hygiene (always-deny list, forward/deny/set/response_forward), config checks of `security.egress` and `policies.headers`, typed `TransportError` and `BodyError`, the egress reasons |
 | 2 | `antirion-identity` | key and admin-token format, peppered verifiers, data-plane credential selection, allow-list patterns, the key permission catalogue, end-user identity, admin roles, scopes and the admin permission catalogue, the auth reasons |
 | 2 | `antirion-redis` | connections to a Redis-protocol server or a Redis Cluster (`RedisConn`: lazy, `ConnectionLike`, redirections retried while a slot moves, scans over every primary), the `topology` setting and the one-slot key prefix |
@@ -270,7 +270,7 @@ crate can use its strict parser.
 | 3 | `antirion-ext` | extensions (`plugins`): compilation and configuration rules, attachment (`resolve`), the hook payload, signature and answer contract (`hook`), JSON Patch (`patch`), the stable in-process API (`api`: `Extension`, `Registry`, `install`) and the process registry, the built-ins (`static_response`; `test_script`, registered in test mode), Wasm components (`wasm/`: loading by digest, the component cache, epoch-bounded calls, `oci://` blobs) |
 | 3 | `antirion-cache` | the response cache: the effective `policies.cache` (`policy`), the `x-antirion-cache-control` grammar and its checks (`directive`), the canonical key (`jcs`, RFC 8785; `key`: the key document, the semantic partition key and body normalisation), entries and what they record (`entry`, `meta`), the memory backend and the Valkey backend with their entry indexes, listings (`listing`), cutoffs (`invalidate`), invalidation rules (`rules`), the node's `Cache` (settings, timeouts, epochs and cutoffs, hit and miss counts, console reads), semantic eligibility and polarity tokens (`semantic`), the node's vector store (`vectors`), leaders of identical concurrent misses (`flights`), prompt-cache breakpoints (`prompt`), the cache reasons |
 | 4 | `antirion-runtime` | `ConfigState` (document plus metadata), `Snapshot` and its builder, `Generations`, runtime state, the node's accounts and spend ledger (`Runtime::accounts`, `ledger`: `record_spend`, the store-backed budget rebuilds and spend reports), alert webhooks, the commit pipeline (`Runtime::mutate`), apply merging and change sets, test mode, probes and the liveness watchdog, admission control (`admission`), the drain state (`drain`), encryption of stored secrets (`atrest`), `SecurityRt` (CORS, limits, egress policy, header rules per level, client IP, listener TLS, HSTS), admin authentication and sessions, key usage, the request log store, the response cache (`RuntimeState::cache`, its epochs persisted in the store), the secret-file watcher, the ledger writer and its spool (`spool`), single sign-on logins (`logins`), cluster mode (`cluster/`), alerting, audit sinks, objectives and notifications (`alerting/`), OTLP metric export (`otlp_metrics`) |
-| 5 | `antirion-pipeline` | the data plane: `accept`, `authenticate`, `parse`, `resolve`, `admit` and settlement (`account/`), extensions and input guardrails, the exact cache (`cache/`), `route`, the attempt loop, output guardrails, `respond`, the stream relay, the request-log record; uploads (`upload.rs`), embeddings and rerank cells (`embed.rs`), Files, Batches and Realtime (`files.rs`, `batches.rs`, `realtime.rs`) |
+| 5 | `antirion-pipeline` | the data plane: `accept`, `authenticate`, `parse`, `resolve`, `admit` and settlement (`account/`), extensions and input guardrails, the exact cache (`cache/`), `route`, the attempt loop, output guardrails, `respond`, the stream relay, the request-log record, the tool index of semantic MCP search (`toolindex.rs`); uploads (`upload.rs`), embeddings and rerank cells (`embed.rs`), decision translation (`decide_xlate.rs`), Files, Batches and Realtime (`files.rs`, `batches.rs`, `realtime.rs`) |
 | 5 | `antirion-admin` | the Admin API: resources, settings, config document operations, audit, status, health, metrics, test endpoints, admin tokens, key rotation, role bindings and roles, sessions, request-log reads and lists, provider types and capabilities, provider and deployment runtime state, budget counters and adjustments (`budgets.rs`), spend reports and effective prices (`spend.rs`), cache entries, epochs and status (`cache.rs`), alert instances, their actions and reports (`alerts.rs`), delivery logs, tests, secret rotation, delivery and audit-sink status, objectives, availability and notifications (`delivery.rs`) |
 | 6 | `antirion-server` | listeners (each attaches `antirion_core::Peer`: address and TLS), TLS on either listener with certificate reload, the first-head framing and header-size checks, HTTP/1.1, h2 and h2c, connection draining, the data-plane request count the drain waits for, response compression (`compress`) |
 | 7 | `antirion` | the CLI, startup, the stop sequence (`lifecycle`), the watched config file |
@@ -1703,6 +1703,60 @@ What the Cache screen reads and changes beyond the cache's own rules.
   endpoint with an `action`; they never stream, cache or keep Responses state. Native deployments
   serve both; `input_tokens` elsewhere goes to the Gemini or Anthropic count API, else a local
   estimate, and an Anthropic `count_tokens` reaches a native Responses deployment's `input_tokens`.
+
+## Decisions
+
+There are two decision wire formats:
+
+- **OpenAI Decisions** (`/v1/decisions`, and `/openai/v1/decisions` on Azure OpenAI): `input`,
+  an ordered `questions` array of `predicate`/`choice`/`score`, and an `answers` array. `name` is
+  optional; images and `input_json` parts are part of the OpenAI reference; the API does not
+  stream and bills input only.
+- **TypeSafe System One** (`/v1/systemone`, and `/providers/microsoft/v1/systemone` on Microsoft
+  Foundry): `state`, a `questions` map keyed by name, `noul`/`choice`/`score` (and TypeSafe `box`),
+  `criteria`, and an `answers` map. Output tokens are reported but free; it does not stream.
+
+`/v1/decisions` is the universal ingress. A deployment that declares `openai_decisions` serves it
+as `Cell::Identity`; one that declares `systemone` serves it through `Cell::Decide`, translated by
+`antirion-dialects/src/decide/` and orchestrated by `antirion-pipeline/src/decide_xlate.rs`. The
+translation is one-way, matching the LLM Gateway behavior: OpenAI request to System One, and the
+System One answer back to the OpenAI array. `predicate` becomes `noul`; `choices` become the
+`criteria` map (values stringified and restored); `levels` become the ordered `criteria` array
+(2–10 levels, labels restored); unnamed questions get collision-free keys; a missing or malformed
+upstream answer becomes an OpenAI `refusal`, not a failed request. Text input is flattened with
+newlines; images, `input_json`, non-user items and tool items are refused for a System One target.
+
+`/v1/systemone` is the legacy compatibility ingress: `Cell::Identity` for a `systemone`
+deployment, no translation. A model served only by an `openai_decisions` deployment gets a 400
+pointing at `/v1/decisions`.
+
+Both endpoints use the operation class `decide`, are admitted with zero output tokens, and settle
+on the reported input tokens; decision deployments are configured with output price 0. The exact
+cache maps them to `openai.decisions` and `systemone`; the semantic cache does not apply. Guardrails
+inspect the OpenAI `input` with the Responses grammar (including `input_json` leaves) and the
+System One `state` with its own grammar (questions and criteria are operator content).
+
+Provider recipes: OpenAI and Azure OpenAI declare `openai_decisions` by default; TypeSafe and
+Microsoft opt in with `capabilities.dialects: ["systemone"]` and
+`capabilities.operations: ["decide"]` on an `openai_compatible` provider. TypeSafe uses
+`https://api.typesafe.ai/v1`; Microsoft uses the Foundry resource root, the `api-key` header and
+`operations.decide.path: /providers/microsoft/v1/systemone`. Azure OpenAI needs the resource-root
+base URL and no `azure_deployments` (the legacy deployment path is not the Decisions API).
+
+The behavior is modeled on LLM Gateway's decision translation (OpenAI and TypeSafe docs, Azure
+OpenAI and Microsoft Foundry docs); the implementation is original Rust. LLM Gateway is AGPLv3,
+so its code was not copied.
+
+## Known gaps in Decisions
+
+- Translation is one-way: a System One request is not translated to an OpenAI upstream.
+- Images, `input_json`, non-user roles and tool items are refused when the target is System One;
+  TypeSafe `assets` are identity-only.
+- `box` is identity-only on `/v1/systemone` and is never translated to OpenAI.
+- The semantic cache does not cover decision endpoints, and neither format streams.
+- TypeSafe and Microsoft use the `openai_compatible` recipes above; first-class provider types
+  (model listing, catalog pricing, Entra ID for Microsoft) are a follow-up.
+- The request log's dialect is `systemone` for the legacy ingress and `openai` for `/v1/decisions`.
 
 ## Known gaps in translation
 

@@ -61,6 +61,8 @@ pub(crate) struct Attempt<'a> {
     pub(crate) server: Option<(String, u16)>,
     /// What the request translation produced, in a translated cell.
     pub(crate) xlate: Option<crate::xlate::AttemptXlate>,
+    /// What the decision translation produced, in a decision cell.
+    pub(crate) decide: Option<crate::decide_xlate::AttemptDecide>,
     /// A refusal before the commit fails the attempt: a class fallback follows.
     pub(crate) refusal_fails: bool,
     /// The client's own provider key this attempt sent.

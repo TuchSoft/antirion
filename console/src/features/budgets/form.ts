@@ -74,6 +74,8 @@ export const BUDGET_ENDPOINTS = [
   'images',
   'audio',
   'moderations',
+  'decisions',
+  'systemone',
   'rerank',
   'files',
   'batches',

@@ -6572,7 +6572,7 @@ export interface components {
         Size: string;
         HttpMethod: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
         JsonPointer: string;
-        Dialect: "openai_chat" | "openai_responses" | "openai_completions" | "openai_embeddings" | "openai_images" | "openai_audio" | "openai_moderations" | "openai_files" | "openai_batches" | "openai_realtime" | "anthropic_messages" | "gemini" | "bedrock_converse" | "bedrock_invoke" | "rerank";
+        Dialect: "openai_chat" | "openai_responses" | "openai_completions" | "openai_embeddings" | "openai_images" | "openai_audio" | "openai_moderations" | "openai_decisions" | "systemone" | "openai_files" | "openai_batches" | "openai_realtime" | "anthropic_messages" | "gemini" | "bedrock_converse" | "bedrock_invoke" | "rerank";
         ProviderAuthFields_api_key: {
             access_key_id?: never;
             assume_role?: never;
@@ -6692,7 +6692,7 @@ export interface components {
         };
         Capabilities: {
             dialects?: components["schemas"]["Dialect"][];
-            operations?: ("generate" | "embed" | "image_generate" | "transcribe" | "speech" | "moderate" | "rerank" | "count_tokens" | "files" | "batches" | "realtime")[];
+            operations?: ("generate" | "decide" | "embed" | "image_generate" | "transcribe" | "speech" | "moderate" | "rerank" | "count_tokens" | "files" | "batches" | "realtime")[];
             streaming?: boolean;
             stream_usage?: boolean;
             tools?: boolean;
@@ -6750,7 +6750,7 @@ export interface components {
         };
         Decimal: string;
         Glob: string;
-        EndpointId: "chat_completions" | "responses" | "completions" | "embeddings" | "images" | "audio" | "moderations" | "files" | "batches" | "realtime" | "messages" | "count_tokens" | "models" | "gemini" | "bedrock" | "rerank";
+        EndpointId: "chat_completions" | "responses" | "completions" | "embeddings" | "images" | "audio" | "moderations" | "decisions" | "systemone" | "files" | "batches" | "realtime" | "messages" | "count_tokens" | "models" | "gemini" | "bedrock" | "rerank";
         Weights: {
             [key: string]: components["schemas"]["Decimal"];
         };
@@ -7444,7 +7444,7 @@ export interface components {
         };
         ModelPattern: string;
         NamePattern: string;
-        EndpointFamily: "chat" | "responses" | "messages" | "embeddings" | "images" | "audio" | "moderations" | "rerank" | "files" | "batches" | "realtime" | "models" | "gemini" | "bedrock" | "mcp" | "a2a" | "*";
+        EndpointFamily: "chat" | "responses" | "messages" | "embeddings" | "images" | "audio" | "moderations" | "decisions" | "rerank" | "files" | "batches" | "realtime" | "models" | "gemini" | "bedrock" | "mcp" | "a2a" | "*";
         Cidr: string;
         IpSetRef: string;
         PolicyMcp: {
@@ -7976,6 +7976,8 @@ export interface components {
                 images?: components["schemas"]["EndpointToggle"];
                 audio?: components["schemas"]["EndpointToggle"];
                 moderations?: components["schemas"]["EndpointToggle"];
+                decisions?: components["schemas"]["EndpointToggle"];
+                systemone?: components["schemas"]["EndpointToggle"];
                 files?: {
                     enabled?: boolean;
                     default_provider?: components["schemas"]["ProviderName"] | null;
@@ -9235,10 +9237,10 @@ export interface components {
                 TagPattern: string;
                 NamePattern: string;
                 ModelPattern: string;
-                EndpointId: "chat_completions" | "responses" | "completions" | "embeddings" | "images" | "audio" | "moderations" | "files" | "batches" | "realtime" | "messages" | "count_tokens" | "models" | "gemini" | "bedrock" | "rerank";
-                Dialect: "openai_chat" | "openai_responses" | "openai_completions" | "openai_embeddings" | "openai_images" | "openai_audio" | "openai_moderations" | "openai_files" | "openai_batches" | "openai_realtime" | "anthropic_messages" | "gemini" | "bedrock_converse" | "bedrock_invoke" | "rerank";
+                EndpointId: "chat_completions" | "responses" | "completions" | "embeddings" | "images" | "audio" | "moderations" | "decisions" | "systemone" | "files" | "batches" | "realtime" | "messages" | "count_tokens" | "models" | "gemini" | "bedrock" | "rerank";
+                Dialect: "openai_chat" | "openai_responses" | "openai_completions" | "openai_embeddings" | "openai_images" | "openai_audio" | "openai_moderations" | "openai_decisions" | "systemone" | "openai_files" | "openai_batches" | "openai_realtime" | "anthropic_messages" | "gemini" | "bedrock_converse" | "bedrock_invoke" | "rerank";
                 ProviderType: "openai" | "azure_openai" | "anthropic" | "bedrock" | "vertex" | "gemini" | "openai_compatible" | "anthropic_compatible" | "mistral" | "cohere" | "groq" | "together" | "fireworks" | "deepseek" | "xai" | "cerebras" | "deepinfra" | "perplexity" | "huggingface" | "replicate" | "databricks" | "sagemaker" | "watsonx" | "ollama_native" | "triton";
-                EndpointFamily: "chat" | "responses" | "messages" | "embeddings" | "images" | "audio" | "moderations" | "rerank" | "files" | "batches" | "realtime" | "models" | "gemini" | "bedrock" | "mcp" | "a2a" | "*";
+                EndpointFamily: "chat" | "responses" | "messages" | "embeddings" | "images" | "audio" | "moderations" | "decisions" | "rerank" | "files" | "batches" | "realtime" | "models" | "gemini" | "bedrock" | "mcp" | "a2a" | "*";
                 ClientTls: {
                     verify?: boolean;
                     ca_file?: string | null;
@@ -9275,6 +9277,8 @@ export interface components {
                         images?: components["schemas"]["EndpointToggle"];
                         audio?: components["schemas"]["EndpointToggle"];
                         moderations?: components["schemas"]["EndpointToggle"];
+                        decisions?: components["schemas"]["EndpointToggle"];
+                        systemone?: components["schemas"]["EndpointToggle"];
                         files?: {
                             enabled?: boolean;
                             default_provider?: components["schemas"]["ProviderName"] | null;
@@ -9326,7 +9330,7 @@ export interface components {
                 };
                 Capabilities: {
                     dialects?: components["schemas"]["Dialect"][];
-                    operations?: ("generate" | "embed" | "image_generate" | "transcribe" | "speech" | "moderate" | "rerank" | "count_tokens" | "files" | "batches" | "realtime")[];
+                    operations?: ("generate" | "decide" | "embed" | "image_generate" | "transcribe" | "speech" | "moderate" | "rerank" | "count_tokens" | "files" | "batches" | "realtime")[];
                     streaming?: boolean;
                     stream_usage?: boolean;
                     tools?: boolean;

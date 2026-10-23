@@ -97,11 +97,16 @@ pub(super) fn unserved(endpoint: &Endpoint, requested: &str) -> GatewayError {
         Dialect::AnthropicMessages | Dialect::Gemini | Dialect::BedrockConverse | Dialect::BedrockInvoke
     );
     if openai_ingress && endpoint.id != "responses" {
+        let hint = if endpoint.id == "systemone" {
+            " Use /v1/decisions for this model."
+        } else {
+            ""
+        };
         return GatewayError::with_reason(
             reasons::CAP_DIALECTS,
             Stage::Resolve,
             Message::built(format!(
-                "No deployment of model `{requested}` serves the {} API.",
+                "No deployment of model `{requested}` serves the {} API.{hint}",
                 dialect_name(endpoint)
             )),
         )

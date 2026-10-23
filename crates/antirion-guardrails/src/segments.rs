@@ -22,6 +22,8 @@ pub enum Dialect {
     Images,
     Rerank,
     Transcription,
+    /// TypeSafe System One: `state` plus named questions.
+    SystemOne,
 }
 
 impl Dialect {
@@ -186,6 +188,17 @@ impl Out<'_> {
                     message,
                 );
             }
+            if t == Some("input_json")
+                && let Some(data) = p.get("data")
+            {
+                self.leaves(
+                    kind,
+                    data,
+                    &format!("{base}/{j}/data"),
+                    operator || marked(p),
+                    message,
+                );
+            }
         }
     }
 
@@ -255,6 +268,7 @@ pub fn input_segments(body: &Value, d: Dialect, operator_ptrs: &[String]) -> (Ve
         Dialect::Anthropic => anthropic_input(body, &mut out, &mut last_user),
         Dialect::Gemini => gemini_input(body, &mut out, &mut last_user),
         Dialect::Converse => converse_input(body, &mut out, &mut last_user),
+        Dialect::SystemOne => systemone_input(body, &mut out, &mut last_user),
         Dialect::Embeddings | Dialect::Images | Dialect::Rerank | Dialect::Transcription => {}
     }
     (out.segs, last_user)
@@ -384,6 +398,44 @@ fn anthropic_blocks(kind: SegKind, blocks: &[Value], base: &str, out: &mut Out<'
                 _ => {}
             },
             _ => {}
+        }
+    }
+}
+
+fn systemone_input(body: &Value, out: &mut Out<'_>, last_user: &mut Option<usize>) {
+    if let Some(state) = body.get("state") {
+        match state {
+            Value::String(s) => {
+                out.push(SegKind::User, "/state".into(), s, false, Some(0));
+                *last_user = Some(0);
+            }
+            Value::Object(_) | Value::Array(_) => {
+                out.leaves(SegKind::User, state, "/state", false, Some(0));
+                *last_user = Some(0);
+            }
+            _ => {}
+        }
+    }
+    let Some(questions) = body.get("questions").and_then(Value::as_object) else {
+        return;
+    };
+    for (name, question) in questions {
+        let base = format!("/questions/{}", esc(name));
+        if let Some(instructions) = question.get("instructions") {
+            match instructions {
+                Value::String(s) => out.push(SegKind::System, format!("{base}/instructions"), s, true, None),
+                Value::Object(_) | Value::Array(_) => out.leaves(
+                    SegKind::System,
+                    instructions,
+                    &format!("{base}/instructions"),
+                    true,
+                    None,
+                ),
+                _ => {}
+            }
+        }
+        if let Some(criteria) = question.get("criteria") {
+            out.leaves(SegKind::System, criteria, &format!("{base}/criteria"), true, None);
         }
     }
 }
@@ -738,6 +790,7 @@ pub fn output_segments(body: &Value, d: Dialect) -> Vec<Segment> {
             }
         }
         Dialect::Embeddings | Dialect::Images | Dialect::Rerank | Dialect::Transcription => {}
+        Dialect::SystemOne => {}
     }
     for s in &mut out.segs {
         s.origin = Origin::Model;
@@ -868,6 +921,51 @@ mod tests {
                 "/messages/0/content/1/text"
             ]
         );
+    }
+
+    #[test]
+    fn systemone_state_is_client_content_and_questions_are_operator_content() {
+        let body = json!({
+            "state": {"ticket": {"body": "mail ada@example.com"}},
+            "questions": {
+                "billing": {
+                    "type": "noul",
+                    "instructions": "Is this billing?",
+                    "criteria": {"true": "Payments", "false": "Other"}
+                }
+            }
+        });
+        let (segs, last) = input_segments(&body, Dialect::SystemOne, &[]);
+        assert_eq!(last, Some(0));
+        let state = segs
+            .iter()
+            .find(|s| s.path() == "/state/ticket/body")
+            .expect("state leaf");
+        assert_eq!(state.origin, Origin::Client);
+        assert_eq!(state.kind, SegKind::User);
+        let instructions = segs
+            .iter()
+            .find(|s| s.path() == "/questions/billing/instructions")
+            .expect("instructions");
+        assert_eq!(instructions.origin, Origin::Operator);
+        let criteria = segs
+            .iter()
+            .find(|s| s.path() == "/questions/billing/criteria/true")
+            .expect("criteria");
+        assert_eq!(criteria.origin, Origin::Operator);
+        assert!(output_segments(&json!({"answers": {}}), Dialect::SystemOne).is_empty());
+    }
+
+    #[test]
+    fn input_json_data_is_inspected() {
+        let body = json!({
+            "input": [{"role": "user", "content": [
+                {"type": "input_json", "data": {"ticket": {"body": "mail ada@example.com"}}}
+            ]}]
+        });
+        let (segs, _) = input_segments(&body, Dialect::Responses, &[]);
+        let paths: Vec<String> = segs.iter().map(Segment::path).collect();
+        assert_eq!(paths, ["/input/0/content/0/data/ticket/body"]);
     }
 
     #[test]

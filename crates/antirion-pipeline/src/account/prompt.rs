@@ -121,6 +121,8 @@ pub(crate) fn generates(endpoint: &Endpoint) -> bool {
         endpoint.dialect,
         Dialect::OpenAiEmbeddings
             | Dialect::OpenAiModerations
+            | Dialect::OpenAiDecisions
+            | Dialect::SystemOne
             | Dialect::Rerank
             | Dialect::OpenAiFiles
             | Dialect::OpenAiBatches
@@ -181,7 +183,7 @@ fn low_detail(m: &serde_json::Map<String, Value>) -> bool {
 fn walk<'a>(v: &'a Value, key: Option<&str>, f: &mut BodyFacts<'a>, in_image: bool) {
     match v {
         Value::String(s) if is_inline_media(s) => f.media_bytes += s.len() as u64,
-        Value::String(s) if key == Some("data") => f.media_bytes += s.len() as u64,
+        Value::String(s) if key == Some("data") && in_image => f.media_bytes += s.len() as u64,
         Value::String(s) if key.is_some_and(|k| TEXT_KEYS.contains(&k)) => f.texts.push(s.as_str()),
         Value::Array(items) => {
             for i in items {
@@ -215,11 +217,16 @@ fn walk<'a>(v: &'a Value, key: Option<&str>, f: &mut BodyFacts<'a>, in_image: bo
                 f.media.video += 1;
                 f.video_in = true;
             }
+            let media = image
+                || matches!(kind, "input_audio" | "audio" | "video" | "input_video")
+                || mime.starts_with("image/")
+                || mime.starts_with("audio/")
+                || mime.starts_with("video/");
             for (k, child) in m {
                 if k == "tools" {
                     continue;
                 }
-                walk(child, Some(k.as_str()), f, in_image || image);
+                walk(child, Some(k.as_str()), f, in_image || media);
             }
         }
         _ => {}
@@ -266,9 +273,29 @@ pub(crate) fn image_tokens(
 }
 
 /// Reads the estimator's facts from a JSON request body.
+fn state_texts<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+    match v {
+        Value::String(s) => out.push(s.as_str()),
+        Value::Array(items) => {
+            for item in items {
+                state_texts(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for child in map.values() {
+                state_texts(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn body_facts(body: &Value) -> BodyFacts<'_> {
     let mut f = BodyFacts::default();
     walk(body, None, &mut f, false);
+    if let Some(state) = body.get("state") {
+        state_texts(state, &mut f.texts);
+    }
     f.messages = ["messages", "contents", "input"]
         .iter()
         .find_map(|k| body.get(*k).and_then(Value::as_array))
@@ -332,6 +359,8 @@ mod tests {
         assert_eq!(choices(&chat, &json!({"n": 2})), 2);
         assert!(!generates(&ep("embeddings", Dialect::OpenAiEmbeddings)));
         assert!(generates(&chat));
+        assert!(!generates(&ep("decisions", Dialect::OpenAiDecisions)));
+        assert!(!generates(&ep("systemone", Dialect::SystemOne)));
     }
 
     #[test]

@@ -13,6 +13,7 @@ use serde_json::Value;
 use crate::attempt::Plan;
 use crate::cell::Cell;
 use crate::ctx::Ctx;
+use crate::decide_xlate::AttemptDecide;
 use crate::parse::Parsed;
 use crate::xlate::AttemptXlate;
 use antirion_dialects::xlate::envelope;
@@ -137,7 +138,15 @@ pub(crate) async fn upstream_body(
     cell: Cell,
     edited: bool,
     repair: bool,
-) -> Result<(Payload, Option<HeaderValue>, Option<AttemptXlate>), GatewayError> {
+) -> Result<
+    (
+        Payload,
+        Option<HeaderValue>,
+        Option<AttemptXlate>,
+        Option<AttemptDecide>,
+    ),
+    GatewayError,
+> {
     let json_type = Some(HeaderValue::from_static("application/json"));
     match parsed {
         Parsed::Json { raw, skim, .. } => match (cell, plan.xlate.as_deref()) {
@@ -167,24 +176,40 @@ pub(crate) async fn upstream_body(
                     Payload::from(serde_json::to_vec(&out).unwrap_or_default()),
                     json_type,
                     Some(state),
+                    None,
+                ))
+            }
+            (Cell::Decide { to }, _) => {
+                let Some(x) = plan.decide.as_deref() else {
+                    return Err(untranslatable());
+                };
+                let (body, map) = crate::decide_xlate::body(x, to, d)?;
+                Ok((
+                    Payload::from(serde_json::to_vec(&body).unwrap_or_default()),
+                    json_type,
+                    None,
+                    Some(AttemptDecide { map }),
                 ))
             }
             (Cell::Translate { .. } | Cell::Embed(_) | Cell::Rerank(_), None)
             | (Cell::Embed(_) | Cell::Rerank(_), _) => Err(untranslatable()),
-            (Cell::InvokeAsMessages, _) => Ok((raw.clone().into(), json_type, None)),
+            (Cell::InvokeAsMessages, _) => Ok((raw.clone().into(), json_type, None, None)),
             (Cell::Identity, _) if plan.endpoint.upstream_path.is_some() => Ok((
                 chat_adjust(plan, d, json_body(plan, raw, skim, d)),
                 json_type,
+                None,
                 None,
             )),
             (Cell::Identity, _) if plan.endpoint.id == "messages" => Ok((
                 foreign_reasoning(raw, envelope::unwrap_anthropic_history).into(),
                 json_type,
                 None,
+                None,
             )),
             (Cell::Identity, _) if plan.endpoint.dialect == antirion_dialects::Dialect::Gemini => Ok((
                 foreign_reasoning(raw, envelope::unwrap_gemini_history).into(),
                 json_type,
+                None,
                 None,
             )),
             (Cell::Identity, _) if plan.endpoint.dialect == antirion_dialects::Dialect::BedrockConverse => {
@@ -192,9 +217,10 @@ pub(crate) async fn upstream_body(
                     foreign_reasoning(raw, envelope::unwrap_converse_history).into(),
                     json_type,
                     None,
+                    None,
                 ))
             }
-            (Cell::Identity, _) => Ok((raw.clone().into(), json_type, None)),
+            (Cell::Identity, _) => Ok((raw.clone().into(), json_type, None, None)),
         },
         Parsed::Multipart { raw, form, rest, .. } => {
             let body = multipart_body(plan, raw, form, d);
@@ -202,7 +228,7 @@ pub(crate) async fn upstream_body(
                 Some(r) => body.with_tail(r.tail()),
                 None => body,
             };
-            Ok((body, plan.client_content_type.clone(), None))
+            Ok((body, plan.client_content_type.clone(), None, None))
         }
     }
 }

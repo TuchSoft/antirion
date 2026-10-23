@@ -120,6 +120,7 @@ pub(crate) async fn send(
         span: SpanId::random(),
         server: None,
         xlate: None,
+        decide: None,
         refusal_fails: false,
         byok: None,
         aggregate: false,

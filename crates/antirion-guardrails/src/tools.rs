@@ -104,7 +104,8 @@ impl ToolRules {
             | Dialect::Embeddings
             | Dialect::Images
             | Dialect::Rerank
-            | Dialect::Transcription => return removed,
+            | Dialect::Transcription
+            | Dialect::SystemOne => return removed,
         };
         let Some(list) = body.pointer_mut(list_ptr).and_then(Value::as_array_mut) else {
             return removed;
@@ -186,7 +187,8 @@ pub fn declared(body: &Value, d: Dialect) -> Vec<String> {
         | Dialect::Embeddings
         | Dialect::Images
         | Dialect::Rerank
-        | Dialect::Transcription => Vec::new(),
+        | Dialect::Transcription
+        | Dialect::SystemOne => Vec::new(),
     }
 }
 
@@ -227,7 +229,8 @@ pub fn called(body: &Value, d: Dialect) -> Vec<String> {
         | Dialect::Embeddings
         | Dialect::Images
         | Dialect::Rerank
-        | Dialect::Transcription => {}
+        | Dialect::Transcription
+        | Dialect::SystemOne => {}
     }
     out
 }

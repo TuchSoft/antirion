@@ -320,6 +320,7 @@ fn admission_headers(
             | Dialect::OpenAiImages
             | Dialect::OpenAiAudio
             | Dialect::OpenAiModerations
+            | Dialect::OpenAiDecisions
     );
     let anthropic_route = matches!(endpoint.dialect, Dialect::AnthropicMessages);
     if r.headers.dialect && anthropic_route {

@@ -352,6 +352,8 @@ mod tests {
             ],
         ),
         ("moderations", &[(Method::POST, "/v1/moderations")]),
+        ("decisions", &[(Method::POST, "/v1/decisions")]),
+        ("systemone", &[(Method::POST, "/v1/systemone")]),
         (
             "files",
             &[
