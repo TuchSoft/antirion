@@ -32,6 +32,10 @@ pub(crate) enum Cell {
         client: ClientDialect,
         upstream: Upstream,
     },
+    /// An OpenAI-shaped decision translated to another decision format.
+    Decide {
+        to: antirion_dialects::decide::DecisionTarget,
+    },
     /// An OpenAI embeddings request sent to another provider's embedding API.
     Embed(EmbedApi),
     /// A rerank request in the provider's rerank shape.
@@ -228,6 +232,15 @@ pub(crate) fn cell(endpoint: &Endpoint, parsed: &Parsed, deployment: &Deployment
             Some(Cell::InvokeAsMessages)
         }
         Dialect::BedrockInvoke => None,
+        Dialect::OpenAiDecisions if deployment.capabilities.speaks("openai_decisions") => {
+            Some(Cell::Identity)
+        }
+        Dialect::OpenAiDecisions if deployment.capabilities.speaks("systemone") => Some(Cell::Decide {
+            to: antirion_dialects::decide::DecisionTarget::SystemOne,
+        }),
+        Dialect::OpenAiDecisions => None,
+        Dialect::SystemOne if deployment.capabilities.speaks("systemone") => Some(Cell::Identity),
+        Dialect::SystemOne => None,
         Dialect::OpenAiEmbeddings if !openai_family(deployment) => embed_api(deployment)
             .filter(|_| crate::embed::text_inputs(parsed))
             .map(Cell::Embed),
@@ -246,6 +259,7 @@ pub(crate) fn operation_class(endpoint: &Endpoint) -> &'static str {
         ("rerank", _, _) => "rerank",
         ("images", _, _) => "image_generate",
         ("moderations", _, _) => "moderate",
+        ("decisions" | "systemone", _, _) => "decide",
         ("audio", Some("/audio/speech"), _) => "speech",
         ("audio", _, _) => "transcribe",
         _ if endpoint.counts_tokens() => "count_tokens",
@@ -304,7 +318,21 @@ pub(crate) fn upstream_op(endpoint: &Endpoint, cell: Cell) -> UpstreamOp<'static
             class: "generate",
             path: "/responses",
         },
+        Cell::Decide {
+            to: antirion_dialects::decide::DecisionTarget::SystemOne,
+        } => UpstreamOp::SystemOne {
+            class: "decide",
+            path: "/systemone",
+        },
         Cell::Identity => match endpoint.dialect {
+            Dialect::OpenAiDecisions => UpstreamOp::OpenAi {
+                class: operation_class(endpoint),
+                path: endpoint.upstream_path.unwrap_or("/decisions"),
+            },
+            Dialect::SystemOne => UpstreamOp::SystemOne {
+                class: operation_class(endpoint),
+                path: endpoint.upstream_path.unwrap_or("/systemone"),
+            },
             Dialect::AnthropicMessages if endpoint.id == "count_tokens" => UpstreamOp::CountTokens,
             Dialect::AnthropicMessages => UpstreamOp::Messages,
             Dialect::Gemini if endpoint.action == Some("countTokens") => UpstreamOp::GeminiCountTokens,

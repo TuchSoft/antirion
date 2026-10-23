@@ -343,7 +343,7 @@ async fn pipeline(
         }
         return Err(unserved(endpoint, &requested));
     }
-    let feasibility = crate::xlate::resolve(
+    let mut feasibility = crate::xlate::resolve(
         &crate::xlate::Candidates {
             endpoint,
             parsed: fanned.as_ref().unwrap_or(&parsed),
@@ -357,6 +357,7 @@ async fn pipeline(
         crate::xlate::header(&parts.headers)?,
         key,
     )?;
+    let mut decision_xlate = decide_merge(endpoint, &parsed, &servable, &mut feasibility)?;
     let mut route_name = route_rt.tree.name.clone();
     cx.log.update(|r| {
         r.model = Some(model_name.clone());
@@ -539,6 +540,17 @@ async fn pipeline(
             extend::skip_response(cx, h);
         }
     }
+    if endpoint.id == "systemone"
+        && parsed
+            .member("assets")
+            .and_then(|a| a.as_object().map(|m| !m.is_empty()))
+            == Some(true)
+    {
+        extra_headers.push((
+            http::HeaderName::from_static("typesafe-danger-zone-images"),
+            http::HeaderValue::from_static("true"),
+        ));
+    }
     cx.log.stage(Stage::GuardInput);
     let input = Box::pin(guard::input(cx, &request_guard, body_value.as_mut())).await?;
     changed |= input.changed;
@@ -587,7 +599,7 @@ async fn pipeline(
     let feasibility = match body_value.filter(|_| changed).and_then(rebuilt) {
         Some(p) => {
             parsed = p;
-            crate::xlate::resolve(
+            let mut f = crate::xlate::resolve(
                 &crate::xlate::Candidates {
                     endpoint,
                     parsed: &parsed,
@@ -600,7 +612,9 @@ async fn pipeline(
                 || policies.effective("translation"),
                 crate::xlate::header(&parts.headers)?,
                 key,
-            )?
+            )?;
+            decision_xlate = decide_merge(endpoint, &parsed, &servable, &mut f)?;
+            f
         }
         None => feasibility,
     };
@@ -654,7 +668,7 @@ async fn pipeline(
     {
         Some(p) => {
             parsed = p;
-            crate::xlate::resolve(
+            let mut f = crate::xlate::resolve(
                 &crate::xlate::Candidates {
                     endpoint,
                     parsed: &parsed,
@@ -667,7 +681,9 @@ async fn pipeline(
                 || policies.effective("translation"),
                 crate::xlate::header(&parts.headers)?,
                 key,
-            )?
+            )?;
+            decision_xlate = decide_merge(endpoint, &parsed, &servable, &mut f)?;
+            f
         }
         None => feasibility,
     };
@@ -692,6 +708,7 @@ async fn pipeline(
         openai_cache_key: cache::prompt::openai_key(&cache_policy, parsed.doc(), &key.project, &route_name),
         turn,
         xlate: feasibility.xlate,
+        decide: decision_xlate,
         guard: (!request_guard.attached.is_empty()).then(|| Arc::new(request_guard)),
         hooks: hooks.map(Arc::new),
         extra_headers,
@@ -860,6 +877,7 @@ async fn pipeline(
             openai_cache_key: None,
             turn: None,
             xlate: feasibility.xlate,
+            decide: None,
             guard: guard.clone(),
             hooks: hooks.clone(),
             extra_headers: extra_headers.clone(),
@@ -895,6 +913,20 @@ async fn pipeline(
         done = Box::pin(call).await?;
         calls_made += 1;
     }
+}
+
+/// Decodes the decision request and merges its verdicts into the chat translation's verdicts.
+fn decide_merge(
+    endpoint: &Endpoint,
+    parsed: &Parsed,
+    servable: &[&Arc<DeploymentRt>],
+    feasibility: &mut crate::xlate::Feasibility,
+) -> Result<Option<Arc<crate::decide_xlate::DecisionXlate>>, GatewayError> {
+    let decision = crate::decide_xlate::resolve(endpoint, parsed, servable)?;
+    for (name, verdict) in decision.verdicts {
+        feasibility.verdicts.insert(name, verdict);
+    }
+    Ok(decision.xlate)
 }
 
 /// The facts of a request the routing stage reads.

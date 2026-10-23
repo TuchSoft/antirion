@@ -46,6 +46,8 @@ export const ENDPOINT_GROUPS: { title: string; rows: EndpointRow[] }[] = [
       { id: 'images', label: 'Images', paths: '/v1/images/*' },
       { id: 'audio', label: 'Audio', paths: '/v1/audio/*' },
       { id: 'moderations', label: 'Moderations', paths: 'POST /v1/moderations' },
+      { id: 'decisions', label: 'Decisions', paths: 'POST /v1/decisions' },
+      { id: 'systemone', label: 'System One (legacy)', paths: 'POST /v1/systemone' },
       { id: 'files', label: 'Files', paths: '/v1/files' },
       { id: 'batches', label: 'Batches', paths: '/v1/batches' },
       { id: 'realtime', label: 'Realtime', paths: '/v1/realtime' },

@@ -50,6 +50,20 @@ pub(crate) static RESPONSES: Table = Table {
     on_error: None,
 };
 
+pub(crate) static DECISIONS: Table = Table {
+    member: decisions,
+    required: &["input", "questions"],
+    finish: None,
+    on_error: None,
+};
+
+pub(crate) static SYSTEMONE: Table = Table {
+    member: systemone,
+    required: &["state", "questions"],
+    finish: None,
+    on_error: None,
+};
+
 pub(crate) static MESSAGES: Table = Table {
     member: messages_member,
     required: &["max_tokens", "messages"],
@@ -147,6 +161,305 @@ fn moderations(name: &str, v: &Value, _opts: &ValidateOpts) -> Check {
             _ => Err(wrong_type(name, "a string or an array")),
         },
         _ => Ok(()),
+    }
+}
+
+fn decisions(name: &str, v: &Value, _opts: &ValidateOpts) -> Check {
+    match name {
+        "input" => decisions_input(v),
+        "questions" => decisions_questions(v),
+        "stream" if !v.is_null() => must_be_false(name, v),
+        _ => Ok(()),
+    }
+}
+
+fn must_be_false(name: &str, v: &Value) -> Check {
+    match v {
+        Value::Bool(false) => Ok(()),
+        Value::Bool(true) => Err(bad_value(name, "must be false: this endpoint does not stream.")),
+        _ => Err(wrong_type(name, "a boolean")),
+    }
+}
+
+fn decisions_input(v: &Value) -> Check {
+    match v {
+        Value::String(_) => Ok(()),
+        Value::Array(items) => {
+            if items.is_empty() {
+                return Err(bad_value("input", "must not be empty."));
+            }
+            for (i, item) in items.iter().enumerate() {
+                decisions_item(item, &index("input", i))?;
+            }
+            Ok(())
+        }
+        _ => Err(wrong_type("input", "a string or an array of input items")),
+    }
+}
+
+fn decisions_item(v: &Value, path: &str) -> Check {
+    let item = object(v, path)?;
+    if let Some(role) = item.get("role") {
+        let role_path = key(path, "role");
+        match string(role, &role_path)? {
+            "user" | "developer" | "system" | "assistant" => {}
+            _ => {
+                return Err(bad_value(
+                    &role_path,
+                    "must be user, developer, system or assistant.",
+                ));
+            }
+        }
+        let content_path = key(path, "content");
+        return match item.get("content") {
+            None => Err(missing(&content_path)),
+            Some(Value::String(_)) => Ok(()),
+            Some(Value::Array(parts)) => content_parts(parts, &content_path),
+            Some(_) => Err(wrong_type(&content_path, "a string or an array of content parts")),
+        };
+    }
+    // Tool items (`function_call`, `function_call_output`, `custom_tool_call`, ...) are accepted
+    // here and refused by the System One translation when they cannot be carried.
+    match item.get("type") {
+        Some(Value::String(_)) => Ok(()),
+        Some(_) => Err(wrong_type(&key(path, "type"), "a string")),
+        None => Err(missing(&key(path, "role"))),
+    }
+}
+
+fn content_parts(parts: &[Value], path: &str) -> Check {
+    if parts.is_empty() {
+        return Err(bad_value(path, "must not be empty."));
+    }
+    for (i, part) in parts.iter().enumerate() {
+        let part_path = index(path, i);
+        let p = object(part, &part_path)?;
+        let type_path = key(&part_path, "type");
+        let kind = match p.get("type") {
+            None => return Err(missing(&type_path)),
+            Some(t) => string(t, &type_path)?,
+        };
+        match kind {
+            "input_text" => {
+                let text_path = key(&part_path, "text");
+                match p.get("text") {
+                    None => return Err(missing(&text_path)),
+                    Some(t) => {
+                        string(t, &text_path)?;
+                    }
+                }
+            }
+            "input_image" => {
+                let url_path = key(&part_path, "image_url");
+                match p.get("image_url") {
+                    None => return Err(missing(&url_path)),
+                    Some(u) => {
+                        string(u, &url_path)?;
+                    }
+                }
+            }
+            "input_json" => match p.get("data") {
+                Some(Value::Object(_) | Value::Array(_)) => {}
+                Some(_) => return Err(wrong_type(&key(&part_path, "data"), "an object or an array")),
+                None => return Err(missing(&key(&part_path, "data"))),
+            },
+            _ => {
+                return Err(bad_value(
+                    &type_path,
+                    "must be input_text, input_image or input_json.",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn decisions_questions(v: &Value) -> Check {
+    let questions = array(v, "questions")?;
+    if questions.is_empty() {
+        return Err(bad_value("questions", "must contain at least one question."));
+    }
+    if questions.len() > 400 {
+        return Err(bad_value("questions", "must contain at most 400 questions."));
+    }
+    let mut names: Vec<&str> = Vec::new();
+    for (i, question) in questions.iter().enumerate() {
+        let path = index("questions", i);
+        let q = object(question, &path)?;
+        let type_path = key(&path, "type");
+        let kind = match q.get("type") {
+            None => return Err(missing(&type_path)),
+            Some(t) => string(t, &type_path)?,
+        };
+        if !matches!(kind, "predicate" | "choice" | "score") {
+            return Err(bad_value(&type_path, "must be predicate, choice or score."));
+        }
+        if let Some(name) = q.get("name") {
+            let name = string(name, &key(&path, "name"))?;
+            if names.contains(&name) {
+                return Err(bad_value(&key(&path, "name"), "must be unique."));
+            }
+            names.push(name);
+        }
+        match q.get("instructions") {
+            None => return Err(missing(&key(&path, "instructions"))),
+            Some(v) => instructions(v, &key(&path, "instructions"))?,
+        }
+        match kind {
+            "choice" => choices(q.get("choices"), &key(&path, "choices"))?,
+            "score" => levels(q.get("levels"), &key(&path, "levels"))?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn instructions(v: &Value, path: &str) -> Check {
+    match v {
+        Value::String(s) if s.is_empty() => Err(bad_value(path, "must not be empty.")),
+        Value::String(_) => Ok(()),
+        Value::Array(parts) => content_parts(parts, path),
+        _ => Err(wrong_type(path, "a string or an array of content parts")),
+    }
+}
+
+fn choices(v: Option<&Value>, path: &str) -> Check {
+    let Some(v) = v else {
+        return Err(missing(path));
+    };
+    let list = array(v, path)?;
+    if list.len() < 2 || list.len() > 255 {
+        return Err(bad_value(path, "must contain between 2 and 255 choices."));
+    }
+    let mut values: Vec<&Value> = Vec::new();
+    for (i, choice) in list.iter().enumerate() {
+        let choice_path = index(path, i);
+        let c = object(choice, &choice_path)?;
+        let value_path = key(&choice_path, "value");
+        let value = match c.get("value") {
+            None => return Err(missing(&value_path)),
+            Some(v @ (Value::String(_) | Value::Bool(_))) => v,
+            Some(_) => return Err(wrong_type(&value_path, "a string or a boolean")),
+        };
+        if values.contains(&value) {
+            return Err(bad_value(&value_path, "must be unique."));
+        }
+        values.push(value);
+        if let Some(description) = c.get("description") {
+            string(description, &key(&choice_path, "description"))?;
+        }
+    }
+    Ok(())
+}
+
+fn levels(v: Option<&Value>, path: &str) -> Check {
+    let Some(v) = v else {
+        return Err(missing(path));
+    };
+    let list = array(v, path)?;
+    if list.len() < 2 {
+        return Err(bad_value(path, "must contain at least two levels."));
+    }
+    for (i, level) in list.iter().enumerate() {
+        let level_path = index(path, i);
+        let l = object(level, &level_path)?;
+        let label_path = key(&level_path, "label");
+        match l.get("label") {
+            None => return Err(missing(&label_path)),
+            Some(label) => {
+                string(label, &label_path)?;
+            }
+        }
+        if let Some(description) = l.get("description") {
+            string(description, &key(&level_path, "description"))?;
+        }
+    }
+    Ok(())
+}
+
+fn systemone(name: &str, v: &Value, _opts: &ValidateOpts) -> Check {
+    match name {
+        "state" => structured_text(v, name),
+        "questions" => systemone_questions(v),
+        "assets" if !v.is_null() => object(v, name).map(|_| ()),
+        "stream" if !v.is_null() => must_be_false(name, v),
+        _ => Ok(()),
+    }
+}
+
+fn systemone_questions(v: &Value) -> Check {
+    let questions = object(v, "questions")?;
+    if questions.is_empty() {
+        return Err(bad_value("questions", "must contain at least one question."));
+    }
+    for (name, question) in questions {
+        let path = key("questions", name);
+        let q = match question {
+            Value::Object(q) => q,
+            _ => return Err(wrong_type(&path, "an object")),
+        };
+        let type_path = key(&path, "type");
+        let kind = match q.get("type") {
+            None => return Err(missing(&type_path)),
+            Some(t) => string(t, &type_path)?,
+        };
+        if !matches!(kind, "noul" | "choice" | "score" | "box") {
+            return Err(bad_value(&type_path, "must be noul, choice, score or box."));
+        }
+        match q.get("instructions") {
+            None => return Err(missing(&key(&path, "instructions"))),
+            Some(v) => structured_text(v, &key(&path, "instructions"))?,
+        }
+        match kind {
+            "noul" => {
+                if let Some(c) = q.get("criteria") {
+                    let c_path = key(&path, "criteria");
+                    let c = object(c, &c_path)?;
+                    for side in ["true", "false"] {
+                        if let Some(v) = c.get(side) {
+                            structured_text(v, &key(&c_path, side))?;
+                        }
+                    }
+                }
+            }
+            "choice" => {
+                let criteria = q
+                    .get("criteria")
+                    .ok_or_else(|| missing(&key(&path, "criteria")))?;
+                let c_path = key(&path, "criteria");
+                let c = object(criteria, &c_path)?;
+                if c.len() < 2 || c.len() > 255 {
+                    return Err(bad_value(&c_path, "must contain between 2 and 255 options."));
+                }
+                for (option, description) in c {
+                    if !description.is_null() {
+                        structured_text(description, &key(&c_path, option))?;
+                    }
+                }
+            }
+            "score" => {
+                let criteria = q
+                    .get("criteria")
+                    .ok_or_else(|| missing(&key(&path, "criteria")))?;
+                let c_path = key(&path, "criteria");
+                let c = array(criteria, &c_path)?;
+                if c.len() < 2 || c.len() > 10 {
+                    return Err(bad_value(&c_path, "must contain between 2 and 10 levels."));
+                }
+                for (i, level) in c.iter().enumerate() {
+                    structured_text(level, &index(&c_path, i))?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn structured_text(v: &Value, path: &str) -> Check {
+    match v {
+        Value::String(_) | Value::Object(_) | Value::Array(_) => Ok(()),
+        _ => Err(wrong_type(path, "a string, an object or an array")),
     }
 }
 
@@ -289,6 +602,8 @@ mod tests {
     const SPEECH: &str = "/v1/audio/speech";
     const RESP: &str = "/v1/responses";
     const MSG: &str = "/v1/messages";
+    const DEC: &str = "/v1/decisions";
+    const SYS: &str = "/v1/systemone";
 
     #[test]
     fn embeddings_inputs() {
@@ -494,6 +809,104 @@ mod tests {
         ] {
             assert_eq!(check_at(MSG, ok), Ok(()), "{ok}");
         }
+    }
+
+    #[test]
+    fn decisions_bodies() {
+        let ok = r#"{"model":"gpt-6-luna","input":"I was charged twice.",
+            "questions":[
+              {"type":"predicate","instructions":"Is this billing?"},
+              {"type":"choice","name":"department","instructions":"Which?",
+               "choices":[{"value":"billing"},{"value":true}]},
+              {"type":"score","name":"severity","instructions":"How bad?",
+               "levels":[{"label":"Low"},{"label":"High"}]}]}"#;
+        assert_eq!(check_at(DEC, ok), Ok(()));
+        assert_eq!(
+            check_at(
+                DEC,
+                r#"{"input":[{"role":"user","content":[{"type":"input_text","text":"hi"},{"type":"input_image","image_url":"https://x/y.png"}]}],"questions":[{"type":"predicate","instructions":"?"}]}"#
+            ),
+            Ok(())
+        );
+        rejects(DEC, r#"{"model":"m"}"#, "input", Some(Missing));
+        rejects(DEC, r#"{"input":"x"}"#, "questions", Some(Missing));
+        rejects(
+            DEC,
+            r#"{"input":[],"questions":[{"type":"predicate","instructions":"?"}]}"#,
+            "input",
+            Some(Val),
+        );
+        rejects(DEC, r#"{"input":"x","questions":[]}"#, "questions", Some(Val));
+        rejects(
+            DEC,
+            r#"{"input":"x","questions":[{"type":"predicate","instructions":"?"},{"type":"predicate","name":"a","instructions":"?"},{"type":"predicate","name":"a","instructions":"?"}]}"#,
+            "questions[2].name",
+            Some(Val),
+        );
+        rejects(
+            DEC,
+            r#"{"input":"x","questions":[{"type":"choice","instructions":"?","choices":[{"value":"a"}]}]}"#,
+            "questions[0].choices",
+            Some(Val),
+        );
+        rejects(
+            DEC,
+            r#"{"input":"x","questions":[{"type":"choice","instructions":"?","choices":[{"value":"a"},{"value":"a"}]}]}"#,
+            "questions[0].choices[1].value",
+            Some(Val),
+        );
+        rejects(
+            DEC,
+            r#"{"input":"x","questions":[{"type":"score","instructions":"?","levels":[{"label":"a"}]}]}"#,
+            "questions[0].levels",
+            Some(Val),
+        );
+        rejects(
+            DEC,
+            r#"{"input":"x","stream":true,"questions":[{"type":"predicate","instructions":"?"}]}"#,
+            "stream",
+            Some(Val),
+        );
+    }
+
+    #[test]
+    fn systemone_bodies() {
+        let ok = r#"{"model":"jev-1.13.0","state":"I was charged twice.",
+            "questions":{
+              "billing":{"type":"noul","instructions":"Is this billing?"},
+              "team":{"type":"choice","instructions":"Which?",
+                      "criteria":{"billing":"Payments","technical":null}},
+              "severity":{"type":"score","instructions":"How bad?",
+                           "criteria":["Low",{"what":"High"}]}}}"#;
+        assert_eq!(check_at(SYS, ok), Ok(()));
+        assert_eq!(
+            check_at(
+                SYS,
+                r#"{"state":{"ticket":{"body":"x"}},"questions":{"q":{"type":"noul","instructions":"?"}}}"#
+            ),
+            Ok(())
+        );
+        rejects(SYS, r#"{"model":"m"}"#, "state", Some(Missing));
+        rejects(SYS, r#"{"state":"x"}"#, "questions", Some(Missing));
+        rejects(SYS, r#"{"state":"x","questions":{}}"#, "questions", Some(Val));
+        rejects(
+            SYS,
+            r#"{"state":"x","questions":{"q":{"type":"choice","instructions":"?","criteria":{"a":"b"}}}}"#,
+            "questions.q.criteria",
+            Some(Val),
+        );
+        rejects(
+            SYS,
+            r#"{"state":"x","questions":{"q":{"type":"score","instructions":"?","criteria":["a"]}}}"#,
+            "questions.q.criteria",
+            Some(Val),
+        );
+        rejects(
+            SYS,
+            r#"{"state":"x","stream":true,"questions":{"q":{"type":"noul","instructions":"?"}}}"#,
+            "stream",
+            Some(Val),
+        );
     }
 
     #[test]

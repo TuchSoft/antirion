@@ -33,6 +33,8 @@ fn missing_member(api: apis::Api) -> &'static str {
         apis::Api::Chat | apis::Api::Completions => "upstream response missing 'choices'",
         apis::Api::Embeddings => "upstream response missing 'data'",
         apis::Api::Moderations => "upstream response missing 'results'",
+        apis::Api::Decisions => "upstream response missing 'answers'",
+        apis::Api::SystemOne => "upstream response missing 'answers'",
         apis::Api::Anthropic => "upstream response missing 'content'",
         apis::Api::Gemini => "upstream response missing 'candidates'",
         apis::Api::Converse => "upstream response missing 'output'",
@@ -97,7 +99,8 @@ pub(crate) async fn json_response(
     if let Some(err) = v.get("error").filter(|e| e.is_object()) {
         return Err(a.error_object(err));
     }
-    if !apis::usable(api, &v) {
+    let translated_decision = matches!(a.cell, Cell::Decide { .. }) && api == apis::Api::SystemOne;
+    if !translated_decision && !apis::usable(api, &v) {
         return Err(a.bad(hygiene::INVALID_BODY, status, missing_member(api).to_owned()));
     }
     if api == apis::Api::Gemini && crate::relay::native::missing_thought_signature(&v) {
@@ -126,7 +129,13 @@ pub(crate) async fn json_response(
         .unwrap_or(&a.deployment.model)
         .to_owned();
     let shown = response_model(a, &upstream_model);
-    let (translated, warnings) = crate::xlate::response(a, api, &v, &shown, &up_headers, status)?;
+    let (translated, warnings) = match (&a.decide, a.cell) {
+        (Some(decide), crate::cell::Cell::Decide { .. }) => (
+            Ok(Some(crate::decide_xlate::response(&v, &decide.map, &shown))),
+            None,
+        ),
+        _ => crate::xlate::response(a, api, &v, &shown, &up_headers, status)?,
+    };
     deliver(
         a,
         Answer {

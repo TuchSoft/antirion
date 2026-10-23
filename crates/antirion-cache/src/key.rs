@@ -175,6 +175,7 @@ fn dropped(endpoint: &str) -> &'static [&'static str] {
             "stream_options",
         ],
         "anthropic.messages" => &["service_tier"],
+        "openai.decisions" => &["prompt_cache_key", "prompt_cache_options", "safety_identifier"],
         _ => &[],
     }
 }
@@ -207,6 +208,9 @@ pub fn normalise(endpoint: &str, body: &Value, ignore_fields: &[String]) -> Valu
         tokens.push("cache_control".to_owned());
         remove(&mut body, &tokens);
     }
+    if endpoint == "openai.decisions" {
+        remove_named(&mut body, "prompt_cache_breakpoint");
+    }
     for pattern in ignore_fields {
         remove(&mut body, &tokens(pattern));
     }
@@ -220,6 +224,24 @@ fn tokens(pointer: &str) -> Vec<String> {
         .skip(1)
         .map(|t| t.replace("~1", "/").replace("~0", "~"))
         .collect()
+}
+
+/// Removes every member named `name` at any depth.
+fn remove_named(v: &mut Value, name: &str) {
+    match v {
+        Value::Array(items) => {
+            for item in items {
+                remove_named(item, name);
+            }
+        }
+        Value::Object(map) => {
+            map.shift_remove(name);
+            for child in map.values_mut() {
+                remove_named(child, name);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Removes every member the tokens reach; `*` matches any array index.

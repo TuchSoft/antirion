@@ -27,6 +27,10 @@ pub(crate) enum Api {
     Cohere,
     Embeddings,
     Moderations,
+    /// OpenAI's Decisions API.
+    Decisions,
+    /// TypeSafe's System One.
+    SystemOne,
     /// Another provider's embedding API.
     EmbedNative(antirion_dialects::embed::EmbedApi),
     /// A provider's rerank API.
@@ -40,6 +44,7 @@ pub(crate) fn upstream_api(endpoint: &Endpoint, cell: Cell) -> Api {
     match cell {
         Cell::Embed(api) => Api::EmbedNative(api),
         Cell::Rerank(_) => Api::Rerank,
+        Cell::Decide { .. } => Api::SystemOne,
         Cell::Translate {
             upstream: Upstream::Gemini,
             ..
@@ -74,6 +79,8 @@ pub(crate) fn upstream_api(endpoint: &Endpoint, cell: Cell) -> Api {
             (_, "responses", _) => Api::Responses,
             (_, "embeddings", _) => Api::Embeddings,
             (_, "moderations", _) => Api::Moderations,
+            (Dialect::OpenAiDecisions, _, _) => Api::Decisions,
+            (Dialect::SystemOne, _, _) => Api::SystemOne,
             _ => Api::Other,
         },
     }
@@ -93,6 +100,8 @@ fn client_id(endpoint: &Endpoint) -> &'static str {
         Dialect::OpenAiImages => "openai_images",
         Dialect::OpenAiAudio => "openai_audio",
         Dialect::OpenAiModerations => "openai_moderations",
+        Dialect::OpenAiDecisions => "openai_decisions",
+        Dialect::SystemOne => "systemone",
         Dialect::AnthropicMessages => "anthropic_messages",
         Dialect::Gemini => "gemini",
         Dialect::BedrockConverse => "bedrock_converse",
@@ -127,6 +136,8 @@ pub(crate) fn dialect_names(endpoint: &Endpoint, cell: Cell) -> (&'static str, &
             }
         }
         Api::Rerank => "rerank",
+        Api::Decisions => "openai_decisions",
+        Api::SystemOne => "systemone",
         Api::Moderations | Api::Other => client,
     };
     (client, upstream)
@@ -153,7 +164,7 @@ pub(crate) fn client_dialect(endpoint: &Endpoint, cell: Cell) -> ClientDialect {
     match cell {
         Cell::Translate { client, .. } => client,
         Cell::InvokeAsMessages => ClientDialect::Anthropic,
-        Cell::Embed(_) | Cell::Rerank(_) => ClientDialect::Chat,
+        Cell::Embed(_) | Cell::Rerank(_) | Cell::Decide { .. } => ClientDialect::Chat,
         Cell::Identity => match endpoint.dialect {
             Dialect::AnthropicMessages => ClientDialect::Anthropic,
             Dialect::Gemini => ClientDialect::Gemini,
@@ -185,6 +196,8 @@ pub(crate) fn usable(api: Api, v: &Value) -> bool {
         Api::GeminiCount => v.get("totalTokens").is_some_and(Value::is_u64),
         Api::Converse => v.get("output").is_some_and(Value::is_object),
         Api::Cohere => v.get("message").is_some_and(Value::is_object),
+        Api::Decisions => v.get("answers").is_some_and(Value::is_array),
+        Api::SystemOne => v.get("answers").is_some_and(Value::is_object),
         Api::Responses | Api::Invoke | Api::Other | Api::EmbedNative(_) | Api::Rerank => v.is_object(),
     }
 }
@@ -331,9 +344,14 @@ pub(crate) fn answer_facts(v: &Value) -> antirion_resilience::AnswerFacts {
             .filter_map(|k| v.get(k).and_then(Value::as_str))
             .map(str::to_owned),
     );
+    let answers = match v.get("answers") {
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(Value::Object(m)) => !m.is_empty(),
+        _ => false,
+    };
     antirion_resilience::AnswerFacts {
         finish_reasons,
-        content: output_chars(v) > 0 || tool_calls(v) > 0,
+        content: answers || output_chars(v) > 0 || tool_calls(v) > 0,
     }
 }
 

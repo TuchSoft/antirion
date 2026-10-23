@@ -231,6 +231,7 @@ pub(crate) fn dialect(endpoint: &Endpoint) -> &'static str {
         Dialect::AnthropicMessages => "anthropic",
         Dialect::Gemini => "gemini",
         Dialect::BedrockConverse | Dialect::BedrockInvoke => "bedrock",
+        Dialect::SystemOne => "systemone",
         Dialect::Mcp if endpoint.family == "a2a" => "a2a",
         Dialect::Mcp => "mcp",
         _ => "openai",

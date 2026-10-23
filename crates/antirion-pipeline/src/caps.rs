@@ -84,6 +84,19 @@ pub(crate) fn required(endpoint: &Endpoint, parsed: &Parsed) -> Vec<Need> {
     if facts.stream || endpoint.path_streams() {
         out.push(need("streaming", reasons::CAP_STREAMING, "stream"));
     }
+    if endpoint.id == "decisions"
+        && let Some(at) = decisions_image_path(parsed)
+    {
+        out.push(need_at("vision", reasons::CAP_VISION, at));
+    }
+    if endpoint.id == "systemone"
+        && parsed
+            .member("assets")
+            .and_then(|a| a.as_object().map(|m| !m.is_empty()))
+            == Some(true)
+    {
+        out.push(need("vision", reasons::CAP_VISION, "assets"));
+    }
     let anthropic = endpoint.id == "messages";
     if endpoint.id != "chat_completions" && !anthropic {
         return out;
@@ -177,6 +190,40 @@ pub(crate) fn missing(deployment: &DeploymentRt, needs: &[Need]) -> Vec<Need> {
         .collect()
 }
 
+/// The first image part of a decision request, as a field path.
+fn decisions_image_path(parsed: &Parsed) -> Option<String> {
+    let input = parsed.member("input");
+    if let Some(items) = input.as_deref().and_then(Value::as_array) {
+        for (i, item) in items.iter().enumerate() {
+            if let Some(at) = part_image_path(item.get("content"), &format!("input[{i}].content")) {
+                return Some(at);
+            }
+        }
+    }
+    let questions = parsed.member("questions");
+    if let Some(items) = questions.as_deref().and_then(Value::as_array) {
+        for (i, question) in items.iter().enumerate() {
+            if let Some(at) = part_image_path(
+                question.get("instructions"),
+                &format!("questions[{i}].instructions"),
+            ) {
+                return Some(at);
+            }
+        }
+    }
+    None
+}
+
+fn part_image_path(content: Option<&Value>, base: &str) -> Option<String> {
+    let parts = content?.as_array()?;
+    for (j, part) in parts.iter().enumerate() {
+        if part.get("type").and_then(Value::as_str) == Some("input_image") {
+            return Some(format!("{base}[{j}]"));
+        }
+    }
+    None
+}
+
 /// The endpoint paths a deployment's operation classes serve.
 fn served_paths(d: &DeploymentRt) -> Vec<&'static str> {
     [
@@ -186,6 +233,7 @@ fn served_paths(d: &DeploymentRt) -> Vec<&'static str> {
         ("speech", "/v1/audio/speech"),
         ("transcribe", "/v1/audio/transcriptions"),
         ("moderate", "/v1/moderations"),
+        ("decide", "/v1/decisions"),
         ("count_tokens", "/v1/messages/count_tokens"),
     ]
     .into_iter()

@@ -81,6 +81,8 @@ pub(super) fn dialect_name(endpoint: &Endpoint) -> &'static str {
         Dialect::BedrockConverse => "bedrock_converse",
         Dialect::BedrockInvoke => "bedrock_invoke",
         Dialect::OpenAiResponses => "openai_responses",
+        Dialect::OpenAiDecisions => "openai_decisions",
+        Dialect::SystemOne => "systemone",
         _ => "openai",
     }
 }

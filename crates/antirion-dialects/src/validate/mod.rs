@@ -102,6 +102,8 @@ fn table(endpoint: &Endpoint) -> Option<&'static Table> {
         "audio" if endpoint.upstream_path == Some("/audio/speech") => Some(&endpoints::SPEECH),
         "responses" => Some(&endpoints::RESPONSES),
         "moderations" => Some(&endpoints::MODERATIONS),
+        "decisions" => Some(&endpoints::DECISIONS),
+        "systemone" => Some(&endpoints::SYSTEMONE),
         "messages" => Some(&endpoints::MESSAGES),
         "count_tokens" => Some(&endpoints::COUNT_TOKENS),
         "rerank" => Some(&rerank::RERANK),

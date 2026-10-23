@@ -141,7 +141,7 @@ async fn start(up: &Upstream<'_>, job: Job, line: u32, timers: &AttemptTimers) {
     let Some(c) = cell(plan.endpoint, parsed, d) else {
         return;
     };
-    let Ok((body, content_type, _)) = upstream_body(cx, plan, parsed, d, c, edited.is_some(), false).await
+    let Ok((body, content_type, _, _)) = upstream_body(cx, plan, parsed, d, c, edited.is_some(), false).await
     else {
         return;
     };

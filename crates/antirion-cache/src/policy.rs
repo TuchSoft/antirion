@@ -14,6 +14,8 @@ pub const CACHEABLE: &[&str] = &[
     "openai.responses",
     "anthropic.messages",
     "openai.embeddings",
+    "openai.decisions",
+    "systemone",
     "rerank",
 ];
 
@@ -216,11 +218,15 @@ impl CachePolicy {
             "openai.chat_completions" | "anthropic.messages" => {
                 body.get("messages").and_then(Value::as_array).map(Vec::len)
             }
-            "openai.responses" => match body.get("input") {
+            "openai.responses" | "openai.decisions" => match body.get("input") {
                 Some(Value::Array(items)) => Some(items.len()),
                 Some(Value::String(_)) => Some(1),
                 _ => None,
             },
+            "systemone" => body
+                .get("questions")
+                .and_then(Value::as_object)
+                .map(serde_json::Map::len),
             _ => None,
         };
         count.is_some_and(|n| u64::try_from(n).unwrap_or(u64::MAX) > max)
@@ -297,6 +303,18 @@ mod tests {
         assert!(!p.too_many_messages("openai.responses", &json!({"input": "hi"})));
         assert!(p.too_many_messages("openai.responses", &json!({"input": [1, 2, 3]})));
         assert!(!p.too_many_messages("openai.embeddings", &json!({"input": [1, 2, 3]})));
+        assert!(!p.too_many_messages("openai.decisions", &json!({"input": "hi"})));
+        assert!(p.too_many_messages("openai.decisions", &json!({"input": [1, 2, 3]})));
+        assert!(!p.too_many_messages("systemone", &json!({"questions": {"a": {}, "b": {}}})));
+        assert!(p.too_many_messages("systemone", &json!({"questions": {"a": {}, "b": {}, "c": {}}})));
+    }
+
+    #[test]
+    fn decision_operations_are_cacheable_when_covered() {
+        let p = CachePolicy::from_value(&json!({"enabled": true,
+            "endpoints": ["openai.decisions", "systemone"]}));
+        assert!(p.covers("openai.decisions"));
+        assert!(p.covers("systemone"));
     }
 
     #[test]

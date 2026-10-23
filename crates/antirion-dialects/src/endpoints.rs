@@ -14,6 +14,10 @@ pub enum Dialect {
     OpenAiImages,
     OpenAiAudio,
     OpenAiModerations,
+    /// The OpenAI Decisions API.
+    OpenAiDecisions,
+    /// TypeSafe's System One API (Jev), also served by Microsoft-Decision-1.
+    SystemOne,
     OpenAiFiles,
     OpenAiBatches,
     OpenAiRealtime,
@@ -177,7 +181,7 @@ fn normalised(path: &str) -> Option<String> {
     }
     if matches!(
         segments.first(),
-        Some(&("chat" | "embeddings" | "models" | "responses" | "completions"))
+        Some(&("chat" | "embeddings" | "models" | "responses" | "completions" | "decisions" | "systemone"))
     ) {
         segments.insert(0, "v1");
     }
@@ -210,6 +214,8 @@ fn canonical(path: &str) -> bool {
             | "models"
             | "responses"
             | "completions"
+            | "decisions"
+            | "systemone"
     ) && rest.split('/').all(|s| !s.is_empty() && s != "." && s != "..")
 }
 
@@ -445,6 +451,24 @@ pub fn match_endpoint(method: &Method, raw_path: &str) -> Matched {
                 "moderations",
                 Dialect::OpenAiModerations,
                 Some("/moderations"),
+            )),
+        ),
+        ["v1", "decisions"] => (
+            POST,
+            Some(inference(
+                "decisions",
+                "decisions",
+                Dialect::OpenAiDecisions,
+                Some("/decisions"),
+            )),
+        ),
+        ["v1", "systemone"] => (
+            POST,
+            Some(inference(
+                "systemone",
+                "decisions",
+                Dialect::SystemOne,
+                Some("/systemone"),
             )),
         ),
         [
@@ -862,6 +886,19 @@ mod tests {
             Matched::NotFound
         );
         assert_eq!(found(Method::POST, "/v1/moderations").id, "moderations");
+        assert_eq!(found(Method::POST, "/v1/decisions").id, "decisions");
+        assert_eq!(
+            found(Method::POST, "/v1/decisions").dialect,
+            Dialect::OpenAiDecisions
+        );
+        assert_eq!(found(Method::POST, "/v1/systemone").id, "systemone");
+        assert_eq!(found(Method::POST, "/v1/systemone").dialect, Dialect::SystemOne);
+        assert_eq!(found(Method::POST, "/decisions").id, "decisions");
+        assert_eq!(found(Method::POST, "/systemone").id, "systemone");
+        assert_eq!(
+            match_endpoint(&Method::GET, "/v1/decisions"),
+            Matched::MethodNotAllowed(POST)
+        );
         assert_eq!(
             found(Method::GET, "/v1/models/openai/gpt-x")
                 .path_param

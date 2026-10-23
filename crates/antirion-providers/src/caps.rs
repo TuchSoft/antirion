@@ -190,6 +190,7 @@ impl Capabilities {
             "operations" => Value::from(
                 [
                     "generate",
+                    "decide",
                     "embed",
                     "image_generate",
                     "transcribe",

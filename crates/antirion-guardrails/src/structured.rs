@@ -164,6 +164,7 @@ pub fn choice_contents(body: &Value, d: Dialect) -> Vec<String> {
                 .map(|s| s.text)
                 .collect()
         }
+        Dialect::SystemOne => Vec::new(),
         Dialect::Converse => vec![
             arr(body.pointer("/output/message/content"))
                 .iter()
