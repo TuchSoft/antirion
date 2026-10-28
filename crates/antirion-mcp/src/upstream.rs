@@ -414,26 +414,6 @@ pub(crate) async fn send(
     }
 }
 
-/// Reads an answer until the response to `id`, ignoring other messages.
-pub(crate) async fn response_to(answer: Answer, id: &Value, idle: Duration) -> Result<Value, UpError> {
-    match answer {
-        Answer::Json(v) => Ok(v),
-        Answer::Empty => Err(UpError::NotMcp),
-        Answer::Stream(mut src) => loop {
-            match src.next(idle).await {
-                Ok(m)
-                    if m.get("id") == Some(id) && (m.get("result").is_some() || m.get("error").is_some()) =>
-                {
-                    return Ok(m);
-                }
-                Ok(_) => {}
-                Err(ReadError::Idle) => return Err(UpError::Timeout),
-                Err(ReadError::Ended) => return Err(UpError::Reset),
-            }
-        },
-    }
-}
-
 /// Methods that may be retried (they have no side effects).
 pub(crate) fn idempotent(method: &str) -> bool {
     matches!(
@@ -454,6 +434,12 @@ pub(crate) fn idempotent(method: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lost_session_is_not_retried_by_the_transport() {
+        assert!(!UpError::SessionGone.retryable(true));
+        assert!(!UpError::SessionGone.retryable(false));
+    }
 
     #[test]
     fn retry_rule() {

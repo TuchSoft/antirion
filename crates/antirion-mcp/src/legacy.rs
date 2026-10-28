@@ -82,7 +82,11 @@ pub(crate) async fn post(req: Req, msg: Msg, raw: Value, version: Option<String>
         Err(f) => return req.error(&f.id(&id)),
     };
     let links = session_links(&req, &sel, &claims);
-    let mode = Mode::Session { links };
+    let mode = Mode::Session {
+        links,
+        caps: claims.caps.clone(),
+        info: claims.ci.clone(),
+    };
     match msg {
         Msg::Request { id, method, params } => {
             request(&req, &sel, &mode, &id, &method, params.as_ref(), Some(&token)).await
@@ -92,7 +96,7 @@ pub(crate) async fn post(req: Req, msg: Msg, raw: Value, version: Option<String>
             respond::accepted()
         }
         Msg::Response { .. } => {
-            if let Mode::Session { links } = &mode {
+            if let Mode::Session { links, .. } = &mode {
                 deliver_response(&req, links, raw).await;
             }
             respond::accepted()
@@ -158,7 +162,7 @@ async fn request(
         return result_response(id, json!({}), Extra::default());
     }
     let servers: Vec<Arc<ServerRt>> = match mode {
-        Mode::Session { links } => links.iter().map(|l| Arc::clone(&l.server)).collect(),
+        Mode::Session { links, .. } => links.iter().map(|l| Arc::clone(&l.server)).collect(),
         _ => sel.servers.clone(),
     };
     if let Some(found) = toolsearch::intercept(req, sel, mode, &servers, method, params).await {
@@ -183,7 +187,7 @@ async fn request(
         return route::forward(req, sel, mode, id, method, params, token).await;
     }
     if method == "logging/setLevel"
-        && let Mode::Session { links } = mode
+        && let Mode::Session { links, .. } = mode
     {
         let sends = links.iter().map(|l| l.ask(&req.env, method, params.cloned()));
         futures_util::future::join_all(sends).await;
@@ -193,7 +197,7 @@ async fn request(
 }
 
 async fn notification(req: &Req, mode: &Mode, token: &str, method: &str, params: Option<Value>) {
-    let Mode::Session { links } = mode else {
+    let Mode::Session { links, .. } = mode else {
         return;
     };
     if method == "notifications/initialized" {
@@ -285,7 +289,7 @@ async fn initialize(
     }
     let configured = req.gw.servers.iter().any(|s| req.env.snap.server(s).is_some());
     let verdict = if configured {
-        fanout::policy(req, sel.servers.len(), &failed)
+        fanout::policy(req.gw.fail_closed, sel.servers.len(), &failed)
     } else {
         Err(fanout::none_available())
     };
@@ -470,6 +474,9 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
                 loop {
                     match src.next_event(std::time::Duration::from_secs(3600)).await {
                         Ok((msg, id)) => {
+                            if link.answer_ping(&env, &msg).await {
+                                continue;
+                            }
                             let prefix = prefixed.then(|| link.server.prefix.clone());
                             let shaped = shape_unsolicited(&env, &link.server, prefix.as_deref(), msg);
                             let id = id.map(|i| resumable_id(&link.server.name, &i));
@@ -482,10 +489,34 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
             },
         ))
     }));
+    // A client closes a stream that says nothing for too long, so an idle one is kept alive with a
+    // comment, which the SSE parser of the MCP clients skips.
+    let events = futures_util::stream::select(Box::pin(merged), Box::pin(keepalive()));
     respond::sse(futures_util::StreamExt::chain(
         futures_util::stream::iter(warnings),
-        merged,
+        events,
     ))
+}
+
+/// How long the server-to-client stream stays silent before a keepalive comment.
+const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// One keepalive comment: an SSE comment line, which every client's parser skips.
+const KEEPALIVE_COMMENT: &[u8] = b": antirion-keepalive\n\n";
+
+/// The keepalive comments of an idle server-to-client stream.
+fn keepalive() -> impl futures_util::Stream<Item = Bytes> {
+    keepalive_every(KEEPALIVE)
+}
+
+fn keepalive_every(every: std::time::Duration) -> impl futures_util::Stream<Item = Bytes> {
+    futures_util::stream::unfold(
+        tokio::time::interval_at(tokio::time::Instant::now() + every, every),
+        |mut tick| async move {
+            tick.tick().await;
+            Some((Bytes::from_static(KEEPALIVE_COMMENT), tick))
+        },
+    )
 }
 
 /// `DELETE`: ends the upstream sessions that exist and revokes the token.
@@ -513,7 +544,36 @@ pub(crate) async fn delete(req: Req) -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
+    use futures_util::StreamExt;
+    use std::time::Duration;
+
     use super::*;
+
+    #[tokio::test]
+    async fn an_idle_server_stream_is_kept_alive_with_comments() {
+        let silent = futures_util::stream::pending::<Bytes>();
+        let mut events = Box::pin(futures_util::stream::select(
+            Box::pin(silent),
+            Box::pin(keepalive_every(Duration::from_millis(10))),
+        ));
+        let first = tokio::time::timeout(Duration::from_secs(2), events.next())
+            .await
+            .expect("a keepalive within two seconds")
+            .expect("an event");
+        assert_eq!(first.as_ref(), KEEPALIVE_COMMENT);
+        let second = tokio::time::timeout(Duration::from_secs(2), events.next())
+            .await
+            .expect("a second keepalive")
+            .expect("an event");
+        assert_eq!(second.as_ref(), KEEPALIVE_COMMENT);
+    }
+
+    #[test]
+    fn a_keepalive_comment_is_not_a_message() {
+        let mut parser = crate::sse::Parser::default();
+        parser.push(KEEPALIVE_COMMENT);
+        assert_eq!(parser.next_event(), None);
+    }
 
     #[test]
     fn resumable_ids_round_trip() {

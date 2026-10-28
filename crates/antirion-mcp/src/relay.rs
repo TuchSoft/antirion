@@ -63,6 +63,8 @@ pub(crate) struct ModernShape {
 pub(crate) struct Shaper {
     pub(crate) env: Env,
     pub(crate) server: Arc<ServerRt>,
+    /// The link the answer arrives on, so a `ping` sent meanwhile is answered on it.
+    pub(crate) link: Link,
     /// The server's prefix when names are namespaced.
     pub(crate) prefix: Option<String>,
     pub(crate) method: String,
@@ -86,6 +88,12 @@ impl Shaper {
             return msg;
         }
         shape_unsolicited(&self.env, &self.server, self.prefix.as_deref(), msg)
+    }
+
+    /// Answers a `ping` the server sent while its answer streams: `true` when the message was one,
+    /// and so is not the client's business.
+    pub(crate) async fn answer_ping(&self, msg: &Value) -> bool {
+        self.link.answer_ping(&self.env, msg).await
     }
 
     fn result(&self, result: &mut Value) {
@@ -212,13 +220,16 @@ pub(crate) async fn stream(
     let deadline = Instant::now() + server.request_timeout;
     let idle = server.stream_idle_timeout;
     let first_wait = idle.min(server.request_timeout);
-    let first = match next_message(&mut src, first_wait).await {
-        Ok(m) => m,
-        Err(e) => {
-            if let Some(link) = owned {
-                link.close(&shaper.env).await;
+    let first = loop {
+        match next_message(&mut src, first_wait).await {
+            Ok(m) if shaper.answer_ping(&m).await => {}
+            Ok(m) => break m,
+            Err(e) => {
+                if let Some(link) = owned {
+                    link.close(&shaper.env).await;
+                }
+                return Err(e.fail(&server.name).id(&shaper.client_id));
             }
-            return Err(e.fail(&server.name).id(&shaper.client_id));
         }
     };
     let done = shaper.is_final(&first);
@@ -246,31 +257,36 @@ pub(crate) async fn stream(
     };
     let first = respond::event(&first);
     let rest = futures_util::stream::unfold(relay, |mut r| async move {
-        if r.done {
-            r.finish().await;
-            return None;
-        }
-        let wait = r.wait();
-        let out = match next_message(&mut r.src, wait).await {
-            Ok(msg) => {
-                r.done = r.shaper.is_final(&msg);
-                let shaped = r.shaper.shape(msg);
-                if r.done {
-                    checked(r.check.as_ref(), &r.shaper, shaped).await
-                } else {
-                    shaped
+        loop {
+            if r.done {
+                r.finish().await;
+                return None;
+            }
+            let wait = r.wait();
+            let out = match next_message(&mut r.src, wait).await {
+                Ok(msg) => {
+                    if r.shaper.answer_ping(&msg).await {
+                        continue;
+                    }
+                    r.done = r.shaper.is_final(&msg);
+                    let shaped = r.shaper.shape(msg);
+                    if r.done {
+                        checked(r.check.as_ref(), &r.shaper, shaped).await
+                    } else {
+                        shaped
+                    }
                 }
-            }
-            Err(UpError::Timeout) => {
-                r.done = true;
-                timeout_event(&r.shaper)
-            }
-            Err(_) => {
-                r.done = true;
-                broken_event(&r.shaper)
-            }
-        };
-        Some((respond::event(&out), r))
+                Err(UpError::Timeout) => {
+                    r.done = true;
+                    timeout_event(&r.shaper)
+                }
+                Err(_) => {
+                    r.done = true;
+                    broken_event(&r.shaper)
+                }
+            };
+            return Some((respond::event(&out), r));
+        }
     });
     let events = futures_util::stream::once(async move { first }).chain(rest);
     Ok(respond::sse(events))

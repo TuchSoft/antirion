@@ -43,15 +43,22 @@ pub(crate) fn server_failed(name: &str) -> Fail {
 }
 
 /// Applies the failure policy to a fan-out: `Ok(names of failed servers)` when the result may be
-/// served, else the error to answer with.
-pub(crate) fn policy(req: &Req, tried: usize, failed: &[(String, UpError)]) -> Result<Vec<String>, Fail> {
-    if let Some((name, e)) = failed.iter().find(|(_, e)| *e == UpError::SessionGone) {
-        return Err(e.fail(name));
-    }
+/// served, else the error to answer with. A server whose upstream session ended degrades the answer
+/// like any other unreachable server, even under `on_server_failure: fail`: the other servers still
+/// answer, and the result names the one that did not.
+pub(crate) fn policy(
+    fail_closed: bool,
+    tried: usize,
+    failed: &[(String, UpError)],
+) -> Result<Vec<String>, Fail> {
     if failed.len() == tried && tried > 0 {
         return Err(none_available());
     }
-    if let Some((name, _)) = failed.first().filter(|_| req.gw.fail_closed) {
+    if let Some((name, _)) = failed
+        .iter()
+        .find(|(_, e)| *e != UpError::SessionGone)
+        .filter(|_| fail_closed)
+    {
         return Err(server_failed(name));
     }
     let mut names: Vec<String> = failed.iter().map(|(n, _)| n.clone()).collect();
@@ -120,7 +127,7 @@ pub(crate) async fn list(
             Err(e) => failed.push((server.name.clone(), e)),
         }
     }
-    let failed = policy(req, servers.len(), &failed)?;
+    let failed = policy(req.gw.fail_closed, servers.len(), &failed)?;
     let merged = lists::merge(req, sel, kind, &ok);
     let hints = merged.hints.clone();
     let (items, next) = lists::page(req, kind.method(), merged, from);
@@ -169,6 +176,37 @@ pub(crate) fn union_capabilities<'a>(all: impl Iterator<Item = &'a Value>) -> Va
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gone(name: &str) -> (String, UpError) {
+        (name.to_owned(), UpError::SessionGone)
+    }
+
+    #[test]
+    fn a_lost_session_degrades_the_fanout_instead_of_failing_it() {
+        let failed = [gone("browser")];
+        for fail_closed in [true, false] {
+            match policy(fail_closed, 2, &failed) {
+                Ok(names) => assert_eq!(names, vec!["browser".to_owned()]),
+                Err(_) => panic!("a lost session must not fail the fanout"),
+            }
+        }
+    }
+
+    #[test]
+    fn every_server_failing_is_answered_with_the_none_available_error() {
+        let failed = [gone("a"), gone("b")];
+        assert!(policy(false, 2, &failed).is_err());
+    }
+
+    #[test]
+    fn a_fail_closed_gateway_still_fails_on_another_failure() {
+        let failed = [gone("a"), ("b".to_owned(), UpError::Timeout)];
+        assert!(policy(true, 3, &failed).is_err());
+        match policy(false, 3, &failed) {
+            Ok(names) => assert_eq!(names, vec!["a".to_owned(), "b".to_owned()]),
+            Err(_) => panic!("the other failure degrades the answer"),
+        }
+    }
 
     #[test]
     fn capability_union() {

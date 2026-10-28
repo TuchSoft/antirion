@@ -28,6 +28,12 @@ pub(crate) const META_INFO: &str = "io.modelcontextprotocol/clientInfo";
 /// Methods a server sends to the client that a bridged call turns into input requests.
 const INPUT_METHODS: [&str; 3] = ["elicitation/create", "sampling/createMessage", "roots/list"];
 
+/// The answer to a `ping` the server sends: a bridged session answers it itself, so the server never
+/// waits on a client that does not see the request.
+fn ping_answer(id: &Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "result": {}})
+}
+
 /// The modern `_meta` of a legacy session's requests.
 pub(crate) fn session_meta(caps: &Value, client_info: &Value) -> Value {
     json!({META_PV: MODERN, META_CAPS: caps, META_INFO: client_info})
@@ -119,6 +125,10 @@ pub(crate) async fn call(
         let Some(server_id) = msg.get("id").cloned() else {
             continue;
         };
+        if asked_method == "ping" {
+            link.post(env, &ping_answer(&server_id)).await?;
+            continue;
+        }
         if !INPUT_METHODS.contains(&asked_method) {
             continue;
         }

@@ -196,7 +196,7 @@ impl Link {
         if let Some(conn) = &self.sse {
             let headers = self.headers.clone();
             let src = ssetransport::request(&env.egress, conn, &self.server, &headers, &msg).await?;
-            return upstream::response_to(Answer::Stream(src), &id, timeout).await;
+            return self.answer_to(env, Answer::Stream(src), &id, timeout).await;
         }
         self.usable()?;
         let body = Bytes::from(serde_json::to_vec(&msg).unwrap_or_default());
@@ -209,7 +209,7 @@ impl Link {
             }
             self.sid = Some(sid);
         }
-        upstream::response_to(reply.answer, &id, timeout).await
+        self.answer_to(env, reply.answer, &id, timeout).await
     }
 
     /// Sends a gateway-originated request and waits for its response message.
@@ -221,7 +221,52 @@ impl Link {
             self.server.request_timeout
         };
         let answer = self.send(env, &id, method, params, timeout).await?;
-        upstream::response_to(answer, &id, timeout).await
+        self.answer_to(env, answer, &id, timeout).await
+    }
+
+    /// The answer to `id` in `answer`, answering any `ping` the server sends meanwhile, so a server
+    /// that pings its clients never waits on the gateway.
+    async fn answer_to(
+        &self,
+        env: &Env,
+        answer: Answer,
+        id: &Value,
+        idle: Duration,
+    ) -> Result<Value, UpError> {
+        let mut src = match answer {
+            Answer::Json(v) => return Ok(v),
+            Answer::Empty => return Err(UpError::NotMcp),
+            Answer::Stream(src) => src,
+        };
+        loop {
+            match src.next(idle).await {
+                Ok(m) => {
+                    if self.answer_ping(env, &m).await {
+                        continue;
+                    }
+                    if m.get("id") == Some(id) && (m.get("result").is_some() || m.get("error").is_some()) {
+                        return Ok(m);
+                    }
+                }
+                Err(ReadError::Idle) => return Err(UpError::Timeout),
+                Err(ReadError::Ended) => return Err(UpError::Reset),
+            }
+        }
+    }
+
+    /// Answers a `ping` the server sent the gateway: `true` when the message was one, and so is not a
+    /// message for the client.
+    pub(crate) async fn answer_ping(&self, env: &Env, msg: &Value) -> bool {
+        if msg.get("method").and_then(Value::as_str) != Some("ping") {
+            return false;
+        }
+        if let Some(id) = msg.get("id") {
+            let reply = json!({"jsonrpc": "2.0", "id": id, "result": {}});
+            if let Err(e) = self.post(env, &reply).await {
+                tracing::debug!(error = %e.describe(), "the answer to an upstream ping was not delivered");
+            }
+        }
+        true
     }
 
     /// Posts a notification or a response (no answer expected).

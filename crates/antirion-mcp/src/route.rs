@@ -411,7 +411,7 @@ async fn forward_inner(
     if let (Some(args), Some(obj)) = (replaced, target.params.as_object_mut()) {
         obj.insert("arguments".into(), args);
     }
-    let (mut link, opened) = mode
+    let (mut link, mut opened) = mode
         .link(req, &target.server)
         .await
         .map_err(|e| e.fail(&target.server.name))?;
@@ -423,9 +423,10 @@ async fn forward_inner(
         }
     }
     let inflight = session.map(|s| env.state.begin(s, id, &target.server.name));
-    let shaper = Shaper {
+    let mut shaper = Shaper {
         env: env.clone(),
         server: Arc::clone(&target.server),
+        link: link.clone(),
         prefix: req.gw.prefixed.then(|| target.server.prefix.clone()),
         method: method.to_owned(),
         client_id: id.clone(),
@@ -443,7 +444,7 @@ async fn forward_inner(
         return Ok(respond::json(200, &msg, "upstream"));
     }
     let started = std::time::Instant::now();
-    let sent = link
+    let mut sent = link
         .send(
             env,
             id,
@@ -452,6 +453,29 @@ async fn forward_inner(
             target.server.request_timeout,
         )
         .await;
+    if sent.as_ref().err() == Some(&UpError::SessionGone) {
+        // The upstream no longer knows the session it was given: discard the link, initialize again
+        // and send the request once more.
+        if opened {
+            link.close(env).await;
+        }
+        let (fresh, fresh_opened) = mode
+            .reopen(req, &target.server)
+            .await
+            .map_err(|e| e.fail(&target.server.name))?;
+        link = fresh;
+        opened = fresh_opened;
+        shaper.link = link.clone();
+        sent = link
+            .send(
+                env,
+                id,
+                method,
+                Some(target.params.clone()),
+                target.server.request_timeout,
+            )
+            .await;
+    }
     env.log.upstream(crate::log::UpstreamCall {
         server: target.server.name.clone(),
         method: method.to_owned(),

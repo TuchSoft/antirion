@@ -140,7 +140,7 @@ async fn catalog(
             Err(e) => failed.push((server.name.clone(), e)),
         }
     }
-    crate::fanout::policy(req, servers.len(), &failed)?;
+    crate::fanout::policy(req.gw.fail_closed, servers.len(), &failed)?;
     Ok(lists::merge(req, sel, Kind::Tools, &ok).items)
 }
 

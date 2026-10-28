@@ -19,7 +19,7 @@ use crate::rpc::Fail;
 use crate::select::{ItemKind, Selection, credential};
 use crate::state::{Hints, ListEntry, ListKey};
 use crate::token::CursorClaims;
-use crate::upstream::UpError;
+use crate::upstream::{LATEST_LEGACY, UpError};
 
 const MAX_PAGES: usize = 1000;
 
@@ -93,8 +93,13 @@ impl Kind {
 /// How a request reaches its servers.
 #[derive(Clone, Debug)]
 pub(crate) enum Mode {
-    /// A legacy session: one link per initialized server.
-    Session { links: Vec<Link> },
+    /// A legacy session: one link per initialized server, and what an upstream session is opened
+    /// with when one of them has to be re-established.
+    Session {
+        links: Vec<Link>,
+        caps: Value,
+        info: Value,
+    },
     /// Legacy without sessions: each use opens and closes an upstream session.
     Stateless { pv: String },
     /// The modern era, with the client's `_meta`.
@@ -105,7 +110,7 @@ impl Mode {
     /// The link for `server`, and whether it was opened for this use (and must be closed).
     pub(crate) async fn link(&self, req: &Req, server: &Arc<ServerRt>) -> Result<(Link, bool), UpError> {
         match self {
-            Mode::Session { links } => links
+            Mode::Session { links, .. } => links
                 .iter()
                 .find(|l| l.server.name == server.name)
                 .cloned()
@@ -126,9 +131,37 @@ impl Mode {
         }
     }
 
+    /// A link to `server` once its upstream session has ended: the session saved with this request
+    /// opened again. The second member says whether the caller must close it when done, and is
+    /// `false` for a mode whose link carries no session (a retry on it is a plain re-send).
+    pub(crate) async fn reopen(&self, req: &Req, server: &Arc<ServerRt>) -> Result<(Link, bool), UpError> {
+        match self {
+            Mode::Session { links, caps, info } => {
+                let pv = links
+                    .iter()
+                    .find(|l| l.server.name == server.name)
+                    .map_or(LATEST_LEGACY, |l| l.pv.as_str());
+                let (link, _) = connect::open(req, server, pv, caps, info, true).await?;
+                Ok((link, true))
+            }
+            Mode::Stateless { pv } => {
+                let (link, _) =
+                    connect::open(req, server, pv, &json!({}), &gateway_client_info(), false).await?;
+                Ok((link, true))
+            }
+            Mode::Modern { meta } => {
+                if req.gw.modern_bridge && !crate::discovery::is_modern(req, server, meta).await {
+                    let (link, _) = crate::bridge::open_for_modern(req, server, meta).await?;
+                    return Ok((link, true));
+                }
+                Ok((connect::modern_link(req, server, meta), false))
+            }
+        }
+    }
+
     pub(crate) fn servers(&self) -> Option<Vec<String>> {
         match self {
-            Mode::Session { links } => Some(links.iter().map(|l| l.server.name.clone()).collect()),
+            Mode::Session { links, .. } => Some(links.iter().map(|l| l.server.name.clone()).collect()),
             _ => None,
         }
     }
@@ -194,9 +227,20 @@ pub(crate) async fn entry(
     if !fresh && let Some(e) = state.list(&k, req.env.now, server.tool_cache_ttl) {
         return Ok(e);
     }
-    let (link, opened) = mode.link(req, server).await?;
+    let (mut link, mut opened) = mode.link(req, server).await?;
     let start = std::time::Instant::now();
-    let read = fetch(req, &link, kind).await;
+    let mut read = fetch(req, &link, kind).await;
+    if read.as_ref().err() == Some(&UpError::SessionGone) {
+        // The upstream no longer knows the session it was given: discard the link, initialize again
+        // and read once more.
+        if opened {
+            link.close(&req.env).await;
+        }
+        let (fresh, fresh_opened) = mode.reopen(req, server).await?;
+        read = fetch(req, &fresh, kind).await;
+        link = fresh;
+        opened = fresh_opened;
+    }
     if kind == Kind::Tools {
         state.record_contact(
             &server.name,
