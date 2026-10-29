@@ -48,6 +48,7 @@ mod token;
 mod toolbox;
 mod toolsearch;
 mod upstream;
+mod watch;
 mod when;
 
 pub use admin::{ApproveError, SessionStats, ToolApproval, approve_tools, server_status, session_stats};

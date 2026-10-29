@@ -287,8 +287,17 @@ impl Link {
             .map(|_| ())
     }
 
+    /// The messages of this session's server-to-client stream, when its background reader holds
+    /// that stream: a client stream subscribes instead of opening a second one.
+    pub(crate) fn subscribe(&self, env: &Env) -> Option<crate::watch::Messages> {
+        env.state.watch(self.sid.as_deref()?)?.subscribe()
+    }
+
     /// Ends the upstream session: `DELETE` for Streamable HTTP, closing the stream for HTTP+SSE.
     pub(crate) async fn close(&self, env: &Env) {
+        if let Some(sid) = &self.sid {
+            env.state.stop_watch(sid);
+        }
         if let Some(conn) = &self.sse {
             conn.close();
             if let Some(sid) = &self.sid {

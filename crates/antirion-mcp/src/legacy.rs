@@ -25,7 +25,7 @@ use crate::rpc::{Fail, Msg};
 use crate::select::Selection;
 use crate::token::{SessionClaims, Upstream};
 use crate::toolsearch::{self, Intercepted};
-use crate::upstream::{self, DEFAULT_LEGACY, LATEST_LEGACY};
+use crate::upstream::{self, DEFAULT_LEGACY, LATEST_LEGACY, Source};
 use crate::{Body, route};
 
 const ROUTED: [&str; 3] = [
@@ -397,6 +397,25 @@ async fn stateless(req: &Req, msg: Msg, version: Option<String>) -> Response<Bod
     request(req, &sel, &mode, &id, &method, params.as_ref(), None).await
 }
 
+/// Where the messages of one session's server-to-client stream come from: the stream this handler
+/// opened itself, or the session's background reader.
+enum Feed {
+    Stream(Source),
+    Messages(crate::watch::Messages),
+}
+
+impl Feed {
+    async fn next(
+        &mut self,
+        idle: std::time::Duration,
+    ) -> Result<(Value, Option<String>), crate::sse::ReadError> {
+        match self {
+            Feed::Stream(src) => src.next_event(idle).await,
+            Feed::Messages(messages) => messages.next(idle).await,
+        }
+    }
+}
+
 /// The client-facing id of an event a server sent with id `upstream`.
 pub(crate) fn resumable_id(server: &str, upstream: &str) -> String {
     format!("ag1:{server}:{}", URL_SAFE_NO_PAD.encode(upstream.as_bytes()))
@@ -446,19 +465,25 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
             .filter(|(s, _)| *s == l.server.name)
             .map(|(_, id)| id.clone());
         async move {
+            // The session's own reader holds its server-to-client stream: subscribe to it rather
+            // than opening a second stream the server would refuse. Events sent before this client
+            // arrived are not replayed in that case.
+            if let Some(messages) = l.subscribe(env) {
+                return (l.clone(), Some(Feed::Messages(messages)), false);
+            }
             let src = l.listen(env, from.as_deref()).await;
-            (l.clone(), src, from.is_some())
+            (l.clone(), src.map(Feed::Stream), from.is_some())
         }
     });
     let opened = futures_util::future::join_all(opens).await;
     let mut warnings: Vec<Bytes> = Vec::new();
     let mut streams = Vec::new();
-    for (link, src, resumed) in opened {
+    for (link, feed, resumed) in opened {
         if reconnect.is_some() && !resumed {
             warnings.push(respond::event(&not_replayed(&link.server.name)));
         }
-        if let Some(src) = src {
-            streams.push((link, src));
+        if let Some(feed) = feed {
+            streams.push((link, feed));
         }
     }
     if streams.is_empty() {
@@ -466,13 +491,13 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
     }
     let prefixed = req.gw.prefixed;
     let env = req.env.clone();
-    let merged = futures_util::stream::select_all(streams.into_iter().map(|(link, src)| {
+    let merged = futures_util::stream::select_all(streams.into_iter().map(|(link, feed)| {
         let env = env.clone();
         Box::pin(futures_util::stream::unfold(
-            (src, link, env),
-            move |(mut src, link, env)| async move {
+            (feed, link, env),
+            move |(mut feed, link, env)| async move {
                 loop {
-                    match src.next_event(std::time::Duration::from_secs(3600)).await {
+                    match feed.next(std::time::Duration::from_secs(3600)).await {
                         Ok((msg, id)) => {
                             if link.answer_ping(&env, &msg).await {
                                 continue;
@@ -480,7 +505,7 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
                             let prefix = prefixed.then(|| link.server.prefix.clone());
                             let shaped = shape_unsolicited(&env, &link.server, prefix.as_deref(), msg);
                             let id = id.map(|i| resumable_id(&link.server.name, &i));
-                            return Some((respond::event_with_id(&shaped, id.as_deref()), (src, link, env)));
+                            return Some((respond::event_with_id(&shaped, id.as_deref()), (feed, link, env)));
                         }
                         Err(crate::sse::ReadError::Idle) => {}
                         Err(crate::sse::ReadError::Ended) => return None,

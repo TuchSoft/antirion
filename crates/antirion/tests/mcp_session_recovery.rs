@@ -192,6 +192,13 @@ async fn upstream(listener: TcpListener, up: Arc<Upstream>) {
             let Some((head, body)) = read_request(&mut stream).await else {
                 return;
             };
+            if head.starts_with("GET") {
+                // This upstream offers no server-to-client stream, so the gateway keeps none.
+                let _ = stream
+                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                    .await;
+                return;
+            }
             if head.starts_with("DELETE") {
                 if let Some(sid) = head_header(&head, "mcp-session-id") {
                     up.live.lock().unwrap().remove(&sid);

@@ -128,6 +128,11 @@ async fn initialize_with(
     if keep && let (Some(sid), Some(conn)) = (&link.sid, &link.sse) {
         env.state.sse.lock().insert(sid.clone(), Arc::clone(conn));
     }
+    if keep && server.transport == Transport::StreamableHttp {
+        // A reader for this session's server-to-client stream: the server's `ping`s are answered
+        // while the link is idle, instead of the server giving up on a session nobody listens to.
+        let _ = crate::watch::start(env, &link).await;
+    }
     let result = msg.get("result").cloned().unwrap_or(Value::Null);
     Ok((link, result))
 }

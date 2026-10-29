@@ -132,6 +132,8 @@ pub struct McpState {
     revoked: Mutex<HashMap<[u8; 32], i64>>,
     inflight: Mutex<HashMap<(String, String), String>>,
     pub(crate) sse: Mutex<HashMap<String, Arc<SseConn>>>,
+    /// The background readers of upstream sessions, by upstream session id.
+    pub(crate) watches: Mutex<HashMap<String, Arc<crate::watch::Watch>>>,
     pub(crate) fingerprints: Mutex<HashMap<String, BTreeMap<String, String>>>,
     pub(crate) approvals: Mutex<HashMap<String, Approval>>,
     pub(crate) definition_changes: Mutex<BTreeMap<(String, &'static str), u64>>,
@@ -237,10 +239,43 @@ impl McpState {
         self.tool_index_down.lock().insert(model.to_owned(), until);
     }
 
+    /// The background reader of the upstream session with `sid`, when one is running.
+    pub(crate) fn watch(&self, sid: &str) -> Option<Arc<crate::watch::Watch>> {
+        self.watches.lock().get(sid).cloned()
+    }
+
+    /// Registers a background reader unless the session already has one; `true` when registered.
+    pub(crate) fn set_watch(&self, sid: String, watch: Arc<crate::watch::Watch>) -> bool {
+        let mut watches = self.watches.lock();
+        if watches.contains_key(&sid) {
+            return false;
+        }
+        watches.insert(sid, watch);
+        true
+    }
+
+    /// Stops the background reader of the upstream session `sid`.
+    pub(crate) fn stop_watch(&self, sid: &str) {
+        if let Some(watch) = self.watches.lock().remove(sid) {
+            watch.stop();
+        }
+    }
+
+    /// Forgets a background reader that ended on its own, when it is still the one registered.
+    pub(crate) fn drop_watch(&self, sid: &str, watch: &Arc<crate::watch::Watch>) {
+        let mut watches = self.watches.lock();
+        if watches.get(sid).is_some_and(|w| Arc::ptr_eq(w, watch)) {
+            watches.remove(sid);
+        }
+    }
+
     /// Closes held HTTP+SSE upstream sessions and forgets revocations and session counters.
     pub fn clear_sessions(&self) {
         for conn in self.sse.lock().drain().map(|(_, c)| c) {
             conn.close();
+        }
+        for watch in self.watches.lock().drain().map(|(_, w)| w) {
+            watch.stop();
         }
         self.revoked.lock().clear();
         self.counts.lock().clear();
