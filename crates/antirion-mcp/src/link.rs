@@ -12,9 +12,11 @@ use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use serde_json::{Map, Value, json};
 
 use crate::compile::{ServerRt, Transport};
+use crate::egress::Egress;
 use crate::http::Env;
 use crate::sse::ReadError;
 use crate::ssetransport::{self, SseConn};
+use crate::state::McpState;
 use crate::upstream::{self, Answer, Call, Era, Source, UpError};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -145,6 +147,7 @@ impl Link {
         params: Option<Value>,
         timeout: Duration,
     ) -> Result<Answer, UpError> {
+        let _active = env.state.active(self, std::time::Instant::now());
         let params = self.params(params);
         let mut msg = json!({"jsonrpc": "2.0", "id": id, "method": method});
         if let (Some(p), Some(obj)) = (params.clone(), msg.as_object_mut()) {
@@ -271,6 +274,7 @@ impl Link {
 
     /// Posts a notification or a response (no answer expected).
     pub(crate) async fn post(&self, env: &Env, msg: &Value) -> Result<(), UpError> {
+        let _active = env.state.active(self, std::time::Instant::now());
         if self.is_local() {
             return Ok(());
         }
@@ -287,6 +291,16 @@ impl Link {
             .map(|_| ())
     }
 
+    /// The same link on another upstream session of the same server: one this request opened
+    /// again after the server forgot the one the session carried.
+    pub(crate) fn adopt(&self, sid: &str, pv: &str) -> Link {
+        Link {
+            sid: Some(sid.to_owned()),
+            pv: pv.to_owned(),
+            ..self.clone()
+        }
+    }
+
     /// The messages of this session's server-to-client stream, when its background reader holds
     /// that stream: a client stream subscribes instead of opening a second one.
     pub(crate) fn subscribe(&self, env: &Env) -> Option<crate::watch::Messages> {
@@ -294,14 +308,16 @@ impl Link {
     }
 
     /// Ends the upstream session: `DELETE` for Streamable HTTP, closing the stream for HTTP+SSE.
-    pub(crate) async fn close(&self, env: &Env) {
+    /// The session leaves the held registry either way, so a reaper never ends it again.
+    pub(crate) async fn close(&self, egress: &Egress, state: &McpState) {
+        state.forget(self);
         if let Some(sid) = &self.sid {
-            env.state.stop_watch(sid);
+            state.stop_watch(sid);
         }
         if let Some(conn) = &self.sse {
             conn.close();
             if let Some(sid) = &self.sid {
-                env.state.sse.lock().remove(sid);
+                state.sse.lock().remove(sid);
             }
             return;
         }
@@ -309,12 +325,13 @@ impl Link {
             return;
         }
         let call = self.call(&self.headers, self.server.request_timeout);
-        let _ = upstream::send_once(&env.egress, &call, Method::DELETE, self.server.url.clone(), None).await;
+        let _ = upstream::send_once(egress, &call, Method::DELETE, self.server.url.clone(), None).await;
     }
 
     /// Opens the server-to-client stream of this session, when the server offers one; with
     /// `last_event_id`, the server is asked to resume after that event.
     pub(crate) async fn listen(&self, env: &Env, last_event_id: Option<&str>) -> Option<Source> {
+        let _active = env.state.active(self, std::time::Instant::now());
         if let Some(conn) = &self.sse {
             return Some(Source::Channel(conn.listen()));
         }

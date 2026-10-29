@@ -35,6 +35,7 @@ mod modern;
 mod names;
 mod oauth;
 mod openapi;
+mod reaper;
 mod relay;
 mod respond;
 mod route;
@@ -62,6 +63,7 @@ pub use http::{
 };
 pub use log::{CallLog, LogFacts, ToolIndexFacts, UpstreamCall};
 pub use oauth::{audiences, challenge, metadata};
+pub use reaper::{reap, reap_interval};
 pub use state::{DefinitionChange, McpState};
 pub use token::SessionTokenSample;
 pub use toolbox::{OfferedTool, Toolbox, function_name};

@@ -52,6 +52,14 @@ impl Watch {
         Some(Messages(rx))
     }
 
+    /// How many clients' streams are attached to this session. One that ended is dropped here, so a
+    /// session whose client went away is not counted as watched until the next message.
+    pub(crate) fn subscribers(&self) -> usize {
+        let mut subscribers = self.subscribers.lock();
+        subscribers.retain(|tx| !tx.is_closed());
+        subscribers.len()
+    }
+
     /// Hands a message to every subscribed client stream, dropping the ones that went away.
     fn dispatch(&self, msg: Value, id: Option<String>) {
         self.subscribers
@@ -193,6 +201,24 @@ mod tests {
             "a closed subscriber is forgotten"
         );
         assert!(second.0.try_recv().is_ok());
+    }
+
+    #[test]
+    fn the_subscriber_count_follows_the_attached_streams() {
+        let watch = Watch {
+            sid: "s".into(),
+            subscribers: Mutex::new(Vec::new()),
+            stop: CancellationToken::new(),
+        };
+        assert_eq!(watch.subscribers(), 0);
+        let first = watch.subscribe().expect("a subscriber");
+        assert_eq!(watch.subscribers(), 1);
+        let second = watch.subscribe().expect("a subscriber");
+        assert_eq!(watch.subscribers(), 2);
+        drop(first);
+        watch.dispatch(json!({"jsonrpc": "2.0", "method": "notifications/message"}), None);
+        assert_eq!(watch.subscribers(), 1);
+        drop(second);
     }
 
     #[test]

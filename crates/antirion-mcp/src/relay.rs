@@ -190,7 +190,7 @@ impl Relay {
 
     async fn finish(&mut self) {
         if let Some(link) = self.owned.take() {
-            link.close(&self.shaper.env).await;
+            link.close(&self.shaper.env.egress, &self.shaper.env.state).await;
         }
     }
 }
@@ -216,6 +216,9 @@ pub(crate) async fn stream(
     inflight: Option<InFlight>,
     check: Option<ResultCheck>,
 ) -> Result<Response<Body>, Fail> {
+    // The answer is still arriving after `send` returned: the session stays in use until the stream
+    // ends, so a slow answer is not mistaken for an abandoned session.
+    let _active = shaper.env.state.active(&shaper.link, std::time::Instant::now());
     let server = Arc::clone(&shaper.server);
     let deadline = Instant::now() + server.request_timeout;
     let idle = server.stream_idle_timeout;
@@ -226,7 +229,7 @@ pub(crate) async fn stream(
             Ok(m) => break m,
             Err(e) => {
                 if let Some(link) = owned {
-                    link.close(&shaper.env).await;
+                    link.close(&shaper.env.egress, &shaper.env.state).await;
                 }
                 return Err(e.fail(&server.name).id(&shaper.client_id));
             }
@@ -239,7 +242,7 @@ pub(crate) async fn stream(
             Ok(m) => m,
             Err(f) => {
                 if let Some(link) = owned {
-                    link.close(&shaper.env).await;
+                    link.close(&shaper.env.egress, &shaper.env.state).await;
                 }
                 return Err(f.id(&shaper.client_id));
             }

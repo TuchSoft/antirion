@@ -298,7 +298,7 @@ async fn initialize(
         Ok(f) => f,
         Err(f) => {
             for (link, _) in &ok {
-                link.close(&req.env).await;
+                link.close(&req.env.egress, &req.env.state).await;
             }
             return Err(f);
         }
@@ -347,7 +347,7 @@ async fn initialize(
         }
     } else {
         for (link, _) in &ok {
-            link.close(&req.env).await;
+            link.close(&req.env.egress, &req.env.state).await;
         }
     }
     Ok(result_response(id, result, extra))
@@ -564,7 +564,7 @@ pub(crate) async fn delete(req: Req) -> Response<Body> {
                 .then(|| connect::session_link(&req, server, u, &claims, &token))
         })
         .collect();
-    futures_util::future::join_all(links.iter().map(|l| l.close(&req.env))).await;
+    futures_util::future::join_all(links.iter().map(|l| l.close(&req.env.egress, &req.env.state))).await;
     req.env.state.forget_reopened(&token);
     req.env.state.revoke(&token, claims.exp, req.env.now);
     respond::empty(StatusCode::NO_CONTENT)

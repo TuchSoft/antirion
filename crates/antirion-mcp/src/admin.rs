@@ -158,7 +158,7 @@ pub async fn approve_tools(env: &Env, name: &str) -> Result<ToolApproval, Approv
             None => break,
         }
     }
-    link.close(env).await;
+    link.close(&env.egress, &env.state).await;
     if !ok {
         return Err(ApproveError::Unreachable);
     }

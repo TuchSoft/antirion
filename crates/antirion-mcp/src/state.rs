@@ -1,10 +1,12 @@
 //! Node-local MCP state that outlives requests and generations: the generated session key, list,
-//! discovery and card caches, the revocation set, held HTTP+SSE sessions, requests in flight, and tool
-//! fingerprints with their approvals. Nothing here is needed to resume a session on another node.
+//! discovery and card caches, the revocation set, the upstream sessions this node holds open,
+//! requests in flight, and tool fingerprints with their approvals. Nothing here is needed to resume
+//! a session on another node.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use antirion_core::UtcMicros;
 use parking_lot::{Mutex, RwLock};
@@ -12,6 +14,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::compile::SessionKey;
+use crate::link::Link;
 use crate::ssetransport::SseConn;
 
 /// Caching hints one server attached to a modern result.
@@ -94,6 +97,61 @@ pub(crate) struct Reopened {
     pub(crate) at: UtcMicros,
 }
 
+/// An upstream session this node holds open between requests: the link that ends it, when a request
+/// last used it, and how many requests use it right now.
+///
+/// A server session outlives the request that opened it, and a client that goes away without a
+/// `DELETE` leaves it open for as long as the server keeps it. The registry is what a reaper needs
+/// to end such a session: the link carries the server, its headers and its protocol version.
+#[derive(Debug)]
+pub(crate) struct Held {
+    pub(crate) link: Link,
+    /// When a request last used the session.
+    seen: Mutex<Instant>,
+    /// The requests using the session right now.
+    busy: AtomicUsize,
+}
+
+impl Held {
+    fn new(link: &Link, at: Instant) -> Held {
+        Held {
+            link: link.clone(),
+            seen: Mutex::new(at),
+            busy: AtomicUsize::new(0),
+        }
+    }
+
+    fn touch(&self, at: Instant) {
+        *self.seen.lock() = at;
+    }
+
+    /// How long the session has gone without a request.
+    pub(crate) fn idle(&self, at: Instant) -> Duration {
+        at.saturating_duration_since(*self.seen.lock())
+    }
+
+    /// Whether a request uses the session right now.
+    pub(crate) fn busy(&self) -> bool {
+        self.busy.load(Ordering::Relaxed) > 0
+    }
+
+    /// Counts one request on the session until the guard is dropped.
+    fn enter(self: &Arc<Self>) -> Active {
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        Active(Arc::clone(self))
+    }
+}
+
+/// One request using a held session; dropping it ends the count, also when the request unwinds.
+#[derive(Debug)]
+pub(crate) struct Active(#[allow(dead_code)] Arc<Held>);
+
+impl Drop for Active {
+    fn drop(&mut self) {
+        self.0.busy.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Session counters of one gateway.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct GatewayCounts {
@@ -151,6 +209,8 @@ pub struct McpState {
     pub(crate) sse: Mutex<HashMap<String, Arc<SseConn>>>,
     /// The background readers of upstream sessions, by upstream session id.
     pub(crate) watches: Mutex<HashMap<String, Arc<crate::watch::Watch>>>,
+    /// Upstream sessions held open, by server name and upstream session id.
+    sessions: Mutex<HashMap<String, HashMap<String, Arc<Held>>>>,
     pub(crate) fingerprints: Mutex<HashMap<String, BTreeMap<String, String>>>,
     pub(crate) approvals: Mutex<HashMap<String, Approval>>,
     pub(crate) definition_changes: Mutex<BTreeMap<(String, &'static str), u64>>,
@@ -289,6 +349,73 @@ impl McpState {
         }
     }
 
+    /// Whether a client's server-to-client stream is attached to the session's reader.
+    fn subscribed(&self, sid: &str) -> bool {
+        self.watches.lock().get(sid).is_some_and(|w| w.subscribers() > 0)
+    }
+
+    /// Records the upstream session of `link`, or refreshes it. A link without an upstream session
+    /// holds nothing.
+    pub(crate) fn hold(&self, link: &Link, at: Instant) {
+        let Some(sid) = &link.sid else {
+            return;
+        };
+        let mut sessions = self.sessions.lock();
+        let held = sessions.entry(link.server.name.clone()).or_default();
+        match held.get(sid) {
+            Some(existing) => existing.touch(at),
+            None => {
+                held.insert(sid.clone(), Arc::new(Held::new(link, at)));
+            }
+        }
+    }
+
+    /// Counts one request on the link's session, and marks it used; `None` when the session is not
+    /// held (no upstream session, or one this node does not keep track of).
+    pub(crate) fn active(&self, link: &Link, at: Instant) -> Option<Active> {
+        let sid = link.sid.as_deref()?;
+        let held = self.sessions.lock().get(&link.server.name)?.get(sid).cloned()?;
+        held.touch(at);
+        Some(held.enter())
+    }
+
+    /// Forgets the upstream session of `link`, which a `DELETE` ended.
+    pub(crate) fn forget(&self, link: &Link) {
+        let Some(sid) = &link.sid else {
+            return;
+        };
+        let mut sessions = self.sessions.lock();
+        if let Some(held) = sessions.get_mut(&link.server.name) {
+            held.remove(sid);
+            if held.is_empty() {
+                sessions.remove(&link.server.name);
+            }
+        }
+    }
+
+    /// The sessions that have gone `idle` without a request, with no request using them and no
+    /// client stream attached; they are removed from the registry, so each is returned once.
+    pub(crate) fn due(&self, at: Instant, idle: Duration) -> Vec<Arc<Held>> {
+        let mut sessions = self.sessions.lock();
+        let mut due = Vec::new();
+        sessions.retain(|_, held| {
+            held.retain(|sid, h| {
+                if h.busy() || h.idle(at) < idle || self.subscribed(sid) {
+                    return true;
+                }
+                due.push(Arc::clone(h));
+                false
+            });
+            !held.is_empty()
+        });
+        due
+    }
+
+    /// How many upstream sessions this node holds open.
+    pub fn held_sessions(&self) -> usize {
+        self.sessions.lock().values().map(HashMap::len).sum()
+    }
+
     /// Closes held HTTP+SSE upstream sessions and forgets revocations and session counters.
     pub fn clear_sessions(&self) {
         for conn in self.sse.lock().drain().map(|(_, c)| c) {
@@ -297,6 +424,7 @@ impl McpState {
         for watch in self.watches.lock().drain().map(|(_, w)| w) {
             watch.stop();
         }
+        self.sessions.lock().clear();
         self.revoked.lock().clear();
         self.reopened.lock().clear();
         self.counts.lock().clear();
@@ -494,6 +622,69 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A link to one server, with an upstream session and no client behind it.
+    fn held_link(server: &str, sid: &str) -> Link {
+        let snap = crate::compile::compile(&serde_json::json!({"mcp": {"servers": {
+            server: {"transport": "streamable_http", "url": "http://127.0.0.1:1/mcp"}
+        }}}))
+        .expect("a snapshot");
+        Link {
+            server: Arc::clone(&snap.servers[server]),
+            era: crate::upstream::Era::Legacy,
+            pv: "2024-11-05".to_owned(),
+            sid: Some(sid.to_owned()),
+            sse: None,
+            headers: http::HeaderMap::new(),
+            meta: None,
+        }
+    }
+
+    #[test]
+    fn a_held_session_is_reaped_once_it_is_idle_and_not_in_use() {
+        let state = McpState::default();
+        let link = held_link("a", "sid-1");
+        let start = Instant::now();
+        state.hold(&link, start);
+        state.hold(&link, start);
+        assert_eq!(state.held_sessions(), 1, "a session is held once");
+
+        // In use: not due however long it has been held.
+        let guard = state.active(&link, start).expect("a held session");
+        assert!(
+            state
+                .due(start + Duration::from_secs(3600), Duration::from_secs(1))
+                .is_empty()
+        );
+        drop(guard);
+
+        // Idle for less than the timeout: not due.
+        assert!(
+            state
+                .due(start + Duration::from_millis(500), Duration::from_secs(1))
+                .is_empty()
+        );
+
+        // Idle for the timeout: due, and forgotten, so only one sweep ends it.
+        let due = state.due(start + Duration::from_secs(2), Duration::from_secs(1));
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].link.sid.as_deref(), Some("sid-1"));
+        assert_eq!(state.held_sessions(), 0);
+        assert!(
+            state
+                .due(start + Duration::from_secs(3), Duration::from_secs(1))
+                .is_empty()
+        );
+        assert!(
+            state.active(&link, start).is_none(),
+            "no guard without a held session"
+        );
+
+        // An explicit end forgets it too.
+        state.hold(&link, start);
+        state.forget(&link);
+        assert_eq!(state.held_sessions(), 0);
+    }
 
     #[test]
     fn revocation_and_inflight() {

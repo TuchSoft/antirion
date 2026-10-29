@@ -31,6 +31,7 @@ pub mod jwt;
 pub mod keypolicy;
 mod ledger;
 mod logins;
+pub mod mcp_sessions;
 pub mod operations;
 pub mod operators;
 mod otlp_metrics;

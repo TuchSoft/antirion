@@ -110,11 +110,11 @@ async fn initialize_with(
     let (msg, version) = match (answered, version) {
         (Ok(msg), Some(v)) => (msg, v),
         (Err(e), _) => {
-            link.close(env).await;
+            link.close(&env.egress, &env.state).await;
             return Err(e);
         }
         (Ok(_), None) => {
-            link.close(env).await;
+            link.close(&env.egress, &env.state).await;
             return Err(UpError::Rejected);
         }
     };
@@ -125,6 +125,9 @@ async fn initialize_with(
             &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
         )
         .await;
+    // The upstream session outlives this request, and a client that goes away without a `DELETE`
+    // never ends it: the session is held so the reaper can.
+    env.state.hold(&link, std::time::Instant::now());
     if keep && let (Some(sid), Some(conn)) = (&link.sid, &link.sse) {
         env.state.sse.lock().insert(sid.clone(), Arc::clone(conn));
     }

@@ -112,11 +112,10 @@ impl Mode {
     /// The link for `server`, and whether it was opened for this use (and must be closed).
     pub(crate) async fn link(&self, req: &Req, server: &Arc<ServerRt>) -> Result<(Link, bool), UpError> {
         match self {
-            Mode::Session { links, .. } => links
+            Mode::Session { links, token, .. } => links
                 .iter()
                 .find(|l| l.server.name == server.name)
-                .cloned()
-                .map(|l| (l, false))
+                .map(|l| (adopted(req, l, token, server), false))
                 .ok_or(UpError::SessionGone),
             Mode::Stateless { pv } => {
                 let (link, _) =
@@ -189,6 +188,20 @@ impl Mode {
     }
 }
 
+/// `link` on the upstream session this client session opened again for `server` earlier in the
+/// request, when there is one: a request that re-established the session (reading a list, say) is
+/// followed by the rest of the request on that session, not on the one the server forgot.
+fn adopted(req: &Req, link: &Link, token: &str, server: &ServerRt) -> Link {
+    if server.transport != Transport::StreamableHttp {
+        return link.clone();
+    }
+    req.env
+        .state
+        .reopened(token, &server.name, server.generation)
+        .filter(|r| Some(&r.sid) != link.sid.as_ref())
+        .map_or_else(|| link.clone(), |r| link.adopt(&r.sid, &r.pv))
+}
+
 fn key(req: &Req, server: &ServerRt, kind: Kind) -> ListKey {
     let headers = crate::select::upstream_headers(req, server);
     (server.generation, credential(&headers), kind.method())
@@ -256,7 +269,7 @@ pub(crate) async fn entry(
         // The upstream no longer knows the session it was given: discard the link, initialize again
         // and read once more.
         if opened {
-            link.close(&req.env).await;
+            link.close(&req.env.egress, &req.env.state).await;
         }
         let (fresh, fresh_opened) = mode.reopen(req, server).await?;
         read = fetch(req, &fresh, kind).await;
@@ -280,7 +293,7 @@ pub(crate) async fn entry(
         failed: read.is_err(),
     });
     if opened {
-        link.close(&req.env).await;
+        link.close(&req.env.egress, &req.env.state).await;
     }
     let e = read?;
     if !server.tool_cache_ttl.is_zero() {

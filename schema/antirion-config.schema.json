@@ -13358,6 +13358,15 @@
                 "gt": "0s"
               },
               "default": "24h"
+            },
+            "idle_timeout": {
+              "$ref": "#/$defs/Duration",
+              "description": "How long an upstream session may go without a request before the gateway ends it. A session with a request in flight or a client's server-to-client stream attached is never ended.",
+              "x-range": {
+                "gt": "0s",
+                "max": "24h"
+              },
+              "default": "10m"
             }
           },
           "additionalProperties": false

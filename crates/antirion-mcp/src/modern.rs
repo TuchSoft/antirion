@@ -215,7 +215,7 @@ fn answer(id: &Value, result: Value, extra: Extra) -> Response<Body> {
 /// server info of an `initialize` made for the purpose, and the modern version.
 async fn bridged_discovery(req: &Req, server: &Arc<ServerRt>, meta: &Value) -> Option<Value> {
     let (link, init) = crate::bridge::open_for_modern(req, server, meta).await.ok()?;
-    link.close(&req.env).await;
+    link.close(&req.env.egress, &req.env.state).await;
     let mut result = json!({
         "supportedVersions": [MODERN],
         "capabilities": init.get("capabilities").cloned().unwrap_or_else(|| json!({})),

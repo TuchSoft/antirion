@@ -15,6 +15,9 @@ use sha2::{Digest, Sha256};
 
 /// The gateway's own build version, the default `serverInfo.version`.
 const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// How long an upstream session may go without a request before it is reaped, when
+/// `mcp.session.idle_timeout` is not set.
+const DEFAULT_SESSION_IDLE: Duration = Duration::from_secs(600);
 const DEFAULT_MAX_BODY: u64 = 8 << 20;
 
 /// How an upstream MCP server is reached.
@@ -233,6 +236,16 @@ pub struct McpSnapshot {
     /// Configured session keys; the first encrypts. Empty: the node's generated key is used.
     pub(crate) session_keys: Vec<SessionKey>,
     pub(crate) max_lifetime: Duration,
+    /// How long an upstream session may go without a request before the reaper ends it.
+    pub(crate) session_idle: Duration,
+}
+
+impl McpSnapshot {
+    /// How long an upstream session may go without a request before it is ended.
+    #[must_use]
+    pub fn session_idle_timeout(&self) -> Duration {
+        self.session_idle
+    }
 }
 
 impl McpSnapshot {
@@ -769,6 +782,11 @@ pub fn compile(resolved: &Value) -> Result<McpSnapshot, Vec<ConfigError>> {
             .and_then(Value::as_str)
             .and_then(parse_duration)
             .unwrap_or(Duration::from_secs(24 * 3600)),
+        session_idle: resolved
+            .pointer("/mcp/session/idle_timeout")
+            .and_then(Value::as_str)
+            .and_then(parse_duration)
+            .unwrap_or(DEFAULT_SESSION_IDLE),
         ..McpSnapshot::default()
     };
     snap.session_keys = session_keys(resolved, &mut errors);

@@ -677,6 +677,7 @@ pub async fn start(opts: ServeOptions) -> anyhow::Result<Node> {
     antirion_runtime::budgets::spawn(&rt);
     antirion_runtime::cache_console::spawn(&rt);
     antirion_runtime::operations::spawn(&rt);
+    antirion_runtime::mcp_sessions::spawn(&rt);
 
     let tls = antirion_server::ListenerTls::load(&rt).await?;
     tracing::info!(data = ?bound.data_addr(), admin = ?bound.admin_addr(), "listening");

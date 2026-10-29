@@ -434,7 +434,7 @@ async fn forward_inner(
     };
     if matches!(mode, Mode::Modern { .. }) && opened {
         let bridged = bridged(req, &link, id, method, &mut target).await;
-        link.close(env).await;
+        link.close(&env.egress, &env.state).await;
         let msg = bridged?;
         if let Some(c) = charge {
             c.answered(msg.get("error").is_none()).await;
@@ -457,7 +457,7 @@ async fn forward_inner(
         // The upstream no longer knows the session it was given: discard the link, initialize again
         // and send the request once more.
         if opened {
-            link.close(env).await;
+            link.close(&env.egress, &env.state).await;
         }
         let (fresh, fresh_opened) = mode
             .reopen(req, &target.server)
@@ -499,7 +499,7 @@ async fn forward_inner(
         }
         other => {
             if opened {
-                link.close(env).await;
+                link.close(&env.egress, &env.state).await;
             }
             match other {
                 Ok(Answer::Json(msg)) => {
