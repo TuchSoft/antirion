@@ -6,7 +6,7 @@
 //! The mock upstreams answer `initialize`, `tools/list` and `tools/call` over Streamable HTTP, keep a
 //! set of live sessions, and can forget them on demand.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -146,6 +146,8 @@ struct Upstream {
     always_forget: AtomicBool,
     /// Whether the next `tools/call` pings the client before answering.
     ping_on_call: AtomicBool,
+    /// What each session's `remember` call stored, read back by `recall`.
+    remembered: Mutex<HashMap<String, String>>,
 }
 
 impl Upstream {
@@ -161,6 +163,7 @@ impl Upstream {
             forget: AtomicUsize::new(0),
             always_forget: AtomicBool::new(false),
             ping_on_call: AtomicBool::new(false),
+            remembered: Mutex::new(HashMap::new()),
         })
     }
 
@@ -170,6 +173,10 @@ impl Upstream {
 
     fn tools(&self) -> Value {
         json!([{"name": self.tool(), "description": "Echoes its name",
+                "inputSchema": {"type": "object", "properties": {}}},
+               {"name": "remember", "description": "Stores a value in this session",
+                "inputSchema": {"type": "object", "properties": {"value": {"type": "string"}}}},
+               {"name": "recall", "description": "Reads the value this session stored",
                 "inputSchema": {"type": "object", "properties": {}}}])
     }
 }
@@ -263,8 +270,27 @@ async fn upstream(listener: TcpListener, up: Arc<Upstream>) {
                 "tools/call" => {
                     up.calls.fetch_add(1, Ordering::SeqCst);
                     let name = msg["params"]["name"].as_str().unwrap_or_default().to_owned();
+                    let session = sid.clone().unwrap_or_default();
+                    let text = match name.as_str() {
+                        "remember" => {
+                            let value = msg["params"]["arguments"]["value"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned();
+                            up.remembered.lock().unwrap().insert(session, value.clone());
+                            format!("remembered {value}")
+                        }
+                        "recall" => up
+                            .remembered
+                            .lock()
+                            .unwrap()
+                            .get(&session)
+                            .cloned()
+                            .unwrap_or_else(|| "none".to_owned()),
+                        _ => format!("called {name} on {}", up.name),
+                    };
                     let result = json!({"jsonrpc": "2.0", "id": id, "result": {
-                        "content": [{"type": "text", "text": format!("called {name} on {}", up.name)}],
+                        "content": [{"type": "text", "text": text}],
                         "isError": false}});
                     if up.ping_on_call.swap(false, Ordering::SeqCst) {
                         let _ = stream
@@ -562,5 +588,96 @@ async fn a_server_whose_session_is_gone_degrades_a_fanout() {
         json!(["beta"])
     );
     assert_eq!(bad.initializes.load(Ordering::SeqCst), 2, "one re-initialize");
+    node.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_calls_on_a_multi_server_gateway_share_the_upstream_session() {
+    let alpha = Upstream::new("alpha");
+    let beta = Upstream::new("beta");
+    let node = Node::start(vec![Arc::clone(&alpha), Arc::clone(&beta)], false).await;
+    let session = node.initialize().await;
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 8, "method": "tools/list"}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                    "params": {"name": "alpha__remember", "arguments": {"value": "kept"}}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("remembered kept"), "{body}");
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                    "params": {"name": "alpha__recall", "arguments": {}}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("kept"),
+        "the second call must reach the session the first one used: {body}"
+    );
+    assert_eq!(
+        alpha.initializes.load(Ordering::SeqCst),
+        1,
+        "alpha is initialized once"
+    );
+    assert_eq!(
+        beta.initializes.load(Ordering::SeqCst),
+        1,
+        "beta is initialized once"
+    );
+    node.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reopened_session_is_the_one_the_next_call_uses() {
+    let up = Upstream::new("solo");
+    let node = Node::start(vec![Arc::clone(&up)], false).await;
+    let session = node.initialize().await;
+    // Read the list first, so the calls below need no upstream read of their own.
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 11, "method": "tools/list"}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    up.forget.store(1, Ordering::SeqCst);
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                    "params": {"name": "solo__remember", "arguments": {"value": "kept"}}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("remembered kept"), "{body}");
+    assert_eq!(up.initializes.load(Ordering::SeqCst), 2, "one re-initialize");
+    let (status, _, body) = node
+        .post(
+            &session,
+            &json!({"jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                    "params": {"name": "solo__recall", "arguments": {}}}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("kept"),
+        "the call after the re-open must reach the re-opened session: {body}"
+    );
+    assert_eq!(
+        up.initializes.load(Ordering::SeqCst),
+        2,
+        "the re-opened session is reused instead of one per call"
+    );
     node.stop().await;
 }

@@ -79,6 +79,21 @@ pub struct DefinitionChange {
     pub new_fingerprint: Option<String>,
 }
 
+/// An upstream session this node re-opened for a client session whose server had forgotten it.
+///
+/// The session token is sealed and carries the upstream session ids it was issued with, so a
+/// re-opened session has no place in it: it is kept here until the client session ends, and the
+/// next request of that session reuses it instead of opening another one.
+#[derive(Clone, Debug)]
+pub(crate) struct Reopened {
+    pub(crate) sid: String,
+    /// The version negotiated with the server on the re-opened session.
+    pub(crate) pv: String,
+    /// The server generation the session was re-opened at; a reloaded server starts a new one.
+    pub(crate) generation: u64,
+    pub(crate) at: UtcMicros,
+}
+
 /// Session counters of one gateway.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct GatewayCounts {
@@ -130,6 +145,8 @@ pub struct McpState {
     pub(crate) facts: Mutex<HashMap<String, ServerFacts>>,
     pub(crate) cards: Mutex<HashMap<u64, (UtcMicros, Value)>>,
     revoked: Mutex<HashMap<[u8; 32], i64>>,
+    /// Re-opened upstream sessions, by client-session digest and server name.
+    reopened: Mutex<HashMap<(String, String), Reopened>>,
     inflight: Mutex<HashMap<(String, String), String>>,
     pub(crate) sse: Mutex<HashMap<String, Arc<SseConn>>>,
     /// The background readers of upstream sessions, by upstream session id.
@@ -157,6 +174,9 @@ pub struct McpState {
 
 /// The id byte of the node's generated session key.
 const GENERATED_KEY_ID: u8 = 0;
+
+/// How many re-opened upstream sessions one node keeps; the oldest goes first.
+const MAX_REOPENED: usize = 4096;
 
 impl McpState {
     /// Records the outcome of an attempt to initialize `server` or read its tools.
@@ -278,6 +298,7 @@ impl McpState {
             watch.stop();
         }
         self.revoked.lock().clear();
+        self.reopened.lock().clear();
         self.counts.lock().clear();
     }
 
@@ -329,6 +350,59 @@ impl McpState {
 
     pub(crate) fn is_revoked(&self, token: &str) -> bool {
         self.revoked.lock().contains_key(&digest(token))
+    }
+
+    /// The upstream session this node re-opened for the client session `token` on `server`, when the
+    /// server has not been reloaded since.
+    pub(crate) fn reopened(&self, token: &str, server: &str, generation: u64) -> Option<Reopened> {
+        let map = self.reopened.lock();
+        map.get(&(hex(&digest(token)), server.to_owned()))
+            .filter(|r| r.generation == generation)
+            .cloned()
+    }
+
+    /// Records the upstream session re-opened for the client session `token` on `server`, replacing
+    /// any one it held before.
+    pub(crate) fn remember_reopened(
+        &self,
+        token: &str,
+        server: &str,
+        generation: u64,
+        pv: &str,
+        sid: &str,
+        at: UtcMicros,
+    ) {
+        let key = (hex(&digest(token)), server.to_owned());
+        let previous = {
+            let mut map = self.reopened.lock();
+            if map.len() >= MAX_REOPENED
+                && !map.contains_key(&key)
+                && let Some(oldest) = map.iter().min_by_key(|(_, r)| r.at.0).map(|(k, _)| k.clone())
+            {
+                map.remove(&oldest);
+            }
+            map.insert(
+                key,
+                Reopened {
+                    sid: sid.to_owned(),
+                    pv: pv.to_owned(),
+                    generation,
+                    at,
+                },
+            )
+        };
+        if let Some(previous) = previous
+            && previous.sid != sid
+        {
+            self.stop_watch(&previous.sid);
+        }
+    }
+
+    /// Forgets the sessions re-opened for the client session `token`, the client session having
+    /// ended.
+    pub(crate) fn forget_reopened(&self, token: &str) {
+        let session = hex(&digest(token));
+        self.reopened.lock().retain(|(t, _), _| *t != session);
     }
 
     /// Every unexpired revocation (the token's digest and its expiry in seconds), to share with

@@ -8,7 +8,7 @@ use antirion_core::Stage;
 use antirion_error::Message;
 use serde_json::{Value, json};
 
-use crate::compile::ServerRt;
+use crate::compile::{ServerRt, Transport};
 use crate::connect::{self, gateway_client_info};
 use crate::fingerprint;
 use crate::http::Req;
@@ -99,6 +99,8 @@ pub(crate) enum Mode {
         links: Vec<Link>,
         caps: Value,
         info: Value,
+        /// The client session token: the key of the upstream sessions re-opened for it.
+        token: String,
     },
     /// Legacy without sessions: each use opens and closes an upstream session.
     Stateless { pv: String },
@@ -132,17 +134,37 @@ impl Mode {
     }
 
     /// A link to `server` once its upstream session has ended: the session saved with this request
-    /// opened again. The second member says whether the caller must close it when done, and is
-    /// `false` for a mode whose link carries no session (a retry on it is a plain re-send).
+    /// opened again. The second member says whether the caller must close it when done; a session
+    /// mode keeps the new one (it is recorded for the session and its `DELETE` closes it), and for
+    /// a mode whose link carries no session a retry on it is a plain re-send.
     pub(crate) async fn reopen(&self, req: &Req, server: &Arc<ServerRt>) -> Result<(Link, bool), UpError> {
         match self {
-            Mode::Session { links, caps, info } => {
+            Mode::Session {
+                links,
+                caps,
+                info,
+                token,
+            } => {
                 let pv = links
                     .iter()
                     .find(|l| l.server.name == server.name)
                     .map_or(LATEST_LEGACY, |l| l.pv.as_str());
                 let (link, _) = connect::open(req, server, pv, caps, info, true).await?;
-                Ok((link, true))
+                if server.transport == Transport::StreamableHttp
+                    && let Some(sid) = &link.sid
+                {
+                    req.env.state.remember_reopened(
+                        token,
+                        &server.name,
+                        server.generation,
+                        &link.pv,
+                        sid,
+                        req.env.now,
+                    );
+                }
+                // The session the request now holds replaced the one it was given, so it is the
+                // session's session from here on and is closed by its `DELETE`, not by this call.
+                Ok((link, false))
             }
             Mode::Stateless { pv } => {
                 let (link, _) =

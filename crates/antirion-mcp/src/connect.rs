@@ -139,7 +139,18 @@ async fn initialize_with(
 
 /// The link of one server of an existing session; a modern-only server is reached in the modern era
 /// with the session's client capabilities and info.
-pub(crate) fn session_link(req: &Req, server: &Arc<ServerRt>, up: &Upstream, claims: &SessionClaims) -> Link {
+///
+/// A Streamable HTTP session this node re-opened for the client session `token` is the one the
+/// request uses: the token carries the session the client initialized, which the server may have
+/// forgotten since, and opening another one per request would leave each call on a new upstream
+/// session.
+pub(crate) fn session_link(
+    req: &Req,
+    server: &Arc<ServerRt>,
+    up: &Upstream,
+    claims: &SessionClaims,
+    token: &str,
+) -> Link {
     if server.protocol == Protocol::Modern {
         return Link {
             server: Arc::clone(server),
@@ -159,11 +170,14 @@ pub(crate) fn session_link(req: &Req, server: &Arc<ServerRt>, up: &Upstream, cla
     } else {
         None
     };
+    let reopened = (server.transport == Transport::StreamableHttp)
+        .then(|| req.env.state.reopened(token, &server.name, server.generation))
+        .flatten();
     Link {
         server: Arc::clone(server),
         era: Era::Legacy,
-        pv: up.pv.clone(),
-        sid: up.sid.clone(),
+        pv: reopened.as_ref().map_or_else(|| up.pv.clone(), |r| r.pv.clone()),
+        sid: reopened.map_or_else(|| up.sid.clone(), |r| Some(r.sid)),
         sse,
         headers: upstream_headers(req, server),
         meta: None,

@@ -81,11 +81,12 @@ pub(crate) async fn post(req: Req, msg: Msg, raw: Value, version: Option<String>
         Ok(s) => s,
         Err(f) => return req.error(&f.id(&id)),
     };
-    let links = session_links(&req, &sel, &claims);
+    let links = session_links(&req, &sel, &claims, &token);
     let mode = Mode::Session {
         links,
         caps: claims.caps.clone(),
         info: claims.ci.clone(),
+        token: token.clone(),
     };
     match msg {
         Msg::Request { id, method, params } => {
@@ -136,7 +137,7 @@ fn session(req: &Req) -> Result<(String, SessionClaims), Fail> {
 }
 
 /// Links of the session's servers that are still selected and whose configuration has not changed.
-fn session_links(req: &Req, sel: &Selection, claims: &SessionClaims) -> Vec<Link> {
+fn session_links(req: &Req, sel: &Selection, claims: &SessionClaims, token: &str) -> Vec<Link> {
     sel.servers
         .iter()
         .filter_map(|s| {
@@ -144,7 +145,7 @@ fn session_links(req: &Req, sel: &Selection, claims: &SessionClaims) -> Vec<Link
                 .up
                 .iter()
                 .find(|u| u.s == s.name && u.generation == s.generation)?;
-            Some(connect::session_link(req, s, up, claims))
+            Some(connect::session_link(req, s, up, claims, token))
         })
         .collect()
 }
@@ -447,7 +448,7 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
     if req.gw.stateless {
         return req.error(&method_not_allowed());
     }
-    let (_, claims) = match session(&req) {
+    let (token, claims) = match session(&req) {
         Ok(s) => s,
         Err(f) => return req.error(&f),
     };
@@ -455,7 +456,7 @@ pub(crate) async fn get(req: Req) -> Response<Body> {
         Ok(s) => s,
         Err(f) => return req.error(&f),
     };
-    let links = session_links(&req, &sel, &claims);
+    let links = session_links(&req, &sel, &claims, &token);
     let reconnect = req.header("last-event-id").map(str::to_owned);
     let resume = reconnect.as_deref().and_then(resume_point);
     let env = &req.env;
@@ -559,10 +560,12 @@ pub(crate) async fn delete(req: Req) -> Response<Body> {
         .filter(|u| u.sid.is_some())
         .filter_map(|u| {
             let server = req.env.snap.servers.get(&u.s)?;
-            (server.generation == u.generation).then(|| connect::session_link(&req, server, u, &claims))
+            (server.generation == u.generation)
+                .then(|| connect::session_link(&req, server, u, &claims, &token))
         })
         .collect();
     futures_util::future::join_all(links.iter().map(|l| l.close(&req.env))).await;
+    req.env.state.forget_reopened(&token);
     req.env.state.revoke(&token, claims.exp, req.env.now);
     respond::empty(StatusCode::NO_CONTENT)
 }
