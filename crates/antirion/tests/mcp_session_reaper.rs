@@ -137,6 +137,12 @@ struct Upstream {
     deletes: AtomicUsize,
     /// A `tools/call` the mock answers only after a while, so a request stays in flight.
     slow_calls: AtomicUsize,
+    /// How often it pings the gateway on the server-to-client stream, when it does.
+    ping_every: Mutex<Option<Duration>>,
+    /// The pings it sent.
+    pings: AtomicUsize,
+    /// The answers it received to them.
+    ping_answers: AtomicUsize,
 }
 
 impl Upstream {
@@ -146,6 +152,9 @@ impl Upstream {
             initializes: AtomicUsize::new(0),
             deletes: AtomicUsize::new(0),
             slow_calls: AtomicUsize::new(0),
+            ping_every: Mutex::new(None),
+            pings: AtomicUsize::new(0),
+            ping_answers: AtomicUsize::new(0),
         })
     }
 
@@ -155,6 +164,10 @@ impl Upstream {
 
     fn live(&self) -> usize {
         self.live.lock().unwrap().len()
+    }
+
+    fn ping_answers(&self) -> usize {
+        self.ping_answers.load(Ordering::SeqCst)
     }
 }
 
@@ -185,10 +198,27 @@ async fn upstream(listener: TcpListener, up: Arc<Upstream>) {
                           transfer-encoding: chunked\r\nconnection: close\r\n\r\n",
                     )
                     .await;
+                let every = *up.ping_every.lock().unwrap();
                 let mut buf = [0u8; 1024];
-                while let Ok(n) = stream.read(&mut buf).await {
-                    if n == 0 {
-                        break;
+                loop {
+                    let next = match every {
+                        Some(every) => tokio::select! {
+                            n = stream.read(&mut buf) => n.map(|n| n == 0),
+                            () = tokio::time::sleep(every) => {
+                                let n = up.pings.fetch_add(1, Ordering::SeqCst) + 1;
+                                let msg = event(&json!({"jsonrpc": "2.0", "id": format!("srv-{n}"),
+                                                        "method": "ping"}));
+                                let _ = stream
+                                    .write_all(format!("{:x}\r\n{msg}\r\n", msg.len()).as_bytes())
+                                    .await;
+                                Ok(false)
+                            }
+                        },
+                        None => stream.read(&mut buf).await.map(|n| n == 0),
+                    };
+                    match next {
+                        Ok(false) => {}
+                        _ => break,
                     }
                 }
                 return;
@@ -207,6 +237,7 @@ async fn upstream(listener: TcpListener, up: Arc<Upstream>) {
             let msg: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
             let rpc = msg.get("method").and_then(Value::as_str).unwrap_or_default();
             if rpc.is_empty() {
+                up.ping_answers.fetch_add(1, Ordering::SeqCst);
                 let _ = stream.write_all(ACCEPTED).await;
                 return;
             }
@@ -512,5 +543,20 @@ async fn a_client_that_comes_back_after_the_reap_is_served_again() {
         "the upstream session was opened again"
     );
     assert_eq!(up.live(), 1);
+    node.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_pings_does_not_keep_an_abandoned_session_alive() {
+    let up = Upstream::new();
+    *up.ping_every.lock().unwrap() = Some(Duration::from_millis(100));
+    let node = Node::start(Arc::clone(&up)).await;
+    let _session = node.initialize().await;
+    // The reader answers the server's pings while the session is idle.
+    until(Duration::from_secs(5), || up.ping_answers() >= 2).await;
+    // Traffic the gateway generates itself is not the client coming back: the session is still
+    // abandoned and is still reaped.
+    until(Duration::from_secs(8), || up.deletes() == 1).await;
+    assert_eq!(up.live(), 0, "the server ended the session");
     node.stop().await;
 }

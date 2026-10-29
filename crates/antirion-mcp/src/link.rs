@@ -265,16 +265,23 @@ impl Link {
         }
         if let Some(id) = msg.get("id") {
             let reply = json!({"jsonrpc": "2.0", "id": id, "result": {}});
-            if let Err(e) = self.post(env, &reply).await {
+            // Not counted as a use of the session: a server that pings keeps answering itself, and
+            // a session whose only traffic is the gateway answering its server is abandoned.
+            if let Err(e) = self.deliver(env, &reply).await {
                 tracing::debug!(error = %e.describe(), "the answer to an upstream ping was not delivered");
             }
         }
         true
     }
 
-    /// Posts a notification or a response (no answer expected).
+    /// Posts a notification or a response (no answer expected), which is a use of the session.
     pub(crate) async fn post(&self, env: &Env, msg: &Value) -> Result<(), UpError> {
         let _active = env.state.active(self, std::time::Instant::now());
+        self.deliver(env, msg).await
+    }
+
+    /// Posts a message upstream without counting it as a use of the session.
+    async fn deliver(&self, env: &Env, msg: &Value) -> Result<(), UpError> {
         if self.is_local() {
             return Ok(());
         }
